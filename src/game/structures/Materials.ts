@@ -1,0 +1,137 @@
+import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import type { ColliderRegistry } from '../systems/ColliderRegistry';
+
+/**
+ * Shared material library for all structures. A limited, coherent palette
+ * keeps the world looking hand-crafted rather than neon.
+ */
+export const MAT = {
+  stone: new THREE.MeshStandardMaterial({ color: 0x8d887b, roughness: 0.94, metalness: 0 }),
+  stoneDark: new THREE.MeshStandardMaterial({ color: 0x6f6a5e, roughness: 0.96, metalness: 0 }),
+  stoneMoss: new THREE.MeshStandardMaterial({ color: 0x6e7562, roughness: 0.95, metalness: 0 }),
+  wood: new THREE.MeshStandardMaterial({ color: 0x6f4d30, roughness: 0.88, metalness: 0 }),
+  woodDark: new THREE.MeshStandardMaterial({ color: 0x4a3018, roughness: 0.9, metalness: 0 }),
+  woodLight: new THREE.MeshStandardMaterial({ color: 0x93714c, roughness: 0.85, metalness: 0 }),
+  plaster: new THREE.MeshStandardMaterial({ color: 0xd9cfbd, roughness: 0.92, metalness: 0 }),
+  plasterWarm: new THREE.MeshStandardMaterial({ color: 0xcfc0a4, roughness: 0.92, metalness: 0 }),
+  timber: new THREE.MeshStandardMaterial({ color: 0x402c15, roughness: 0.9, metalness: 0 }),
+  roofRed: new THREE.MeshStandardMaterial({ color: 0x743a2c, roughness: 0.86, metalness: 0 }),
+  roofThatch: new THREE.MeshStandardMaterial({ color: 0x9a7f42, roughness: 0.95, metalness: 0 }),
+  roofSlate: new THREE.MeshStandardMaterial({ color: 0x4e545c, roughness: 0.8, metalness: 0.05 }),
+  metal: new THREE.MeshStandardMaterial({ color: 0x8f9296, roughness: 0.45, metalness: 0.75 }),
+  gold: new THREE.MeshStandardMaterial({ color: 0xc9a227, roughness: 0.35, metalness: 0.8 }),
+  clothRed: new THREE.MeshStandardMaterial({ color: 0x7a1f1f, roughness: 0.9, metalness: 0, side: THREE.DoubleSide }),
+  clothGold: new THREE.MeshStandardMaterial({ color: 0xb08a2e, roughness: 0.9, metalness: 0, side: THREE.DoubleSide }),
+  sail: new THREE.MeshStandardMaterial({ color: 0xd8cdb4, roughness: 0.9, metalness: 0, side: THREE.DoubleSide }),
+  leaf: new THREE.MeshStandardMaterial({ color: 0x4a6a30, roughness: 0.9, metalness: 0 }),
+  glow: new THREE.MeshStandardMaterial({
+    color: 0x2a1f14,
+    emissive: 0xff9a3c,
+    emissiveIntensity: 1.6,
+    roughness: 0.6,
+  }),
+  rune: new THREE.MeshStandardMaterial({
+    color: 0x22262c,
+    emissive: 0x6fd6c0,
+    emissiveIntensity: 0.9,
+    roughness: 0.5,
+  }),
+} as const;
+
+export type MatKey = keyof typeof MAT;
+
+/**
+ * Accumulates geometry per material and merges into few draw calls.
+ * Also records colliders for the physics registry.
+ */
+export class StaticBuilder {
+  private buckets = new Map<MatKey, THREE.BufferGeometry[]>();
+  private mat4 = new THREE.Matrix4();
+  private quat = new THREE.Quaternion();
+  private euler = new THREE.Euler();
+  private colliderSeq = 0;
+
+  constructor(
+    private colliders: ColliderRegistry,
+    private idPrefix: string,
+  ) {}
+
+  private bucketFor(key: MatKey): THREE.BufferGeometry[] {
+    let arr = this.buckets.get(key);
+    if (!arr) {
+      arr = [];
+      this.buckets.set(key, arr);
+    }
+    return arr;
+  }
+
+  add(geo: THREE.BufferGeometry, key: MatKey, x: number, y: number, z: number, rotY = 0, sx = 1, sy = 1, sz = 1, rotZ = 0, rotX = 0): this {
+    // 'YXZ' order: yaw first, then pitch/roll in the yawed local frame —
+    // exactly what roof slopes and ship parts need.
+    this.euler.set(rotX, rotY, rotZ, 'YXZ');
+    this.quat.setFromEuler(this.euler);
+    this.mat4.compose(new THREE.Vector3(x, y, z), this.quat, new THREE.Vector3(sx, sy, sz));
+    // Normalize to non-indexed: merging requires consistent indexing
+    // (Extrude/Icosahedron are non-indexed while Box/Cylinder are indexed).
+    const raw = geo.index ? geo.toNonIndexed() : geo;
+    const g = raw.applyMatrix4(this.mat4);
+    this.bucketFor(key).push(g);
+    return this;
+  }
+
+  /** Box part. Size is full extent; position is the CENTER. */
+  box(key: MatKey, w: number, h: number, d: number, x: number, y: number, z: number, rotY = 0): this {
+    return this.add(new THREE.BoxGeometry(w, h, d), key, x, y, z, rotY);
+  }
+
+  /** Axis-aligned solid box with collider (position = center). */
+  solidBox(key: MatKey, w: number, h: number, d: number, x: number, y: number, z: number, rotY = 0, collide = true): this {
+    this.box(key, w, h, d, x, y, z, rotY);
+    if (collide) {
+      this.addBoxCollider(x, y, z, w, h, d, rotY);
+    }
+    return this;
+  }
+
+  /** Rotated box collider approximation (uses rotated AABB for small angles). */
+  addBoxCollider(cx: number, cy: number, cz: number, w: number, h: number, d: number, rotY: number): void {
+    const cos = Math.abs(Math.cos(rotY));
+    const sin = Math.abs(Math.sin(rotY));
+    const ex = (w * cos + d * sin) / 2;
+    const ez = (w * sin + d * cos) / 2;
+    this.colliders.add(`${this.idPrefix}:b${this.colliderSeq++}`, {
+      kind: 'box',
+      minX: cx - ex, maxX: cx + ex,
+      minY: cy - h / 2, maxY: cy + h / 2,
+      minZ: cz - ez, maxZ: cz + ez,
+    });
+  }
+
+  cylinder(key: MatKey, rTop: number, rBottom: number, h: number, seg: number, x: number, y: number, z: number, collide = false): this {
+    return this.add(new THREE.CylinderGeometry(rTop, rBottom, h, seg), key, x, y, z);
+  }
+
+  addCylinderCollider(x: number, z: number, r: number, minY: number, maxY: number): void {
+    this.colliders.add(`${this.idPrefix}:c${this.colliderSeq++}`, {
+      kind: 'cylinder', x, z, r, minY, maxY,
+    });
+  }
+
+  /** Merge everything into meshes attached to a group. */
+  build(group: THREE.Group, opts: { shadows?: boolean } = {}): void {
+    const shadows = opts.shadows !== false;
+    for (const [key, geos] of this.buckets) {
+      if (geos.length === 0) continue;
+      const merged = mergeGeometries(geos);
+      if (!merged) continue;
+      merged.computeBoundingSphere();
+      const mesh = new THREE.Mesh(merged, MAT[key]);
+      mesh.castShadow = shadows;
+      mesh.receiveShadow = shadows;
+      group.add(mesh);
+      geos.forEach((g) => g.dispose());
+    }
+    this.buckets.clear();
+  }
+}

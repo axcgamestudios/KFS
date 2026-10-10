@@ -1,0 +1,227 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { useGameStore, type Notification } from '@/store/gameStore';
+import { Compass, Heart, Mountain, Wind } from 'lucide-react';
+
+/** Compass strip with cardinal points sliding by camera yaw. */
+function CompassStrip() {
+  // Camera yaw comes from the store (updated via prompt cycle) — we approximate
+  // using a subscription-free approach: the Game writes yaw into window.__kotfsYaw.
+  const [yaw, setYaw] = useState(0);
+  useEffect(() => {
+    const iv = setInterval(() => {
+      const y = (window as unknown as { __kotfsYaw?: number }).__kotfsYaw;
+      if (typeof y === 'number') setYaw(y);
+    }, 100);
+    return () => clearInterval(iv);
+  }, []);
+
+  const deg = ((-yaw * 180) / Math.PI + 360) % 360;
+  const points: Array<{ label: string; angle: number }> = [
+    { label: 'N', angle: 0 }, { label: 'NE', angle: 45 },
+    { label: 'E', angle: 90 }, { label: 'SE', angle: 135 },
+    { label: 'S', angle: 180 }, { label: 'SO', angle: 225 },
+    { label: 'O', angle: 270 }, { label: 'NO', angle: 315 },
+  ];
+
+  return (
+    <div className="kotfs-compass-mask relative h-7 w-72 overflow-hidden border-x border-[color:rgba(201,162,39,0.3)] bg-black/35">
+      <div className="absolute inset-0 flex items-center justify-center">
+        {points.map((p) => {
+          let delta = p.angle - deg;
+          if (delta > 180) delta -= 360;
+          if (delta < -180) delta += 360;
+          const px = delta * 2.2;
+          if (Math.abs(px) > 140) return null;
+          return (
+            <span
+              key={p.label}
+              className={`kotfs-title absolute text-xs ${
+                p.label.length === 1 ? 'text-[color:var(--kotfs-gold)]' : 'text-[color:var(--kotfs-parchment-dim)]'
+              }`}
+              style={{ left: `calc(50% + ${px}px)`, transform: 'translateX(-50%)', opacity: 1 - Math.abs(px) / 170 }}
+            >
+              {p.label}
+            </span>
+          );
+        })}
+        {/* Center marker */}
+        <span className="absolute left-1/2 top-0.5 h-1.5 w-1.5 -translate-x-1/2 rotate-45 bg-[color:var(--kotfs-gold)]" />
+      </div>
+    </div>
+  );
+}
+
+function NotifCard({ n }: { n: Notification }) {
+  const dismiss = useGameStore((s) => s.dismissNotification);
+  useEffect(() => {
+    const t = setTimeout(() => dismiss(n.id), 6500);
+    return () => clearTimeout(t);
+  }, [n.id, dismiss]);
+
+  const colors: Record<Notification['kind'], string> = {
+    info: 'var(--kotfs-parchment-dim)',
+    quest: 'var(--kotfs-gold)',
+    discovery: 'var(--kotfs-gold)',
+    item: 'var(--kotfs-parchment)',
+    levelup: 'var(--kotfs-gold)',
+    save: 'var(--kotfs-parchment-dim)',
+  };
+
+  return (
+    <div className="kotfs-notif kotfs-panel max-w-xs px-4 py-2.5" onClick={() => dismiss(n.id)}>
+      <p className="kotfs-title text-[0.7rem]" style={{ color: colors[n.kind] }}>
+        {n.title}
+      </p>
+      {n.body && (
+        <p className="mt-0.5 text-xs leading-snug text-[color:var(--kotfs-parchment-dim)]">{n.body}</p>
+      )}
+    </div>
+  );
+}
+
+export default function HUD() {
+  const health = useGameStore((s) => s.health);
+  const maxHealth = useGameStore((s) => s.maxHealth);
+  const stamina = useGameStore((s) => s.stamina);
+  const maxStamina = useGameStore((s) => s.maxStamina);
+  const clock = useGameStore((s) => s.clock);
+  const dayCount = useGameStore((s) => s.dayCount);
+  const prompt = useGameStore((s) => s.prompt);
+  const questTracker = useGameStore((s) => s.questTracker);
+  const discovery = useGameStore((s) => s.discovery);
+  const notifications = useGameStore((s) => s.notifications);
+  const level = useGameStore((s) => s.level);
+  const xp = useGameStore((s) => s.xp);
+  const xpToNext = useGameStore((s) => s.xpToNext);
+  const overlay = useGameStore((s) => s.overlay);
+  const dialogue = useGameStore((s) => s.dialogue);
+
+  const hidden = overlay !== null || dialogue !== null;
+  if (hidden) return null;
+
+  return (
+    <div className="pointer-events-none absolute inset-0 z-20 select-none">
+      {/* --- Top center: compass + clock --- */}
+      <div className="absolute left-1/2 top-3 flex -translate-x-1/2 flex-col items-center gap-1">
+        <CompassStrip />
+        <p className="text-[0.65rem] tracking-[0.25em] text-[color:var(--kotfs-parchment-dim)] opacity-80">
+          DÍA {dayCount} · {clock}
+        </p>
+      </div>
+
+      {/* --- Top right: quest tracker --- */}
+      {questTracker && (
+        <div className="absolute right-4 top-4 max-w-xs text-right">
+          <p className="kotfs-title text-[0.65rem] tracking-[0.25em] text-[color:var(--kotfs-gold)] opacity-90">
+            MISIÓN ACTUAL
+          </p>
+          <p className="kotfs-title mt-0.5 text-sm text-[color:var(--kotfs-parchment)] kotfs-shadow-text">
+            {questTracker.title}
+          </p>
+          <ul className="mt-1 space-y-0.5">
+            {questTracker.objectives.map((o, i) => (
+              <li
+                key={i}
+                className={`text-xs leading-snug kotfs-shadow-text ${
+                  o.done
+                    ? 'text-[color:var(--kotfs-parchment-dim)] line-through opacity-60'
+                    : 'text-[color:var(--kotfs-parchment)]'
+                }`}
+              >
+                {o.done ? '✓' : '·'} {o.text}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* --- Bottom left: vitals --- */}
+      <div className="absolute bottom-5 left-5 w-52">
+        <div className="mb-1 flex items-center justify-between">
+          <span className="kotfs-title flex items-center gap-1.5 text-[0.62rem] tracking-[0.2em] text-[color:var(--kotfs-parchment-dim)]">
+            <Heart size={11} className="text-[color:#c05656]" /> SALUD
+          </span>
+          <span className="text-[0.62rem] text-[color:var(--kotfs-parchment-dim)]">
+            {Math.round(health)}
+          </span>
+        </div>
+        <div className="kotfs-bar">
+          <div className="kotfs-bar-fill kotfs-bar-hp" style={{ width: `${(health / maxHealth) * 100}%` }} />
+        </div>
+        <div className="mb-1 mt-2.5 flex items-center justify-between">
+          <span className="kotfs-title flex items-center gap-1.5 text-[0.62rem] tracking-[0.2em] text-[color:var(--kotfs-parchment-dim)]">
+            <Wind size={11} className="text-[color:#9cc168]" /> RESISTENCIA
+          </span>
+          <span className="text-[0.62rem] text-[color:var(--kotfs-parchment-dim)]">
+            {Math.round(stamina)}
+          </span>
+        </div>
+        <div className="kotfs-bar">
+          <div className="kotfs-bar-fill kotfs-bar-st" style={{ width: `${(stamina / maxStamina) * 100}%` }} />
+        </div>
+        {/* XP micro-bar */}
+        <div className="mt-2.5 flex items-center gap-2">
+          <Mountain size={11} className="text-[color:var(--kotfs-gold)] opacity-80" />
+          <span className="kotfs-title text-[0.6rem] tracking-[0.15em] text-[color:var(--kotfs-gold)] opacity-90">
+            NIVEL {level}
+          </span>
+          <div className="kotfs-bar h-[3px] flex-1">
+            <div
+              className="kotfs-bar-fill"
+              style={{ width: `${(xp / xpToNext) * 100}%`, background: 'linear-gradient(90deg,#6b5416,#c9a227)' }}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* --- Bottom center: interaction prompt --- */}
+      {prompt && (
+        <div className="absolute bottom-[12vh] left-1/2 -translate-x-1/2">
+          <div className="kotfs-panel px-5 py-2">
+            <p className="kotfs-shadow-text text-sm tracking-wide text-[color:var(--kotfs-parchment)]">
+              {prompt}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* --- Bottom right: keymap hint --- */}
+      <div className="absolute bottom-5 right-5 text-right text-[0.6rem] leading-relaxed tracking-wider text-[color:var(--kotfs-parchment-dim)] opacity-50">
+        <p>TAB INVENTARIO · M MAPA · J DIARIO · K HABILIDADES</p>
+        <p>WASD MOVER · MAYÚS CORRER · ESPACIO SALTAR · E INTERACTUAR · F FAROL</p>
+      </div>
+
+      {/* --- Top left: notifications --- */}
+      <div className="pointer-events-auto absolute left-4 top-4 flex flex-col gap-2">
+        {notifications.map((n) => (
+          <NotifCard key={n.id} n={n} />
+        ))}
+      </div>
+
+      {/* --- Center: discovery banner --- */}
+      {discovery && (
+        <div className="absolute left-1/2 top-[26%] -translate-x-1/2 text-center">
+          <div className="kotfs-discovery">
+            <p className="kotfs-title text-[0.6rem] tracking-[0.6em] text-[color:var(--kotfs-gold)]">
+              LUGAR DESCUBIERTO
+            </p>
+            <h3
+              className="kotfs-title mt-1 text-3xl text-[color:var(--kotfs-parchment)]"
+              style={{ textShadow: '0 0 30px rgba(201,162,39,0.5), 0 4px 14px #000' }}
+            >
+              {discovery.title}
+            </h3>
+            <p className="mt-1 text-sm italic text-[color:var(--kotfs-parchment-dim)]">{discovery.sub}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Decorative compass icon (visual anchor, top-left corner) */}
+      <div className="absolute left-1/2 top-1.5 -translate-x-1/2 opacity-60">
+        <Compass size={12} className="text-[color:var(--kotfs-gold)]" />
+      </div>
+    </div>
+  );
+}

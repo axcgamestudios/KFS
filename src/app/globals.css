@@ -1,0 +1,342 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+:root {
+  --radius: 0.625rem;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.556 0 0);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* ============================================================
+   KINGDOMS OF THE FORGOTTEN SEAS — game UI theme
+   ============================================================ */
+
+:root {
+  --kotfs-parchment: #e8dcc0;
+  --kotfs-parchment-dim: #c9bb9c;
+  --kotfs-ink: #2a2118;
+  --kotfs-gold: #c9a227;
+  --kotfs-gold-soft: #a38432;
+  --kotfs-blood: #8a2f2f;
+  --kotfs-panel: rgba(16, 12, 9, 0.88);
+  --kotfs-panel-light: rgba(28, 22, 15, 0.94);
+  --kotfs-border: rgba(201, 162, 39, 0.45);
+}
+
+.kotfs-root {
+  font-family: 'EB Garamond', Georgia, 'Times New Roman', serif;
+  color: var(--kotfs-parchment);
+  background: #06080a;
+  overflow: hidden;
+  user-select: none;
+}
+
+.kotfs-title {
+  font-family: 'Cinzel', Georgia, serif;
+  letter-spacing: 0.14em;
+}
+
+/* --- Panels ------------------------------------------------ */
+.kotfs-panel {
+  background: var(--kotfs-panel);
+  border: 1px solid var(--kotfs-border);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55), 0 12px 48px rgba(0, 0, 0, 0.65),
+    inset 0 0 60px rgba(201, 162, 39, 0.04);
+  backdrop-filter: blur(6px);
+}
+
+.kotfs-panel-corner {
+  position: relative;
+}
+.kotfs-panel-corner::before,
+.kotfs-panel-corner::after {
+  content: '';
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border-color: var(--kotfs-gold);
+  border-style: solid;
+  opacity: 0.8;
+  pointer-events: none;
+}
+.kotfs-panel-corner::before {
+  top: -1px;
+  left: -1px;
+  border-width: 2px 0 0 2px;
+}
+.kotfs-panel-corner::after {
+  bottom: -1px;
+  right: -1px;
+  border-width: 0 2px 2px 0;
+}
+
+/* --- Buttons ------------------------------------------------ */
+.kotfs-btn {
+  font-family: 'Cinzel', Georgia, serif;
+  letter-spacing: 0.1em;
+  color: var(--kotfs-parchment);
+  background: linear-gradient(180deg, rgba(58, 44, 26, 0.85), rgba(30, 22, 12, 0.9));
+  border: 1px solid var(--kotfs-border);
+  padding: 0.65rem 1.6rem;
+  transition: all 0.18s ease;
+  cursor: pointer;
+  text-transform: uppercase;
+  font-size: 0.95rem;
+}
+.kotfs-btn:hover:not(:disabled) {
+  border-color: var(--kotfs-gold);
+  color: #f4ead0;
+  background: linear-gradient(180deg, rgba(88, 66, 34, 0.9), rgba(46, 34, 18, 0.95));
+  box-shadow: 0 0 18px rgba(201, 162, 39, 0.25), inset 0 0 20px rgba(201, 162, 39, 0.08);
+  transform: translateY(-1px);
+}
+.kotfs-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.kotfs-btn-primary {
+  border-color: var(--kotfs-gold);
+  box-shadow: 0 0 22px rgba(201, 162, 39, 0.22);
+}
+
+/* --- Bars ---------------------------------------------------- */
+.kotfs-bar {
+  height: 7px;
+  background: rgba(10, 8, 6, 0.8);
+  border: 1px solid rgba(201, 162, 39, 0.35);
+  overflow: hidden;
+}
+.kotfs-bar-fill {
+  height: 100%;
+  transition: width 0.25s ease;
+}
+.kotfs-bar-hp {
+  background: linear-gradient(90deg, #6e1d1d, #a83838, #c05656);
+}
+.kotfs-bar-st {
+  background: linear-gradient(90deg, #4c6b2f, #7fa04a, #9cc168);
+}
+
+/* --- Vignette & letterbox ------------------------------------ */
+.kotfs-vignette {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at center, transparent 55%, rgba(4, 5, 8, 0.5) 100%);
+}
+.kotfs-letterbox {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 11vh;
+  background: #000;
+  z-index: 30;
+  pointer-events: none;
+}
+.kotfs-letterbox-top { top: 0; }
+.kotfs-letterbox-bottom { bottom: 0; }
+
+/* --- Text effects --------------------------------------------- */
+.kotfs-gold-text {
+  color: var(--kotfs-gold);
+  text-shadow: 0 0 14px rgba(201, 162, 39, 0.4);
+}
+.kotfs-shadow-text {
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.9), 0 0 22px rgba(0, 0, 0, 0.6);
+}
+.kotfs-hr {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--kotfs-gold-soft), transparent);
+  border: none;
+}
+
+/* --- Notifications --------------------------------------------- */
+@keyframes kotfs-slide-in {
+  from { transform: translateX(-24px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+.kotfs-notif {
+  animation: kotfs-slide-in 0.3s ease;
+}
+
+@keyframes kotfs-discovery {
+  0% { opacity: 0; transform: scale(0.92); letter-spacing: 0.5em; }
+  18% { opacity: 1; transform: scale(1); }
+  82% { opacity: 1; }
+  100% { opacity: 0; transform: scale(1.04); }
+}
+.kotfs-discovery {
+  animation: kotfs-discovery 4.2s ease forwards;
+}
+
+@keyframes kotfs-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.kotfs-fade-in {
+  animation: kotfs-fade-in 0.8s ease;
+}
+
+@keyframes kotfs-fade-in-slow {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.kotfs-fade-in-slow {
+  animation: kotfs-fade-in-slow 2.2s ease;
+}
+
+@keyframes kotfs-pulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+.kotfs-pulse {
+  animation: kotfs-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes kotfs-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+.kotfs-caret {
+  animation: kotfs-blink 0.9s step-end infinite;
+}
+
+/* --- Scrollbars ------------------------------------------------ */
+.kotfs-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+.kotfs-scroll::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.3);
+}
+.kotfs-scroll::-webkit-scrollbar-thumb {
+  background: rgba(201, 162, 39, 0.35);
+  border-radius: 4px;
+}
+.kotfs-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(201, 162, 39, 0.6);
+}
+
+/* --- Compass ----------------------------------------------------- */
+.kotfs-compass-mask {
+  mask-image: linear-gradient(90deg, transparent, black 18%, black 82%, transparent);
+  -webkit-mask-image: linear-gradient(90deg, transparent, black 18%, black 82%, transparent);
+}
+
+/* --- Rarity colors ------------------------------------------------ */
+.kotfs-rarity-legendary { color: #e2b13c; }
+.kotfs-rarity-rare { color: #7fb8c9; }
+.kotfs-rarity-common { color: #c9bb9c; }
