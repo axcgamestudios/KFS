@@ -1,0 +1,28 @@
+{
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "message": {
+        "content": "Based on the image provided, here is the rating of the ocean:\n\n1.  **Wave Size:** **Flat/Calm**. The ocean surface appears to be a relatively flat plane with a simple, low-amplitude normal map or texture applied. There are no large, rolling 3D meshes or \"epic swells\" visible.\n2.  **Crests & Foam:** **None visible**. The surface lacks sharp Gerstner-style wave peaks. There are no whitecaps or foam textures on the water's surface.\n3.  **Shoreline Foam:** **Not applicable/None**. The view is from land looking out to sea (or perhaps a glitched horizon), but no shoreline interaction or foam is visible at the boundary.\n4.  **Sun Glitter/Reflections:** **Minimal/Absent**. The water has a flat, matte blue appearance with very little specular highlighting or dynamic reflection of light sources.\n5.  **Subsurface Glow:** **No**. The water is a solid, opaque dark blue without any translucent teal glow or light scattering effects through the waves.\n6.  **Epic-ness Rating:** **1/10**. This looks like a basic placeholder water shader or a rendering error where the skybox and water plane meet awkwardly. It lacks the dynamism and visual fidelity expected of modern 3D environments.\n\n**Summary:** This is a very basic, calm, textured water plane typical of older game engines or default assets without advanced shading.",
+        "role": "assistant"
+      }
+    }
+  ],
+  "created": 1791673891,
+  "id": "20261011071124742b24e92dc14ba4",
+  "model": "glm-5v-turbo",
+  "object": "chat.completion",
+  "request_id": "20261011071124742b24e92dc14ba4",
+  "usage": {
+    "completion_tokens": 309,
+    "completion_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "prompt_tokens": 824,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "total_tokens": 1133
+  }
+}

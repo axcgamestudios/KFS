@@ -1,0 +1,28 @@
+{
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "message": {
+        "content": "Based on the image provided, here is the description of the knight player character:\n\n1.  **Proportions:** The knight appears to be **normally proportioned** (natural humanoid ratios). He does not look vertically stretched or elongated; his height and width seem consistent with a standard human character model in armor.\n2.  **Stance:** He is **standing properly on the ground**. His feet are planted firmly on the wooden dock planks, and he is standing upright in an idle pose.\n3.  **Weapon/Props:** The knight is holding a **large shield** (kite or heater shield style) in front of his body with his left hand/arm. It is difficult to see if there is a weapon in his right hand due to the angle and the shield covering part of his torso, but the shield is the most prominent prop.",
+        "role": "assistant"
+      }
+    }
+  ],
+  "created": 1791671820,
+  "id": "20261011063655696453e350b843c8",
+  "model": "glm-5v-turbo",
+  "object": "chat.completion",
+  "request_id": "20261011063655696453e350b843c8",
+  "usage": {
+    "completion_tokens": 176,
+    "completion_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "prompt_tokens": 1149,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "total_tokens": 1325
+  }
+}
