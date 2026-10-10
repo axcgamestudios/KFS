@@ -67,6 +67,10 @@ export interface AnimParams {
   rollT?: number;
   /** Bow draw blend 0..1 (aim pose while drawing). */
   bowDraw?: number;
+  /** Fase 4 — riding pose on horseback (legs bent around the saddle, reins). */
+  riding?: boolean;
+  /** Fase 4 — riding bounce phase (0..1), driven by the horse gait. */
+  rideBounce?: number;
 }
 
 export class CharacterModel {
@@ -489,6 +493,34 @@ export class CharacterModel {
       this.kneeR.rotation.x = -0.2;
       this.head.rotation.x = -0.5;
       if (this.cape) this.cape.rotation.x = 0.9;
+      this.updateWeaponPose(p, false);
+      return;
+    }
+
+    if (p.riding) {
+      // Fase 4 — seat pose: legs wrap the saddle, hands hold the reins,
+      // torso leans into the gait with a two-phase bounce.
+      const bounce = p.rideBounce ?? 0;
+      const bob = Math.sin(bounce * Math.PI * 2);
+      this.hips.position.y = 0.94 + Math.abs(bob) * 0.05;
+      this.root.rotation.x = 0;
+      // Legs bent outward around the horse's barrel
+      this.legL.rotation.x = -0.85;
+      this.legR.rotation.x = -0.85;
+      this.kneeL.rotation.x = -1.35;
+      this.kneeR.rotation.x = -1.35;
+      this.legL.rotation.z = 0.28;
+      this.legR.rotation.z = -0.28;
+      // Arms forward on the reins
+      this.armL.rotation.x = -0.55 + bob * 0.06;
+      this.armR.rotation.x = -0.55 + bob * 0.06;
+      this.armL.rotation.z = 0.18;
+      this.armR.rotation.z = -0.18;
+      this.elbowL.rotation.x = -0.5;
+      this.elbowR.rotation.x = -0.5;
+      this.chest.rotation.x = 0.08 + bob * 0.03;
+      this.head.rotation.x = -0.08;
+      if (this.cape) this.cape.rotation.x = 0.35 + Math.abs(bob) * 0.12;
       this.updateWeaponPose(p, false);
       return;
     }

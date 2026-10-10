@@ -104,6 +104,7 @@ export class VfxSystem {
   private smoke: SpritePool;    // dark lingering smoke
   private sparks: SpritePool;   // weapon/block impacts (additive)
   private dust: SpritePool;     // landing dust rings
+  private splash: SpritePool;   // Fase 4: water splashes (white foam, additive)
   private lights: THREE.PointLight[] = [];
   private lightTimers: number[] = [];
   private tmp = new THREE.Vector3();
@@ -115,6 +116,7 @@ export class VfxSystem {
     this.smoke = new SpritePool(scene, 40, 'rgba(40,36,34,0.85)', false);
     this.sparks = new SpritePool(scene, 48, 'rgba(255,230,160,1)', true);
     this.dust = new SpritePool(scene, 40, 'rgba(120,104,84,0.7)', false);
+    this.splash = new SpritePool(scene, 48, 'rgba(214,234,244,1)', true);
     // Two shared flickering lights for dragon fire (borrowed round-robin)
     for (let i = 0; i < 2; i++) {
       const l = new THREE.PointLight(0xff7a2a, 0, 46, 1.7);
@@ -211,6 +213,29 @@ export class VfxSystem {
   stepDust(pos: THREE.Vector3, scale = 0.6): void {
     this.tmp2.set(0, 0.8, 0);
     this.dust.spawn(pos, 0.9 * scale, 0.6, this.tmp2, { grow: 1.7, drag: 2.2, opacity: 0.3 });
+  }
+
+  /** Fase 4 — water splash: entry dives, climbing out, hooves in shallows. */
+  waterSplash(pos: THREE.Vector3, strength = 1): void {
+    const n = Math.min(14, 4 + Math.round(strength * 9));
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const r = Math.random() * 0.5;
+      this.tmp.set(pos.x + Math.cos(a) * r, pos.y, pos.z + Math.sin(a) * r);
+      const up = 1.8 + Math.random() * 2.6 * strength;
+      this.tmp2.set((Math.random() - 0.5) * 2.6 * strength, up, (Math.random() - 0.5) * 2.6 * strength);
+      this.splash.spawn(this.tmp, 0.3 + Math.random() * 0.45 * strength, 0.65 + Math.random() * 0.4, this.tmp2, {
+        grow: 1.5, drag: 1.1, gravity: -7.5, opacity: 0.85,
+      });
+    }
+    // foam ring
+    for (let i = 0; i < 4; i++) {
+      const a = (i / 4) * Math.PI * 2;
+      this.tmp2.set(Math.cos(a) * 1.4, 0.35, Math.sin(a) * 1.4);
+      this.splash.spawn(pos, 0.8 + Math.random() * 0.5, 0.8, this.tmp2, {
+        grow: 2.2, drag: 2.6, opacity: 0.4,
+      });
+    }
   }
 
   /** Arrow hitting terrain: tiny dust kick. */

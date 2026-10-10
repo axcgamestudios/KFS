@@ -1,6 +1,11 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+/* Exclude binary game assets from Tailwind's automatic content detection
+   (scanning .glb/.mp3 files makes the PostCSS worker OOM). */
+@source not "../public/game";
+@source not "../../kfs-assets";
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {

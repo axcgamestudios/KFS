@@ -35,6 +35,12 @@ export const MAT = {
     emissiveIntensity: 1.6,
     roughness: 0.6,
   }),
+  /** Fase 4: cobbled ground (castle courtyard, stable yard, market plaza). */
+  cobble: new THREE.MeshStandardMaterial({ color: 0x9a948a, roughness: 0.94, metalness: 0 }),
+  /** Fase 4: worn dirt path / stable floor. */
+  dirt: new THREE.MeshStandardMaterial({ color: 0x8a7255, roughness: 0.96, metalness: 0 }),
+  /** Fase 4: sun-bleached bone (cove decoration). */
+  bone: new THREE.MeshStandardMaterial({ color: 0xd9d2c0, roughness: 0.85, metalness: 0 }),
   rune: new THREE.MeshStandardMaterial({
     color: 0x22262c,
     emissive: 0x6fd6c0,
@@ -44,6 +50,46 @@ export const MAT = {
 } as const;
 
 export type MatKey = keyof typeof MAT;
+
+/** World meters covered by one texture tile, per material family (Fase 4 PBR).
+ *  Used to scale box/cylinder UVs so photos don't stretch on big walls. */
+const TEX_WORLD_SCALE: Partial<Record<MatKey, number>> = {
+  stone: 3.2, stoneDark: 3.2, stoneMoss: 3.2, cobble: 2.6, dirt: 3.0,
+  wood: 2.2, woodDark: 2.2, woodLight: 2.2, timber: 2.0, woodShip: 2.4, woodPirate: 2.4,
+  roofRed: 1.9, roofSlate: 1.9, roofThatch: 1.7,
+};
+
+/** Scale a BoxGeometry's UVs so each face tiles the texture at world size.
+ *  Face order in three.js: +X,-X,+Y,-Y,+Z,-Z with 4 verts each (indexed). */
+function worldUvBox(geo: THREE.BufferGeometry, w: number, h: number, d: number, tex: number): void {
+  const uv = geo.attributes.uv as THREE.BufferAttribute | undefined;
+  if (!uv) return;
+  const dims: Array<[number, number]> = [
+    [d, h], [d, h],   // ±X
+    [w, d], [w, d],   // ±Y
+    [w, h], [w, h],   // ±Z
+  ];
+  for (let f = 0; f < 6; f++) {
+    const [du, dv] = dims[f];
+    for (let v = 0; v < 4; v++) {
+      const i = f * 4 + v;
+      if (i >= uv.count) break;
+      uv.setXY(i, uv.getX(i) * (du / tex), uv.getY(i) * (dv / tex));
+    }
+  }
+  uv.needsUpdate = true;
+}
+
+/** Scale a CylinderGeometry's UVs by circumference & height. */
+function worldUvCylinder(geo: THREE.BufferGeometry, rTop: number, rBottom: number, h: number, tex: number): void {
+  const uv = geo.attributes.uv as THREE.BufferAttribute | undefined;
+  if (!uv) return;
+  const circ = Math.PI * (rTop + rBottom);
+  for (let i = 0; i < uv.count; i++) {
+    uv.setXY(i, uv.getX(i) * (circ / tex), uv.getY(i) * (h / tex));
+  }
+  uv.needsUpdate = true;
+}
 
 /**
  * Accumulates geometry per material and merges into few draw calls.
@@ -88,7 +134,10 @@ export class StaticBuilder {
 
   /** Box part. Size is full extent; position is the CENTER. */
   box(key: MatKey, w: number, h: number, d: number, x: number, y: number, z: number, rotY = 0): this {
-    return this.add(new THREE.BoxGeometry(w, h, d), key, x, y, z, rotY);
+    const geo = new THREE.BoxGeometry(w, h, d);
+    const tex = TEX_WORLD_SCALE[key];
+    if (tex) worldUvBox(geo, w, h, d, tex);
+    return this.add(geo, key, x, y, z, rotY);
   }
 
   /** Axis-aligned solid box with collider (position = center). */
@@ -118,7 +167,10 @@ export class StaticBuilder {
   }
 
   cylinder(key: MatKey, rTop: number, rBottom: number, h: number, seg: number, x: number, y: number, z: number, collide = false): this {
-    return this.add(new THREE.CylinderGeometry(rTop, rBottom, h, seg), key, x, y, z);
+    const geo = new THREE.CylinderGeometry(rTop, rBottom, h, seg);
+    const tex = TEX_WORLD_SCALE[key];
+    if (tex) worldUvCylinder(geo, rTop, rBottom, h, tex);
+    return this.add(geo, key, x, y, z, 0);
   }
 
   addCylinderCollider(x: number, z: number, r: number, minY: number, maxY: number): void {

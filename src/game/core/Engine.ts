@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import type { PostFX } from '../world/PostFX';
 
 /** Graphics quality presets. */
 export type QualityLevel = 'low' | 'medium' | 'high' | 'ultra';
@@ -10,13 +11,15 @@ export interface QualitySettings {
   viewChunkRadius: number;   // terrain chunk streaming radius
   grassDensity: number;      // 0..1 multiplier
   anisotropy: number;
+  /** Fase 4 — cinematic post chain (bloom + MSAA) on Ultra. */
+  postfx: boolean;
 }
 
 export const QUALITY_PRESETS: Record<QualityLevel, QualitySettings> = {
-  low:    { pixelRatioCap: 0.75, shadowMapSize: 0,    shadowsEnabled: false, viewChunkRadius: 4, grassDensity: 0.0,  anisotropy: 1 },
-  medium: { pixelRatioCap: 1.0,  shadowMapSize: 1024, shadowsEnabled: true,  viewChunkRadius: 5, grassDensity: 0.4,  anisotropy: 2 },
-  high:   { pixelRatioCap: 1.25, shadowMapSize: 2048, shadowsEnabled: true,  viewChunkRadius: 6, grassDensity: 0.75, anisotropy: 4 },
-  ultra:  { pixelRatioCap: 1.5,  shadowMapSize: 2048, shadowsEnabled: true,  viewChunkRadius: 7, grassDensity: 1.0,  anisotropy: 8 },
+  low:    { pixelRatioCap: 0.75, shadowMapSize: 0,    shadowsEnabled: false, viewChunkRadius: 4, grassDensity: 0.0,  anisotropy: 1, postfx: false },
+  medium: { pixelRatioCap: 1.0,  shadowMapSize: 1024, shadowsEnabled: true,  viewChunkRadius: 5, grassDensity: 0.4,  anisotropy: 2, postfx: false },
+  high:   { pixelRatioCap: 1.25, shadowMapSize: 2048, shadowsEnabled: true,  viewChunkRadius: 6, grassDensity: 0.75, anisotropy: 4, postfx: false },
+  ultra:  { pixelRatioCap: 1.5,  shadowMapSize: 4096, shadowsEnabled: true,  viewChunkRadius: 7, grassDensity: 1.0,  anisotropy: 8, postfx: true },
 };
 
 /**
@@ -36,6 +39,8 @@ export class Engine {
   private fpsAccum = 0;
   private fpsFrames = 0;
   onWebGLContextLost?: () => void;
+  /** Fase 4 — cinematic post-processing chain (Ultra). */
+  postfx: PostFX | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({
@@ -116,6 +121,7 @@ export class Engine {
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / Math.max(1, h);
     this.camera.updateProjectionMatrix();
+    this.postfx?.resize();
   };
 
   addUpdater(fn: (dt: number, elapsed: number) => void): void {
@@ -140,7 +146,11 @@ export class Engine {
         this.fpsFrames = 0;
       }
       for (const u of this.updaters) u(dt, elapsed);
-      this.renderer.render(this.scene, this.camera);
+      if (this.postfx?.enabled) {
+        this.postfx.render();
+      } else {
+        this.renderer.render(this.scene, this.camera);
+      }
     };
     this.frameHandle = requestAnimationFrame(loop);
   }

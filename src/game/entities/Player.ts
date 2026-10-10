@@ -56,6 +56,10 @@ export class Player {
   private wasGrounded = true;
   private airTime = 0;
   private speedSm = 0;
+  /** Fase 4 — water-vault lunge window: horizontal damping disabled. */
+  private vaultT = 0;
+  /** Fase 4 — walking through shallow water (slowed, no swimming). */
+  wading = false;
 
   stats: PlayerStats = {
     maxHealth: 100, maxStamina: 100,
@@ -66,10 +70,15 @@ export class Player {
   onAttackSwing?: () => void;
   onDamaged?: (amount: number, reason: string) => void;
   onBlockSparks?: (pos: THREE.Vector3) => void;
+  /** Fase 4 — fired when the body enters/leaves the water (splash VFX+SFX). */
+  onWaterEvent?: (kind: 'enter' | 'exit', speed: number) => void;
 
   /** Optional ship-deck ground probe (set while walking a ship's deck).
    *  Returns the deck height at a world XZ or null when off-deck. */
   platformProbe?: (x: number, z: number) => number | null;
+  /** Fase 4 — local water surface height incl. waves (wired to WaterSystem).
+   *  When absent, sea level (y=0) is assumed. */
+  waterHeightAt?: (x: number, z: number) => number;
 
   constructor(scene: THREE.Scene) {
     this.model = new CharacterModel(PLAYER_PALETTE);
@@ -208,8 +217,9 @@ export class Player {
       moveZ = fz * iz + rz * ix;
     }
 
-    const wantRun = input.isDown('sprint') && inputLen > 0 && this.stamina > 1 && !this.swimming;
+    const wantRun = input.isDown('sprint') && inputLen > 0 && this.stamina > 1 && !this.swimming && !this.wading;
     let speed = this.swimming ? this.stats.swimSpeed : wantRun ? this.stats.runSpeed : this.stats.walkSpeed;
+    if (this.wading) speed = this.stats.walkSpeed * 0.62; // pushing through chest-deep water
     // Combat movement modifiers (Fase 3)
     if (this.rollT > 0) speed = 7.6;                 // dodge roll burst
     else speed *= this.moveMult;                     // block / bow-draw slow
@@ -231,7 +241,8 @@ export class Player {
       targetVX = moveX * speed;
       targetVZ = moveZ * speed;
     }
-    const accel = this.grounded || this.swimming ? 12 : 4;
+    const accel = this.vaultT > 0 ? 0.15 : this.grounded || this.swimming ? 12 : 4;
+    if (this.vaultT > 0) this.vaultT = Math.max(0, this.vaultT - dt);
     this.velocity.x = damp(this.velocity.x, targetVX, accel, dt);
     this.velocity.z = damp(this.velocity.z, targetVZ, accel, dt);
 
@@ -255,22 +266,96 @@ export class Player {
       const deck = this.platformProbe(this.position.x, this.position.z);
       if (deck !== null && deck > groundH) groundH = deck;
     }
-    // Swimming only when actually in the water (not standing on a pier)
-    this.swimming = terrainH < -1.2 && this.position.y < 0.35;
 
-    if (!dialogueActive && input.pressed('jump') && this.grounded && !this.swimming && this.stamina > 10) {
+    // --- Fase 4 water state machine (shore → wading → swimming → out) ---
+    // The visible, waving surface is the one true reference (ships already
+    // float on it via the shared waveHeightAt).
+    const surfaceY = this.waterHeightAt
+      ? this.waterHeightAt(this.position.x, this.position.z)
+      : 0;
+    const waterDepth = surfaceY - terrainH; // how deep the water column is
+    // Standing on a dock / deck over deep water never counts: groundH then is
+    // above the surface and the body never crosses it.
+    const bodyInWater = this.position.y < surfaceY - 0.05;
+    const deepEnough = waterDepth > 1.25;
+    const wasSwimming = this.swimming;
+    // The vault grace window keeps climbing players OUT of swim state while
+    // their body is still momentarily below the surface.
+    this.swimming = deepEnough && bodyInWater && groundH < surfaceY - 0.55 && this.vaultT <= 0;
+    // Wading: feet still touch the bottom but the water slows you down
+    this.wading = !this.swimming && waterDepth > 0.42 && bodyInWater;
+
+    if (this.swimming && !wasSwimming) {
+      // Entry splash (bigger when diving from a height)
+      const impact = clamp((-this.verticalVel + 2) / 10, 0.4, 1.6);
+      this.onWaterEvent?.('enter', impact);
+    } else if (!this.swimming && wasSwimming) {
+      this.onWaterEvent?.('exit', 0.7);
+    }
+
+    if (!dialogueActive && this.grounded && !this.swimming && this.stamina > 10 && !this.wading) {
       this.verticalVel = 7.4;
       this.grounded = false;
       this.stamina -= 10;
     }
 
     if (this.swimming) {
-      // Float at the surface
-      const targetY = -0.45;
-      this.verticalVel = damp(this.verticalVel, (targetY - (this.position.y)) * 4, 6, dt);
+      // --- Surface swimming: float ON the waving surface ---
+      // Head & shoulders stay above water; the body bobs with the waves.
+      const targetY = surfaceY - 0.52;
+      this.verticalVel = damp(this.verticalVel, (targetY - this.position.y) * 4.2, 5.5, dt);
       this.position.y += this.verticalVel * dt;
       this.grounded = false;
       this.airTime = 0;
+      // Climb out: when a shore/dock edge is within arm's reach, jump boosts
+      // the player up onto it (no more being trapped in the water).
+      if (!dialogueActive && input.pressed('jump')) {
+        // The vault edge: highest walkable top near the swimmer — docks,
+        // decks (platformProbe) and rising terrain all count. Unlike the
+        // standing ground check, this scan has NO y-precondition: a dock
+        // top 1 m above the water is exactly what we want to grab.
+        let edge = groundH;
+        let edgeDirX = 0;
+        let edgeDirZ = 0;
+        for (const c of colliders.query(this.position.x, this.position.z, 3)) {
+          if (c.kind !== 'box' || c.maxY - c.minY > 0.5) continue; // walkable slabs only
+          if (
+            this.position.x >= c.minX - 1.4 && this.position.x <= c.maxX + 1.4 &&
+            this.position.z >= c.minZ - 1.4 && this.position.z <= c.maxZ + 1.4 &&
+            c.maxY > edge && c.maxY < this.position.y + 2.6 && c.maxY > this.position.y - 1.2
+          ) {
+            edge = c.maxY;
+            // Direction toward the platform (the climb lands ON it, not beside it)
+            edgeDirX = (c.minX + c.maxX) / 2 - this.position.x;
+            edgeDirZ = (c.minZ + c.maxZ) / 2 - this.position.z;
+            const dl = Math.hypot(edgeDirX, edgeDirZ) || 1;
+            edgeDirX /= dl;
+            edgeDirZ /= dl;
+          }
+        }
+        if (this.platformProbe) {
+          const deck = this.platformProbe(this.position.x, this.position.z);
+          if (deck !== null && deck > edge && deck < this.position.y + 2.6 && deck > this.position.y - 1.2) {
+            edge = deck;
+            edgeDirX = 0;
+            edgeDirZ = 0;
+          }
+        }
+        if (edge > this.position.y - 0.6 && edge < this.position.y + 2.6) {
+          // Vault out of the water toward the edge — a strong climbing boost
+          // (reaches ~2.4 m above the feet) plus an undamped lunge ONTO it.
+          this.swimming = false;
+          this.verticalVel = 9.6;
+          this.velocity.x = edgeDirX * 4.2;
+          this.velocity.z = edgeDirZ * 4.2;
+          this.vaultT = 0.5;
+          this.stamina = Math.max(0, this.stamina - 8);
+          this.position.y += 0.12;
+        } else {
+          // Just a paddle hop in deep water
+          this.verticalVel = 2.4;
+        }
+      }
     } else {
       this.verticalVel -= 19 * dt;
       this.position.y += this.verticalVel * dt;

@@ -164,6 +164,7 @@ export const QUESTS: Record<string, QuestDef> = {
       { id: 'o2', text: 'Derrota al Ancestro de Garrahielo', type: 'flag', target: 'ancestro_dead' },
     ],
     rewards: { xp: 600, items: [{ id: 'coin', count: 250 }] },
+    nextQuest: 'q10_orden',
     completionJournal: 'El Ancestro de Garrahielo ha caído. Del pacto antiguo quedan un colmillo, un sello y un Guardián joven con un barco reparado. «Los dragones no son lo que dicen las canciones», escribía mi padre. Ahora lo sé: son exactamente lo que las canciones no se atreven a contar. FIN DEL CAPÍTULO III — El Rumor de las Alas.',
   },
 };
@@ -172,5 +173,16 @@ export const QUESTS: Record<string, QuestDef> = {
 export const MAIN_QUEST_ORDER = [
   'q1_legacy', 'q2_herbs', 'q3_chest', 'q4_refit', 'q5_raven',
   'q6_alas', 'q7_guardiana', 'q8_skarnvind', 'q9_ancestro',
+  'q10_orden', 'q11_estandarte', 'q12_acero',
+  'q13_despertar', 'q14_consejo', 'q15_destino',
 ];
-export const SIDE_QUESTS = ['q_rosa'];
+export const SIDE_QUESTS = [
+  'q_rosa', 'sq_raciones', 'sq_yunque', 'sq_espejo', 'sq_fuegos', 'sq_petalo_tumba',
+  'sq_caravana', 'sq_caballos', 'sq_cascada', 'sq_cartas', 'sq_bounty', 'sq_moneda',
+  'sq_tesoro', 'sq_vela', 'sq_guardianes', 'sq_arce', 'sq_cazatormentas',
+  'sq_estandarte', 'sq_lamento', 'sq_vigia', 'sq_comercio',
+];
+
+// ---- Fase 4 quests (Chapters IV-V + secondary campaign) ----
+import { QUESTS_F4 } from './questsF4';
+Object.assign(QUESTS, QUESTS_F4);

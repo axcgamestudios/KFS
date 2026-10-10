@@ -30,6 +30,13 @@ export interface SaveData {
       questBoarded?: boolean;
     }>;
   };
+  /** Fase 4 mounts & weather (version 3 saves; absent in earlier versions). */
+  mounts?: {
+    horses: Array<{ id: string; x: number; z: number; yaw: number; owned: boolean }>;
+    cart: { x: number; z: number; heading: number; hitchedTo: string | null } | null;
+    riding: string | null;
+  };
+  weather?: { kind: 'clear' | 'cloudy' | 'rain' | 'storm'; timer: number };
 }
 
 export interface Settings {
@@ -79,7 +86,7 @@ export class SaveSystem {
       const raw = localStorage.getItem(`${SAVE_PREFIX}${slot}`);
       if (!raw) return null;
       const data = JSON.parse(raw) as SaveData;
-      if (data.version !== 1 && data.version !== 2) return null;
+      if (data.version !== 1 && data.version !== 2 && data.version !== 3) return null;
       return data;
     } catch {
       return null;
@@ -97,9 +104,13 @@ export class SaveSystem {
   static slotMeta(slot: number): SaveMeta | null {
     const data = SaveSystem.load(slot);
     if (!data) return null;
-    const chapter = data.gameState.flags?.includes('ship_repaired')
-      ? 'Capítulo II — Los Mares Olvidados'
-      : 'Capítulo I — El Legado de Eirik';
+    const flags = data.gameState.flags ?? [];
+    let chapter = 'Capítulo I — El Legado de Eirik';
+    if (flags.includes('ending_done')) chapter = 'Epílogo — El Destino de las Mareas';
+    else if (flags.includes('kraivenn_awake')) chapter = 'Capítulo V — El Cuervo de Tres Cabezas';
+    else if (flags.includes('corona_taken')) chapter = 'Capítulo IV — La Corona Hundida';
+    else if (flags.includes('ancestro_dead')) chapter = 'Capítulo IV — La Corona Hundida';
+    else if (flags.includes('ship_repaired')) chapter = flags.includes('vaelthara_seen') ? 'Capítulo III — El Rumor de las Alas' : 'Capítulo II — Los Mares Olvidados';
     return {
       slot,
       timestamp: data.timestamp,

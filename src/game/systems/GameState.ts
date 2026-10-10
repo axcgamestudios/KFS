@@ -174,11 +174,19 @@ export class GameState {
 
   /** Resolve 'talk' milestones coming from dialogues. */
   talkMilestone(target: string): void {
+    // Fase 4: remember the milestone — quests started LATER can still
+    // resolve out-of-order talk objectives (same pattern as collect).
+    if (!this.flags.has(`talked_${target}`)) {
+      this.flags.add(`talked_${target}`);
+    }
     this.evaluateQuests(target);
   }
 
   /** Resolve 'interact' milestones (chests, crates, …). */
   interactMilestone(target: string): void {
+    if (!this.flags.has(`interacted_${target}`)) {
+      this.flags.add(`interacted_${target}`);
+    }
     this.evaluateQuests(undefined, target);
   }
 
@@ -198,6 +206,7 @@ export class GameState {
           case 'talk':
             done =
               (talkTarget !== undefined && talkTarget === obj.target) ||
+              this.flags.has(`talked_${obj.target}`) ||
               (obj.target === 'aldric' && this.flags.has('talked_aldric')) ||
               (obj.target === 'maren' && this.flags.has('maren_met')) ||
               (obj.target === 'aldric_ship' && this.flags.has('aldric_ship_talked')) ||
@@ -213,6 +222,7 @@ export class GameState {
           case 'interact':
             done =
               (interactTarget !== undefined && interactTarget === obj.target) ||
+              this.flags.has(`interacted_${obj.target}`) ||
               (obj.target === 'chest_eirik' && this.flags.has('chest_opened')) ||
               (obj.target === 'crate_rosa' && this.flags.has('rosa_crate_found'));
             break;

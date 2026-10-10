@@ -127,7 +127,7 @@ export default function LoadingScreen() {
         </div>
 
         <p className="kotfs-rise mt-8 text-[0.62rem] tracking-[0.3em] text-[color:var(--kotfs-parchment-dim)] opacity-60" style={{ ['--rise-delay' as string]: '2.8s' }}>
-          FASE 3 — DRAGONES Y COMBATE · v0.3
+          FASE 4 — HISTORIA, BOSQUES Y MONTURAS · v0.4
         </p>
       </div>
     </div>

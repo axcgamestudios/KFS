@@ -52,3 +52,8 @@ prompt
 server.log
 # Skills directory
 /skills/
+# Game binary assets (Tailwind v4 scanner must not read these - causes OOM)
+kfs-assets/
+public/game/
+*.glb
+*.mp3

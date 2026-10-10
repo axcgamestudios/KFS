@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { DragonModel, type DragonColors, type DragonAnimState } from './DragonModel';
+import { DragonModelGLB } from './DragonModelGLB';
 import type { TerrainHeight } from '../world/TerrainHeight';
 import { clamp, damp, dampAngle } from '../core/MathUtils';
 
@@ -27,6 +28,11 @@ export interface DragonDef {
   xp: number;
   deathFlag: string;
   introFlag?: string;
+  /** Fase 4: dragon is NOT spawned at boot — it waits for this flag
+   *  (Kraivenn awakens at the black altar when the player calls it). */
+  spawnFlag?: string;
+  /** Fase 4: use the repository's black dragon GLB with its native idle clip. */
+  useGlbModel?: boolean;
   /** HP fractions where behaviour changes (bosses). */
   phase2At?: number;
   phase3At?: number;
@@ -71,7 +77,7 @@ const tmpC = new THREE.Vector3();
  */
 export class Dragon {
   readonly def: DragonDef;
-  readonly model: DragonModel;
+  readonly model: DragonModel | DragonModelGLB;
   readonly group = new THREE.Group();
   readonly pos = new THREE.Vector3();
   readonly vel = new THREE.Vector3();
@@ -101,10 +107,17 @@ export class Dragon {
   /** Approximate body height above ground when standing (model units). */
   private readonly legHeight: number;
 
-  constructor(def: DragonDef, scene: THREE.Scene, seed: number) {
+  constructor(
+    def: DragonDef,
+    scene: THREE.Scene,
+    seed: number,
+    glbLoader?: () => Promise<{ scene: THREE.Object3D; clips: THREE.AnimationClip[] }>,
+  ) {
     this.def = def;
     this.hp = def.maxHp;
-    this.model = new DragonModel(def.colors, def.scale, def.wyvern);
+    this.model = def.useGlbModel && glbLoader
+      ? new DragonModelGLB(def.colors, def.scale, glbLoader)
+      : new DragonModel(def.colors, def.scale, def.wyvern);
     this.group.add(this.model.root);
     scene.add(this.group);
     this.legHeight = 1.28 * def.scale;

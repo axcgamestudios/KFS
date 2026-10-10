@@ -81,7 +81,7 @@ export default function MainMenu() {
 
           <p className="kotfs-rise mb-1 mt-2 flex items-center gap-2 text-sm italic tracking-wide text-[color:var(--kotfs-parchment-dim)] md:text-base" style={{ ['--rise-delay' as string]: '2.1s' }}>
             <Ship size={14} className="text-[color:var(--kotfs-gold)]" />
-            Capítulo III — El Rumor de las Alas · Dragones y combate
+            La saga completa — Dragones, caballos y el Destino de las Mareas
           </p>
           <div className="kotfs-rise mb-10 mt-4 h-[1px] w-64 bg-gradient-to-r from-[color:var(--kotfs-gold)] via-[rgba(201,162,39,0.35)] to-transparent" style={{ ['--rise-delay' as string]: '2.3s' }} />
 
@@ -194,7 +194,7 @@ export default function MainMenu() {
 
           {subMenu === null && (
             <p className="kotfs-rise mt-10 text-xs tracking-widest text-[color:var(--kotfs-parchment-dim)] opacity-60" style={{ ['--rise-delay' as string]: '3s' }}>
-              FASE 3 — DRAGONES Y COMBATE · v0.3
+              FASE 4 — HISTORIA, BOSQUES Y MONTURAS · v0.4
             </p>
           )}
         </div>

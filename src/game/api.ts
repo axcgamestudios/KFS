@@ -46,6 +46,12 @@ export interface GameApi {
   applySettings(s: Settings): void;
   // Cinematic
   skipIntro(): void;
+  /** Fase 4 — skip the ending cinematic. */
+  skipEnding(): void;
+  /** Fase 4 — riding HUD info (null when on foot). */
+  mountInfo(): { name: string; gait: string; speed: number; cart: boolean } | null;
+  /** Fase 4 — endings unlocked on this browser. */
+  endingsUnlocked(): string[];
   // Dialogue
   chooseDialogue(index: number): void;
   closeDialogue(): void;
@@ -84,6 +90,9 @@ export const gameApi: GameApi = {
   }),
   applySettings: () => undefined,
   skipIntro: () => undefined,
+  skipEnding: () => undefined,
+  mountInfo: () => null,
+  endingsUnlocked: () => [],
   chooseDialogue: () => undefined,
   closeDialogue: () => undefined,
   narrationBlip: () => undefined,

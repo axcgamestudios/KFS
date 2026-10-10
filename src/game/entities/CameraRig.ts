@@ -157,6 +157,24 @@ export class CameraRig {
     }
   }
 
+  /** Fase 4 — horseback camera: a touch wider, slightly higher pitch. */
+  setMountMode(on: boolean): void {
+    if (on && !this.mountMode) {
+      this.mountMode = true;
+      this.savedMountDistance = this.targetDistance;
+      this.targetDistance = 7.4;
+      this.distance = 7.4;
+      this.pitch = Math.max(this.pitch, 0.26);
+    } else if (!on && this.mountMode) {
+      this.mountMode = false;
+      this.targetDistance = this.savedMountDistance;
+      this.distance = this.savedMountDistance;
+    }
+  }
+
+  mountMode = false;
+  private savedMountDistance = 4.6;
+
   /** Sailing camera: wide orbit around the helm, clamped above the waves. */
   private updateShip(dt: number, ship: Ship, terrain: TerrainHeight): void {
     this.distance = damp(this.distance, this.targetDistance, 6, dt);

@@ -6,6 +6,7 @@ import { Game } from '@/game/Game';
 import LoadingScreen from './LoadingScreen';
 import MainMenu from './MainMenu';
 import IntroCinematic from './IntroCinematic';
+import EndingOverlay from './EndingOverlay';
 import HUD from './HUD';
 import DialogueBox from './DialogueBox';
 import InventoryUI from './InventoryUI';
@@ -88,6 +89,7 @@ export default function GameRoot() {
             </div>
           )}
           {phase === 'intro' && <IntroCinematic />}
+          <EndingOverlay />
           {(phase === 'playing' || phase === 'paused') && (
             <>
               <HUD />

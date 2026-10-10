@@ -56,6 +56,23 @@ export interface WeaponSlotHud {
   kind: string;
 }
 
+/** Mount HUD state (Fase 4): gait, speed and cart while riding. */
+export interface MountHud {
+  horseName: string;
+  gait: string;
+  speedKmh: number;
+  cart: boolean;
+}
+
+/** Ending cinematic card (Fase 4). */
+export interface EndingCard {
+  title: string;
+  subtitle: string;
+  text: string;
+  card: number;
+  totalCards: number;
+}
+
 interface GameStore {
   phase: GamePhase;
   overlay: OverlayKind;
@@ -80,6 +97,11 @@ interface GameStore {
   atHelm: boolean;
   /** Increments on every hit taken — triggers the red vignette flash. */
   hurtFlash: number;
+  /** Fase 4 — riding HUD (null when on foot). */
+  mount: MountHud | null;
+  /** Fase 4 — ending cinematic state. */
+  endingActive: boolean;
+  endingCard: EndingCard | null;
   // Progression
   level: number;
   xp: number;
@@ -106,6 +128,9 @@ interface GameStore {
   setBoss: (b: BossHud | null) => void;
   setWeaponSlots: (s: WeaponSlotHud[]) => void;
   setBowDraw: (v: number) => void;
+  setMount: (m: MountHud | null) => void;
+  setEndingActive: (v: boolean) => void;
+  setEndingCard: (c: EndingCard | null) => void;
   triggerHurtFlash: () => void;
   setDialogue: (d: DialogueState | null) => void;
   setDiscovery: (d: { title: string; sub: string } | null) => void;
@@ -137,6 +162,9 @@ export const useGameStore = create<GameStore>((set) => ({
   dialogue: null,
   sailing: null,
   boss: null,
+  mount: null,
+  endingActive: false,
+  endingCard: null,
   weaponSlots: [],
   bowDraw: -1,
   atHelm: false,
@@ -161,6 +189,9 @@ export const useGameStore = create<GameStore>((set) => ({
   closeOverlay: () => set((s) => ({ overlay: null, previousOverlay: s.overlay })),
   setHud: (h) => set(h as Partial<GameStore>),
   setBoss: (b) => set({ boss: b }),
+  setMount: (m) => set({ mount: m }),
+  setEndingActive: (v) => set({ endingActive: v }),
+  setEndingCard: (c) => set({ endingCard: c }),
   setWeaponSlots: (s) => set({ weaponSlots: s }),
   setBowDraw: (v) => set({ bowDraw: v }),
   triggerHurtFlash: () => set((s) => ({ hurtFlash: s.hurtFlash + 1 })),

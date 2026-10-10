@@ -169,3 +169,7 @@ export const ITEMS: Record<string, ItemDef> = {
     ],
   },
 };
+
+// ---- Fase 4 items (Chapter IV-V relics, trade goods, treasure hunt) ----
+import { ITEMS_F4 } from './itemsF4';
+Object.assign(ITEMS, ITEMS_F4);

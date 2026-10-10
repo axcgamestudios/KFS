@@ -55,6 +55,10 @@ export class SkySystem {
   dayFactor = 1;
   nightFactor = 0;
   duskFactor = 0;
+  /** Fase 4 — weather-driven multipliers applied by the Game loop. */
+  weatherLightMul = 1;
+  weatherFogMul = 1;
+  lightning = 0;
 
   private domeMat: THREE.ShaderMaterial;
   private time = 0;
@@ -72,6 +76,8 @@ export class SkySystem {
         uSunColor: { value: this.sunColor },
         uNight: { value: 0 },
         uTime: { value: 0 },
+        uCloudCover: { value: 0.18 },
+        uCloudDark: { value: 0 },
       },
       vertexShader: /* glsl */ `
         varying vec3 vDir;
@@ -89,6 +95,8 @@ export class SkySystem {
         uniform vec3 uSunColor;
         uniform float uNight;
         uniform float uTime;
+        uniform float uCloudCover;
+        uniform float uCloudDark;
         varying vec3 vDir;
 
         float hash21(vec2 p) {
@@ -148,12 +156,17 @@ export class SkySystem {
             vec2 drift = vec2(uTime * 0.006, uTime * 0.0023);
             float cl = fbm(cuv * 0.55 + drift);
             float cl2 = fbm(cuv * 1.35 - drift * 1.7 + 50.0);
-            float cover = smoothstep(0.52, 0.78, cl * 0.72 + cl2 * 0.38);
+            // uCloudCover (Fase 4 weather) lowers the coverage threshold
+            float thLo = mix(0.55, 0.30, uCloudCover);
+            float thHi = mix(0.80, 0.58, uCloudCover);
+            float cover = smoothstep(thLo, thHi, cl * 0.72 + cl2 * 0.38);
             float fade = smoothstep(0.015, 0.16, dir.y); // fade at horizon
-            // Cloud lighting: warm toward the sun, dark at night
+            // Cloud lighting: warm toward the sun, dark at night / storms
             float sunLit = pow(max(sd, 0.0), 3.0);
             vec3 cloudCol = mix(vec3(0.92, 0.94, 0.96), uSunColor * 1.05 + vec3(0.25), sunLit * 0.8);
             cloudCol = mix(cloudCol * 0.35, cloudCol, 1.0 - uNight * 0.72);
+            // Storm clouds lose their silver lining
+            cloudCol = mix(cloudCol, vec3(0.24, 0.26, 0.30), uCloudDark * 0.85);
             col = mix(col, cloudCol, cover * fade * 0.82);
           }
 
@@ -250,9 +263,10 @@ export class SkySystem {
     const isDay = this.dayFactor > 0.5;
     const dir = isDay ? this.sunDir : this.moonDir;
     this.sunLight.color.copy(isDay ? sunCol : new THREE.Color(0x8fa8cc));
-    this.sunLight.intensity = isDay
-      ? 0.35 + this.dayFactor * 2.3
-      : clamp(this.nightFactor, 0, 1) * 0.4;
+    this.sunLight.intensity =
+      (isDay
+        ? 0.35 + this.dayFactor * 2.3
+        : clamp(this.nightFactor, 0, 1) * 0.4) * this.weatherLightMul + this.lightning * 3.2;
     this.sunLight.position.copy(focusPoint).addScaledVector(dir, 190);
     this.sunLight.target.position.copy(focusPoint);
     this.sunLight.target.updateMatrixWorld();
@@ -260,13 +274,14 @@ export class SkySystem {
 
     this.hemiLight.color.copy(hemiSky);
     this.hemiLight.groundColor.copy(hemiGround);
-    this.hemiLight.intensity = hemiInt;
+    this.hemiLight.intensity = hemiInt * this.weatherLightMul + this.lightning * 0.9;
 
     const scene = this.dome.parent as THREE.Scene | null;
     if (scene && scene.fog) {
       const f = scene.fog as THREE.FogExp2;
       f.color.copy(fog);
-      f.density = fogDensity;
+      if (this.lightning > 0.01) f.color.lerp(new THREE.Color(0xd8e2ee), this.lightning * 0.55);
+      f.density = fogDensity * this.weatherFogMul;
     }
 
     this.domeMat.uniforms.uNight.value = this.nightFactor;
@@ -279,6 +294,15 @@ export class SkySystem {
   /** Serializable clock state. */
   serialize(): { dayFraction: number; dayCount: number } {
     return { dayFraction: this.dayFraction, dayCount: this.dayCount };
+  }
+
+  /** Fase 4 — weather hooks (called by Game before update()). */
+  setWeather(cloudCover: number, cloudDark: number, lightMul: number, fogMul: number, lightning: number): void {
+    this.weatherLightMul = lightMul;
+    this.weatherFogMul = fogMul;
+    this.lightning = lightning;
+    this.domeMat.uniforms.uCloudCover.value = cloudCover;
+    this.domeMat.uniforms.uCloudDark.value = cloudDark;
   }
 
   deserialize(data: { dayFraction: number; dayCount: number }): void {

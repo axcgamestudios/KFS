@@ -184,6 +184,27 @@ function SailingPanel({ s }: { s: SailingHud }) {
 }
 
 /** Boss health bar with phase pips (Fase 3). */
+/** Fase 4 — riding HUD: horse name, gait, speed and cart state. */
+function MountPanel({ m }: { m: { horseName: string; gait: string; speedKmh: number; cart: boolean } }) {
+  return (
+    <div className="kotfs-panel kotfs-panel-corner absolute bottom-6 left-1/2 -translate-x-1/2 px-4 py-1.5 flex items-center gap-3 text-xs tracking-wider">
+      <span className="kotfs-title text-[color:var(--kotfs-gold)]">{m.horseName.toUpperCase()}</span>
+      <span className="opacity-40">|</span>
+      <span className="text-[color:var(--kotfs-parchment)]">{m.gait}</span>
+      <span className="opacity-40">|</span>
+      <span className="text-[color:var(--kotfs-parchment-dim)]">{m.speedKmh} km/h</span>
+      {m.cart && (
+        <>
+          <span className="opacity-40">|</span>
+          <span className="text-[color:var(--kotfs-gold)]">CARRETA ENGANCHADA</span>
+        </>
+      )}
+      <span className="opacity-40">|</span>
+      <span className="text-[color:var(--kotfs-parchment-dim)] text-[10px]">E desmontar</span>
+    </div>
+  );
+}
+
 function BossBar({ b }: { b: BossHud }) {
   const pct = Math.max(0, (b.hp / b.maxHp) * 100);
   return (
@@ -276,6 +297,7 @@ export default function HUD() {
   const weaponSlots = useGameStore((s) => s.weaponSlots);
   const bowDraw = useGameStore((s) => s.bowDraw);
   const atHelm = useGameStore((s) => s.atHelm);
+  const mount = useGameStore((s) => s.mount);
   const hurtFlash = useGameStore((s) => s.hurtFlash);
 
   const hidden = overlay !== null || dialogue !== null;
@@ -372,6 +394,7 @@ export default function HUD() {
 
       {/* --- Bottom right: naval panel (when aboard) --- */}
       {sailing && <SailingPanel s={sailing} />}
+      {mount && !atHelm && <MountPanel m={mount} />}
 
       {/* --- Weapon quick-slots (on foot, Fase 3; hidden at the helm) --- */}
       {!atHelm && <WeaponSlots slots={weaponSlots} />}

@@ -703,6 +703,15 @@ export class NavalSystem {
     for (const brain of this.enemies) {
       this.updateEnemyAI(dt, brain, playerWorld);
       brain.ship.update(dt, this.water, this.terrain, WIND.dir);
+      // Fase 4 — enemy ships starting to sink count as pirate kills
+      // (the elite hunter of q11 + the general bounty flag)
+      if (brain.ship.sinking > 0 && !(brain as EnemyBrain & { sinkNotified?: boolean }).sinkNotified) {
+        (brain as EnemyBrain & { sinkNotified?: boolean }).sinkNotified = true;
+        if (this.state.hasFlag('ship_repaired')) {
+          this.cb.setFlag('elite_hunter_sunk');
+          this.cb.setFlag('pirate_sunk_any');
+        }
+      }
     }
 
     // --- Cannonballs ---

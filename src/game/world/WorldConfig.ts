@@ -133,6 +133,22 @@ export const POIS: POIDef[] = [
     id: 'nido', name: 'Nido del Ancestro', x: 20, z: -300, radius: 50, xp: 60,
     journal: 'Una plataforma de roca y hielo corona las Garrahielo, barrida por un viento que silba como una flauta rota. Hay huesos de ballena, un lecho de monedas congeladas... y un cerradero de piedra con la forma exacta de una garra. Algo inmenso duerme aquí. Algo que recuerda a los reyes hundidos.',
   },
+  {
+    id: 'santuario', name: 'Santuario de Thalassar', x: 160, z: 270, radius: 55, xp: 60,
+    journal: 'Bajo cinco metros de agua turquesa, columnas de mármol verde sostienen el peso del mar. La ciudad de los reyes hundidos descansa ordenada como un cementerio de gigantes… y su altar aún emerge, blanco y paciente, entre las olas.',
+  },
+  {
+    id: 'cala', name: 'Cala del Silencio', x: -478, z: -520, radius: 45, xp: 70,
+    journal: 'Un anfiteatro de basalto negro a los pies de la fortaleza pirata. Ni gaviotas ni hierba: solo el eco del mar golpeando la piedra. Un caballero de piedra vela la entrada, la espada baja, desde hace trescientos años.',
+  },
+  {
+    id: 'insignia', name: 'El Bajío del Almirante', x: -440, z: -560, radius: 45, xp: 60,
+    journal: 'El buque insignia del Cuervo, varado para siempre en un bajío de roca negra. Tres mástiles rotos, un casco agrietado como una costilla vieja. Lo que el Cuervo robó al mar, el mar lo fue a buscar.',
+  },
+  {
+    id: 'granarce', name: 'El Gran Arce', x: -120, z: -270, radius: 40, xp: 45,
+    journal: 'Un arce dorado más alto que la torre del castillo, con hojas que susurran en un idioma que se parece al viento. Los Guardianes plantaban un arce por cada juramento cumplido. Este es el último que queda.',
+  },
 ];
 
 /** Dirt roads as polylines (tint terrain + block trees). */
@@ -195,6 +211,8 @@ export const FLATS: FlatDef[] = [
   { x: 652, z: 128, r: 26, h: 22 },    // Faro plateau
   { x: -80, z: 748, r: 24, h: 4 },     // Mist isles camp
   { x: 20, z: -300, r: 30, h: 88 },    // Nido del Ancestro (snowy summit plateau)
+  { x: -478, z: -520, r: 34, h: 2.6 }, // Fase 4: Cala del Silencio (crow cove shelf)
+  { x: -440, z: -560, r: 26, h: 1.6 }, // Fase 4: bajío del buque insignia (flagship wreck reef)
 ];
 
 /** Global sailing wind — slow precession, shared by ships, HUD and audio. */

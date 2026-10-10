@@ -5,6 +5,8 @@ import { WaterSystem } from './world/WaterSystem';
 import { SkySystem } from './world/SkySystem';
 import { VegetationSystem, windTime } from './world/VegetationSystem';
 import { StructureStreamer } from './world/StructureStreamer';
+import { AssetSystem } from './world/AssetSystem';
+import { WeatherSystem } from './world/WeatherSystem';
 import { buildCastle } from './structures/Castle';
 import { buildVillage, type VillageLayout } from './structures/Village';
 import {
@@ -12,7 +14,8 @@ import {
 } from './structures/POIs';
 import { buildPirateFort, buildFaroRuins, buildBrumaCamp } from './structures/Islands';
 import { createChest, createHerb, type ChestHandles } from './structures/Props';
-import { StaticBuilder } from './structures/Materials';
+import { StaticBuilder, MAT } from './structures/Materials';
+import { buildFase4World, type Fase4Refs } from './structures/Fase4POIs';
 import { WildlifeSystem, type NPCDef } from './entities/NPC';
 import type { ColliderRegistry } from './systems/ColliderRegistry';
 import type { GameState } from './systems/GameState';
@@ -52,6 +55,10 @@ export interface WorldRefs {
   streamer: StructureStreamer;
   /** Dock point where the repaired Colibrí spawns / respawns. */
   dockSpawn: { x: number; z: number; heading: number };
+  /** Fase 4 systems: assets, weather and the new POI refs. */
+  assets: AssetSystem;
+  weather: WeatherSystem;
+  fase4: Fase4Refs;
 }
 
 /** Pre-render the top-down world map (colors + hillshade) for the map UI. */
@@ -103,20 +110,29 @@ function renderMapCanvas(terrain: TerrainHeight): HTMLCanvasElement {
  * castle, village, POIs, props, NPCs and wildlife. Returns every handle
  * the Game needs to run interactions and cinematics.
  */
-export function buildWorld(
+export async function buildWorld(
   scene: THREE.Scene,
   colliders: ColliderRegistry,
   state: GameState,
   quality: 'low' | 'medium' | 'high' | 'ultra',
   onProgress?: (frac: number, label: string) => void,
-): WorldRefs {
+): Promise<WorldRefs> {
   const prog = (f: number, l: string) => onProgress?.(f, l);
 
-  prog(0.02, 'Levantando la costa de Eldoria…');
+  prog(0.01, 'Desplegando las velas…');
+  await new Promise((r) => setTimeout(r, 30));
+
+  // --- Fase 4: repository assets (PBR textures) load BEFORE the world so
+  //     structures receive textured materials right away. ---
+  const assets = new AssetSystem();
+  prog(0.03, 'Cargando texturas antiguas…');
+  await assets.loadCoreTextures(quality === 'low' ? 1 : quality === 'medium' ? 2 : quality === 'high' ? 4 : 8);
+  assets.applyToStructureMaterials(MAT as unknown as Record<string, THREE.MeshStandardMaterial>);
+
+  prog(0.06, 'Esculpiendo montañas y valles…');
   const terrainHeight = new TerrainHeight();
   const terrain = new TerrainSystem(terrainHeight, quality);
 
-  prog(0.06, 'Esculpiendo montañas y valles…');
   const water = new WaterSystem(terrainHeight);
   const sky = new SkySystem();
   scene.add(water.mesh); // ← the ocean surface itself (was missing: water was
@@ -126,8 +142,14 @@ export function buildWorld(
   scene.add(sky.sunLight.target);
   scene.add(sky.hemiLight);
 
+  // --- Fase 4: dynamic weather (rain, storms, wind) ---
+  const weather = new WeatherSystem(scene);
+
   prog(0.10, 'Plantando los bosques antiguos…');
-  const vegetation = new VegetationSystem(terrainHeight, quality === 'low' ? 0 : quality === 'medium' ? 0.4 : quality === 'high' ? 0.75 : 1, scene);
+  const vegetation = new VegetationSystem(
+    terrainHeight, quality === 'low' ? 0 : quality === 'medium' ? 0.4 : quality === 'high' ? 0.75 : 1, scene,
+    assets.mapleBark && assets.mapleLeaf ? { bark: assets.mapleBark, leaf: assets.mapleLeaf } : undefined,
+  );
   // Trees are solid trunks: register/unregister colliders with the streaming
   vegetation.setColliderSinks(
     (x, z, r, key) => colliders.add(key, { kind: 'cylinder', x, z, r, minY: -50, maxY: 60 }),
@@ -229,6 +251,11 @@ export function buildWorld(
   addChest('chest_bruma', bruma.chestPos.x, bruma.chestPos.z, -0.5);
   addChest('chest_lanza', 295.5, 60.5, 0.8);   // watchtower base — la Lanza de Caza
   addChest('chest_arco', -77, 750.5, 1.9);     // mist isles camp — el Arco del Naufragio
+  // Fase 4 treasure hunt chests
+  addChest('chest_tesoro', -183 + 4.8, -180 - 7.2, 2.9);  // grotto — el mapa del Capitán
+  addChest('chest_antigua_1', 632, 148, 0.5);             // faro plateau terrace
+  addChest('chest_antigua_2', -134, -262, 1.8);           // stone circle edge
+  addChest('chest_antigua_3', -336, 192, -1.1);           // west wreck coast
 
   // Shipwright material crates (oak for the Colibrí refit)
   const crateB = new StaticBuilder(colliders, 'crates');
@@ -327,12 +354,27 @@ export function buildWorld(
       evening: new THREE.Vector3(15, g(15, 175), 175),
       nightAtHome: true,
     },
+    {
+      id: 'halvard', name: 'Halvard el Herrador', paletteIndex: 0, cape: true, dialogueId: 'halvard',
+      home: new THREE.Vector3(34, g(34, 150), 150),
+      work: new THREE.Vector3(34, g(34, 153), 153),
+      evening: new THREE.Vector3(12, g(12, 173), 173),
+      nightAtHome: true,
+    },
   ];
 
-  prog(0.84, 'Soltando gaviotas sobre la bahía…');
+  prog(0.82, 'Soltando gaviotas sobre la bahía…');
   const gulls = new WildlifeSystem(scene, new THREE.Vector3(20, 3, 240), 9);
 
-  prog(0.9, 'Trazando el mapa de Aldmor…');
+  // --- Fase 4 world: sunken sanctuary, crow cove, flagship wreck,
+  //     Great Maple, stable, dig spot, fish spots, altars ---
+  prog(0.86, 'Despertando al Cuervo de Tres Cabezas…');
+  const fase4 = buildFase4World(scene, terrainHeight, colliders, assets);
+  for (const gr of fase4.groups) {
+    streamer.register(gr.group, gr.x, gr.z, gr.r);
+  }
+
+  prog(0.90, 'Trazando el mapa de Aldmor…');
   const mapCanvas = renderMapCanvas(terrainHeight);
 
   // Restore opened chests / picked herbs from a loaded save
@@ -373,6 +415,9 @@ export function buildWorld(
     mapCanvas,
     streamer,
     dockSpawn,
+    assets,
+    weather,
+    fase4,
   };
 }
 

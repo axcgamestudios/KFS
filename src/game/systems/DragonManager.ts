@@ -3,6 +3,7 @@ import { Dragon, type DragonDef } from '../entities/Dragon';
 import type { TerrainHeight } from '../world/TerrainHeight';
 import type { GameState } from './GameState';
 import type { VfxSystem } from './VfxSystem';
+import type { AssetSystem } from '../world/AssetSystem';
 
 /** Hooks the manager needs from the game (same pattern as NavalSystem). */
 export interface DragonManagerHooks {
@@ -66,6 +67,24 @@ export const DRAGON_DEFS: DragonDef[] = [
     lootGold: 220,
   },
   {
+    // Fase 4 — final boss: the repository's black dragon with its native
+    // idle clip + procedural combat on the same skeleton.
+    id: 'kraivenn', name: 'Kraivenn', title: 'El Cuervo de Tres Cabezas',
+    boss: true, wyvern: true, canFly: true,
+    useGlbModel: true,
+    spawnFlag: 'kraivenn_awake',
+    colors: { body: 0x17141c, belly: 0x3a3444, membrane: 0x241f2e, eye: 0xff4030, horn: 0x55505c },
+    scale: 1.55, maxHp: 950,
+    home: { x: -478, z: -520 }, territory: 120, aggroRange: 60,
+    attacks: ['bite', 'claw', 'tail', 'fire'],
+    meleeRange: 7.4, fireRange: 40, fireDps: 34, meleeDamage: 26,
+    speedGround: 4.2, speedFly: 12.5,
+    xp: 800, deathFlag: 'kraivenn_dead', introFlag: 'kraivenn_intro',
+    phase2At: 0.62, phase3At: 0.3,
+    drops: [{ id: 'corazon_cuervo', count: 1 }, { id: 'reliquia_cuervo', count: 3 }],
+    lootGold: 400,
+  },
+  {
     id: 'drake_stones', name: 'Drakeling de las Vigilias', boss: false,
     wyvern: false, canFly: false,
     colors: { body: 0x6a4034, belly: 0xa8846a, membrane: 0x8a5a4a, eye: 0xffb050, horn: 0x3a2620 },
@@ -116,15 +135,26 @@ export class DragonManager {
     state: GameState,
     vfx: VfxSystem,
     hooks: DragonManagerHooks,
+    assets?: AssetSystem,
   ) {
     this.terrain = terrain;
     this.state = state;
     this.vfx = vfx;
     this.hooks = hooks;
+    this.scene = scene;
+    this.assets = assets ?? null;
 
-    // Spawn the world dragons (skarnvind waits for its sea event)
+    // Spawn the world dragons (skarnvind waits for its sea event;
+    // kraivenn waits for the black altar awakening)
     for (const def of DRAGON_DEFS) {
       if (def.id === 'skarnvind') continue;
+      if (def.spawnFlag) {
+        // Deferred boss: spawn on load only if it was already awake and alive
+        if (state.hasFlag(def.spawnFlag) && !state.hasFlag(def.deathFlag)) {
+          this.spawnDeferred(def, true);
+        }
+        continue;
+      }
       const dragon = new Dragon(def, scene, def.id.length * 7 + def.home.x);
       const deadAlready = state.hasFlag(def.deathFlag);
       dragon.spawnAt(terrain, false);
@@ -139,6 +169,43 @@ export class DragonManager {
       this.dragons.push(dragon);
       this.byId.set(def.id, dragon);
     }
+  }
+
+  private scene: THREE.Scene;
+  private assets: AssetSystem | null;
+
+  /** Build a deferred dragon (Kraivenn) — called by the altar awakening. */
+  spawnDeferred(def: DragonDef, restored = false): Dragon | null {
+    if (this.byId.has(def.id)) return this.byId.get(def.id)!;
+    const loader = this.assets
+      ? () => this.assets!.loadModelWithAnimations('black_dragon.glb')
+      : undefined;
+    const dragon = new Dragon(def, this.scene, 4242, loader);
+    dragon.spawnAt(this.terrain, false);
+    dragon.setStepHook(() => this.hooks.sound('thud'));
+    this.dragons.push(dragon);
+    this.byId.set(def.id, dragon);
+    if (!restored) {
+      // Awakening: a beat of stillness, then the fight begins
+      dragon.aggro = false;
+      this.hooks.cameraShake(0.9);
+      this.hooks.sound('roar_big');
+      setTimeout(() => {
+        if (dragon.alive) dragon.aggro = true;
+      }, 2200);
+    } else {
+      // Restored mid-fight from a save: engage directly
+      dragon.aggro = true;
+    }
+    return dragon;
+  }
+
+  /** Fase 4 — the black altar awakens Kraivenn (Game wires the interactable). */
+  awakenKraivenn(): void {
+    const def = DRAGON_DEFS.find((d) => d.id === 'kraivenn');
+    if (!def) return;
+    this.hooks.setFlag('kraivenn_awake');
+    this.spawnDeferred(def, false);
   }
 
   // ---------------------------------------------------------------- events

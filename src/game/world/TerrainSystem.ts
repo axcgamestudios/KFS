@@ -209,16 +209,31 @@ export class TerrainSystem {
     );
 
     if (worldDistFromCenter < 560 || ISLANDS.some((i) => Math.hypot(ox + size / 2 - i.x, oz + size / 2 - i.z) < i.radius * 1.25)) {
-      const attempts = 34;
+      // Fase 4: denser forests (was 34 attempts) with 6 species
+      const attempts = 52;
       for (let a = 0; a < attempts; a++) {
         const x = ox + rand() * size;
         const z = oz + rand() * size;
         const h = this.terrain.height(x, z);
         const slope = this.terrain.slope(x, z, h);
         const fm = this.terrain.forestMask(x, z);
-        if (this.terrain.canPlaceTree(x, z, h, slope) && rand() < fm * 0.92 + 0.035) {
-          // Species: 0 oak, 1 pine, 2 birch — by altitude + noise
-          const species = h > 34 ? (rand() < 0.75 ? 1 : 0) : fm > 0.45 ? (rand() < 0.7 ? 0 : 2) : rand() < 0.55 ? 2 : 0;
+        if (this.terrain.canPlaceTree(x, z, h, slope) && rand() < fm * 0.94 + 0.035) {
+          // Species: 0 oak · 1 pine · 2 birch · 3 maple · 4 spruce · 5 dead —
+          // chosen by altitude, forest density and slope (biome feel).
+          let species: number;
+          if (h > 44) {
+            // High ground: spruce dominate, some pines, lone dead snags
+            species = rand() < 0.68 ? 4 : rand() < 0.85 ? 1 : 5;
+          } else if (slope > 0.42) {
+            // Rough ground: gnarled oaks and dead trees cling on
+            species = rand() < 0.55 ? 0 : rand() < 0.6 ? 5 : 1;
+          } else if (fm > 0.45) {
+            // Dense forest: oak & maple with birch understory
+            species = rand() < 0.42 ? 0 : rand() < 0.68 ? 3 : rand() < 0.88 ? 2 : 1;
+          } else {
+            // Open meadow: birch groves and lone oaks/maples
+            species = rand() < 0.38 ? 2 : rand() < 0.72 ? 0 : 3;
+          }
           trees.push({
             x, z, y: h,
             species,

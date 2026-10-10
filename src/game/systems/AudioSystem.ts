@@ -214,6 +214,9 @@ export class AudioSystem {
         this.warDrum(this.bossIntensity);
       }
     }
+
+    // Fase 4 — rain bed follows the weather
+    this.tickRain(dt);
   }
 
   /** Deep two-hit war drum for boss fights. */
@@ -413,6 +416,7 @@ export class AudioSystem {
     | 'cannon' | 'hit_hull' | 'anchor' | 'sail' | 'grapple' | 'creak' | 'sink'
     | 'roar' | 'roar_big' | 'wing' | 'wing_big' | 'thud' | 'fire' | 'hit_scale'
     | 'block' | 'bow_draw' | 'bow_release' | 'arrow_hit' | 'stagger' | 'boss_die' | 'swap'
+    | 'hoof' | 'hoof_gallop' | 'horse_neigh' | 'chain' | 'thunder' | 'rain_start' | 'cart_rattle' | 'ending'
   ): void {
     switch (kind) {
       case 'discovery':
@@ -548,7 +552,129 @@ export class AudioSystem {
         this.noiseBurst({ freq: 1500, q: 1.6, dur: 0.12, gain: 0.05 });
         this.tone(500, 0.09, 0.04, 'triangle', 640);
         break;
+      // ---------------- Fase 4: mounts, carts & weather ----------------
+      case 'hoof':
+        // Soft turf thud (walk/trot)
+        this.noiseBurst({ freq: 260, q: 0.9, type: 'lowpass', dur: 0.09, gain: 0.055 });
+        this.tone(140, 0.07, 0.03, 'sine', 70);
+        break;
+      case 'hoof_gallop':
+        // Harder four-beat thump
+        this.noiseBurst({ freq: 320, q: 1.1, type: 'lowpass', dur: 0.12, gain: 0.09 });
+        this.tone(110, 0.1, 0.05, 'sine', 55);
+        break;
+      case 'horse_neigh':
+        // Whinny: rising-falling saw with vibrato
+        this.neigh();
+        break;
+      case 'chain':
+        this.noiseBurst({ freq: 2600, q: 2.4, type: 'bandpass', dur: 0.3, gain: 0.05 });
+        this.tone(1800, 0.18, 0.02, 'square', 900);
+        break;
+      case 'cart_rattle':
+        this.noiseBurst({ freq: 480, q: 1.4, type: 'bandpass', dur: 0.4, gain: 0.06 });
+        this.tone(90, 0.3, 0.04, 'triangle', 60);
+        break;
+      case 'thunder':
+        this.thunder(0.4 + Math.random() * 0.6);
+        break;
+      case 'rain_start':
+        this.noiseBurst({ freq: 900, q: 0.5, type: 'lowpass', dur: 1.6, gain: 0.05 });
+        break;
+      case 'ending':
+        // Slow medieval cadence for the endings
+        [392, 493.88, 587.33, 783.99].forEach((f, i) =>
+          this.tone(f, 2.2, 0.045, 'sine', undefined, i * 0.55));
+        break;
     }
+  }
+
+  /** Horse whinny — formant-ish vibrato cry. */
+  private neigh(): void {
+    if (!this.ctx || !this.sfxGain) return;
+    const t = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(620, t);
+    osc.frequency.linearRampToValueAtTime(880, t + 0.16);
+    osc.frequency.linearRampToValueAtTime(560, t + 0.55);
+    // vibrato
+    const lfo = this.ctx.createOscillator();
+    lfo.frequency.value = 26;
+    const lfoGain = this.ctx.createGain();
+    lfoGain.gain.value = 42;
+    lfo.connect(lfoGain).connect(osc.frequency);
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.035, t + 0.06);
+    g.gain.setValueAtTime(0.035, t + 0.4);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.7);
+    // Band-pass to make it horsey rather than buzzy
+    const filt = this.ctx.createBiquadFilter();
+    filt.type = 'bandpass';
+    filt.frequency.value = 900;
+    filt.Q.value = 1.6;
+    osc.connect(filt).connect(g).connect(this.sfxGain);
+    osc.start(t);
+    lfo.start(t);
+    osc.stop(t + 0.75);
+    lfo.stop(t + 0.75);
+  }
+
+  /** Rolling thunder — layered noise bursts with long lowpass tails. */
+  private thunder(power = 1): void {
+    if (!this.ctx || !this.sfxGain || !this.noiseBuffer) return;
+    const t = this.ctx.currentTime;
+    for (let i = 0; i < 3; i++) {
+      const src = this.ctx.createBufferSource();
+      src.buffer = this.noiseBuffer;
+      src.playbackRate.value = 0.32 + i * 0.14;
+      const filt = this.ctx.createBiquadFilter();
+      filt.type = 'lowpass';
+      filt.frequency.setValueAtTime(420 - i * 110, t + i * 0.24);
+      filt.frequency.exponentialRampToValueAtTime(60, t + 2.4 + i * 0.3);
+      const g = this.ctx.createGain();
+      const at = t + i * 0.26;
+      g.gain.setValueAtTime(0, at);
+      g.gain.linearRampToValueAtTime(0.16 * power * (1 - i * 0.25), at + 0.09);
+      g.gain.exponentialRampToValueAtTime(0.0001, at + 2.2 + i * 0.35);
+      src.connect(filt).connect(g).connect(this.sfxGain);
+      src.start(at);
+      src.stop(at + 3.2);
+    }
+  }
+
+  /** Continuous rain bed — gain driven by the weather system. */
+  private rainGain: GainNode | null = null;
+  private rainTarget = 0;
+
+  setRain(intensity: number): void {
+    this.rainTarget = clamp(intensity, 0, 1);
+    if (!this.ctx || !this.ambienceGain || !this.noiseBuffer || this.rainGain) return;
+    try {
+      const src = this.ctx.createBufferSource();
+      src.buffer = this.noiseBuffer;
+      src.loop = true;
+      src.playbackRate.value = 0.85;
+      const filt = this.ctx.createBiquadFilter();
+      filt.type = 'bandpass';
+      filt.frequency.value = 2400;
+      filt.Q.value = 0.45;
+      this.rainGain = this.ctx.createGain();
+      this.rainGain.gain.value = 0;
+      src.connect(filt).connect(this.rainGain).connect(this.ambienceGain);
+      src.start();
+    } catch {
+      this.rainGain = null;
+    }
+  }
+
+  /** Called from update() — smooth the rain bed toward the target. */
+  private tickRain(dt: number): void {
+    if (!this.rainGain) return;
+    const cur = this.rainGain.gain.value;
+    const next = cur + (this.rainTarget * 0.16 - cur) * Math.min(1, dt * 1.5);
+    this.rainGain.gain.value = next;
   }
 
   playWhooshVoice(): void {
