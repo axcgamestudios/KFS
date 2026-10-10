@@ -37,6 +37,25 @@ export interface QuestTracker {
   objectives: Array<{ text: string; done: boolean }>;
 }
 
+/** Boss fight HUD state (Fase 3). */
+export interface BossHud {
+  name: string;
+  title: string;
+  hp: number;
+  maxHp: number;
+  phase: number;
+}
+
+/** Weapon slot HUD state (Fase 3). */
+export interface WeaponSlotHud {
+  slot: number;
+  id: string;
+  name: string;
+  owned: boolean;
+  equipped: boolean;
+  kind: string;
+}
+
 interface GameStore {
   phase: GamePhase;
   overlay: OverlayKind;
@@ -54,6 +73,13 @@ interface GameStore {
   notifications: Notification[];
   dialogue: DialogueState | null;
   sailing: SailingHud | null;
+  boss: BossHud | null;
+  weaponSlots: WeaponSlotHud[];
+  bowDraw: number;
+  /** True while steering the ship (weapon HUD hidden at the helm). */
+  atHelm: boolean;
+  /** Increments on every hit taken — triggers the red vignette flash. */
+  hurtFlash: number;
   // Progression
   level: number;
   xp: number;
@@ -76,7 +102,11 @@ interface GameStore {
   setPhase: (p: GamePhase) => void;
   openOverlay: (o: OverlayKind) => void;
   closeOverlay: () => void;
-  setHud: (h: Partial<Pick<GameStore, 'health' | 'maxHealth' | 'stamina' | 'maxStamina' | 'clock' | 'dayCount' | 'prompt' | 'questTracker' | 'fps' | 'sailing'>>) => void;
+  setHud: (h: Partial<Pick<GameStore, 'health' | 'maxHealth' | 'stamina' | 'maxStamina' | 'clock' | 'dayCount' | 'prompt' | 'questTracker' | 'fps' | 'sailing' | 'atHelm'>>) => void;
+  setBoss: (b: BossHud | null) => void;
+  setWeaponSlots: (s: WeaponSlotHud[]) => void;
+  setBowDraw: (v: number) => void;
+  triggerHurtFlash: () => void;
   setDialogue: (d: DialogueState | null) => void;
   setDiscovery: (d: { title: string; sub: string } | null) => void;
   notify: (kind: Notification['kind'], title: string, body?: string) => void;
@@ -106,6 +136,11 @@ export const useGameStore = create<GameStore>((set) => ({
   notifications: [],
   dialogue: null,
   sailing: null,
+  boss: null,
+  weaponSlots: [],
+  bowDraw: -1,
+  atHelm: false,
+  hurtFlash: 0,
   level: 1,
   xp: 0,
   xpToNext: 120,
@@ -125,6 +160,10 @@ export const useGameStore = create<GameStore>((set) => ({
   openOverlay: (o) => set({ overlay: o }),
   closeOverlay: () => set((s) => ({ overlay: null, previousOverlay: s.overlay })),
   setHud: (h) => set(h as Partial<GameStore>),
+  setBoss: (b) => set({ boss: b }),
+  setWeaponSlots: (s) => set({ weaponSlots: s }),
+  setBowDraw: (v) => set({ bowDraw: v }),
+  triggerHurtFlash: () => set((s) => ({ hurtFlash: s.hurtFlash + 1 })),
   setDialogue: (d) => set({ dialogue: d }),
   setDiscovery: (d) => set({ discovery: d }),
   notify: (kind, title, body) =>

@@ -129,6 +129,10 @@ export const POIS: POIDef[] = [
     id: 'bruma', name: 'Las Islas de la Bruma', x: -20, z: 790, radius: 115, xp: 40,
     journal: 'Arenas blancas, palmeras bajas y niebla tibia. Entre conchas y maderas varadas encontré señales de que alguien ha acampado aquí hace poco. Alguien que cocinó pescado y talló espirales en la arena.',
   },
+  {
+    id: 'nido', name: 'Nido del Ancestro', x: 20, z: -300, radius: 50, xp: 60,
+    journal: 'Una plataforma de roca y hielo corona las Garrahielo, barrida por un viento que silba como una flauta rota. Hay huesos de ballena, un lecho de monedas congeladas... y un cerradero de piedra con la forma exacta de una garra. Algo inmenso duerme aquí. Algo que recuerda a los reyes hundidos.',
+  },
 ];
 
 /** Dirt roads as polylines (tint terrain + block trees). */
@@ -190,6 +194,7 @@ export const FLATS: FlatDef[] = [
   { x: -570, z: -515, r: 42, h: 18 },  // Fortaleza del Cuervo terrace
   { x: 652, z: 128, r: 26, h: 22 },    // Faro plateau
   { x: -80, z: 748, r: 24, h: 4 },     // Mist isles camp
+  { x: 20, z: -300, r: 30, h: 88 },    // Nido del Ancestro (snowy summit plateau)
 ];
 
 /** Global sailing wind — slow precession, shared by ships, HUD and audio. */

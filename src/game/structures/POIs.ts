@@ -243,3 +243,82 @@ export function buildWaterfall(
     foam,
   };
 }
+
+/** Nido del Ancestro — snowy summit plateau: whale-bone arches, a frozen
+ *  hoard bed, hatched egg shells and the claw-shaped lock stone. */
+export function buildDragonLair(
+  b: StaticBuilder, terrain: { height(x: number, z: number): number },
+): { lockStone: THREE.Vector3 } {
+  const poi = POIS.find((p) => p.id === 'nido')!;
+  const rand = mulberry32(1337);
+  const g = (x: number, z: number) => terrain.height(x, z);
+  const cx = poi.x, cz = poi.z;
+  const cy = g(cx, cz);
+
+  // Whale-rib arches around the nest bowl
+  for (let i = 0; i < 7; i++) {
+    const a = (i / 7) * Math.PI * 2 + 0.3;
+    const r = 12 + rand() * 3;
+    const px = cx + Math.cos(a) * r;
+    const pz = cz + Math.sin(a) * r;
+    const gy = g(px, pz);
+    const h = 4.5 + rand() * 3;
+    // Curved rib: two segments leaning inward
+    b.add(new THREE.CylinderGeometry(0.16, 0.26, h, 6), 'plaster',
+      px - Math.cos(a) * 0.9, gy + h / 2, pz - Math.sin(a) * 0.9, a, 1, 1, 1, 0.22);
+    b.add(new THREE.CylinderGeometry(0.12, 0.16, h * 0.7, 6), 'plaster',
+      px - Math.cos(a) * 2.2, gy + h + h * 0.28, pz - Math.sin(a) * 2.2, a, 1, 1, 1, 0.6);
+    b.addCylinderCollider(px, pz, 0.5, gy, gy + h);
+  }
+
+  // The hoard bed: a low mound of frozen coins and grave goods
+  b.cylinder('stoneDark', 6.4, 7.4, 0.7, 14, cx, cy + 0.35, cz);
+  for (let i = 0; i < 26; i++) {
+    const a = rand() * Math.PI * 2;
+    const r = rand() * 5.6;
+    const px = cx + Math.cos(a) * r;
+    const pz = cz + Math.sin(a) * r;
+    const s = 0.16 + rand() * 0.3;
+    b.add(new THREE.IcosahedronGeometry(s, 0), rand() < 0.55 ? 'gold' : 'metal',
+      px, cy + 0.75 + rand() * 0.15, pz, rand() * Math.PI);
+  }
+  // Scattered ancient coins (flat discs)
+  for (let i = 0; i < 14; i++) {
+    const a = rand() * Math.PI * 2;
+    const r = 2 + rand() * 6;
+    b.add(new THREE.CylinderGeometry(0.14, 0.14, 0.03, 8), 'gold',
+      cx + Math.cos(a) * r, cy + 0.74, cz + Math.sin(a) * r, 0, 1 + rand() * 0.4, 1, 1, Math.PI / 2 * rand());
+  }
+
+  // Hatched egg shells (big broken ellipsoids)
+  for (const [ox, oz] of [[-8.5, 3], [7, -7.5], [3.5, 8]] as Array<[number, number]>) {
+    const px = cx + ox, pz = cz + oz;
+    const gy = g(px, pz);
+    b.add(new THREE.SphereGeometry(1.15, 10, 8, 0, Math.PI * 2, 0, Math.PI * 0.62), 'plaster',
+      px, gy + 0.35, pz, rand() * Math.PI, 1, 0.8, 1);
+    b.addCylinderCollider(px, pz, 1.0, gy, gy + 1.0);
+  }
+
+  // The claw-lock stone: a dark monolith with a glowing claw-shaped socket
+  const lx = cx + 9, lz = cz + 6;
+  const ly = g(lx, lz);
+  b.box('stoneDark', 1.6, 3.4, 0.9, lx, ly + 1.7, lz, -0.6);
+  b.addBoxCollider(lx, ly + 1.7, lz, 1.7, 3.4, 1.0, -0.6);
+  // Claw socket: three glowing slits shaped like a wyvern's talon
+  for (let i = 0; i < 3; i++) {
+    const off = (i - 1) * 0.38;
+    b.add(new THREE.BoxGeometry(0.1, 1.1 - Math.abs(i - 1) * 0.3, 0.06), 'rune',
+      lx + Math.sin(-0.6) * 0.5 + off * 0.4, ly + 2.2 - Math.abs(i - 1) * 0.35, lz + Math.cos(-0.6) * 0.5 + off * 0.28, -0.6);
+  }
+
+  // Broken banners of the old Order frozen into the ice
+  for (const [ox, oz, a] of [[-4, -10, 0.4], [11, 1, -1.2]] as Array<[number, number, number]>) {
+    const px = cx + ox, pz = cz + oz;
+    const gy = g(px, pz);
+    b.box('woodDark', 0.14, 4.2, 0.14, px, gy + 2.1, pz, a);
+    b.add(new THREE.PlaneGeometry(1.5, 2.2), 'clothGold', px + Math.sin(a + Math.PI / 2) * 0.75, gy + 3.2, pz + Math.cos(a + Math.PI / 2) * 0.75, a + Math.PI / 2);
+    b.addCylinderCollider(px, pz, 0.25, gy, gy + 4.2);
+  }
+
+  return { lockStone: new THREE.Vector3(lx, ly, lz) };
+}

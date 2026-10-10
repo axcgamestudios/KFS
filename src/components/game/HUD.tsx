@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useGameStore, type Notification, type SailingHud } from '@/store/gameStore';
-import { Compass, Heart, Mountain, Wind, Anchor, Ship } from 'lucide-react';
+import { useGameStore, type Notification, type SailingHud, type BossHud, type WeaponSlotHud } from '@/store/gameStore';
+import { Compass, Heart, Mountain, Wind, Anchor, Ship, Sword, Axe, Navigation, BowArrow } from 'lucide-react';
 
 /** Compass strip with cardinal points sliding by camera yaw. */
 function CompassStrip() {
@@ -183,6 +183,78 @@ function SailingPanel({ s }: { s: SailingHud }) {
   );
 }
 
+/** Boss health bar with phase pips (Fase 3). */
+function BossBar({ b }: { b: BossHud }) {
+  const pct = Math.max(0, (b.hp / b.maxHp) * 100);
+  return (
+    <div className="absolute left-1/2 top-16 w-[min(560px,72vw)] -translate-x-1/2">
+      <div className="kotfs-panel px-5 py-2.5" style={{ borderColor: 'rgba(192,86,86,0.45)' }}>
+        <div className="flex items-baseline justify-between gap-3">
+          <span className="kotfs-title text-sm tracking-[0.2em] text-[color:#d88080] kotfs-shadow-text">
+            {b.name.toUpperCase()}
+          </span>
+          <span className="text-[0.6rem] italic tracking-wider text-[color:var(--kotfs-parchment-dim)]">
+            {b.title}
+          </span>
+          {b.phase > 1 && (
+            <span className="kotfs-title text-[0.58rem] tracking-widest text-[color:var(--kotfs-gold)]">
+              FASE {b.phase}
+            </span>
+          )}
+        </div>
+        <div className="kotfs-bar mt-1.5 h-[9px]">
+          <div
+            className="kotfs-bar-fill"
+            style={{
+              width: `${pct}%`,
+              background: pct > 40
+                ? 'linear-gradient(90deg,#6e1f1f,#c05656)'
+                : 'linear-gradient(90deg,#8a2f0f,#e08a3a)',
+            }}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Weapon quick-slots (keys 1-4). */
+function WeaponSlots({ slots }: { slots: WeaponSlotHud[] }) {
+  if (slots.length === 0) return null;
+  const icons: Record<string, typeof Sword> = { sword: Sword, axe: Axe, spear: Navigation, bow: BowArrow };
+  return (
+    <div className="absolute bottom-24 right-5 flex flex-col gap-1.5">
+      {slots.map((s) => {
+        const Icon = icons[s.kind] ?? Sword;
+        return (
+          <div
+            key={s.id}
+            className={`flex items-center gap-2 border px-2.5 py-1.5 ${
+              s.equipped
+                ? 'border-[color:var(--kotfs-gold)] bg-black/55'
+                : s.owned
+                  ? 'border-[color:rgba(201,162,39,0.3)] bg-black/35'
+                  : 'border-[color:rgba(120,120,120,0.15)] bg-black/25 opacity-35'
+            }`}
+          >
+            <span className="kotfs-title w-3 text-center text-[0.6rem] text-[color:var(--kotfs-parchment-dim)]">
+              {s.slot}
+            </span>
+            <Icon size={14} className={s.equipped ? 'text-[color:var(--kotfs-gold)]' : 'text-[color:var(--kotfs-parchment-dim)]'} />
+            <span
+              className={`kotfs-title text-[0.62rem] tracking-wider ${
+                s.equipped ? 'text-[color:var(--kotfs-parchment)]' : 'text-[color:var(--kotfs-parchment-dim)]'
+              }`}
+            >
+              {s.name.toUpperCase()}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function HUD() {
   const health = useGameStore((s) => s.health);
   const maxHealth = useGameStore((s) => s.maxHealth);
@@ -200,6 +272,11 @@ export default function HUD() {
   const overlay = useGameStore((s) => s.overlay);
   const dialogue = useGameStore((s) => s.dialogue);
   const sailing = useGameStore((s) => s.sailing);
+  const boss = useGameStore((s) => s.boss);
+  const weaponSlots = useGameStore((s) => s.weaponSlots);
+  const bowDraw = useGameStore((s) => s.bowDraw);
+  const atHelm = useGameStore((s) => s.atHelm);
+  const hurtFlash = useGameStore((s) => s.hurtFlash);
 
   const hidden = overlay !== null || dialogue !== null;
   if (hidden) return null;
@@ -213,6 +290,9 @@ export default function HUD() {
           DÍA {dayCount} · {clock}
         </p>
       </div>
+
+      {/* --- Boss health bar (Fase 3) --- */}
+      {boss && <BossBar b={boss} />}
 
       {/* --- Top right: quest tracker --- */}
       {questTracker && (
@@ -293,17 +373,44 @@ export default function HUD() {
       {/* --- Bottom right: naval panel (when aboard) --- */}
       {sailing && <SailingPanel s={sailing} />}
 
+      {/* --- Weapon quick-slots (on foot, Fase 3; hidden at the helm) --- */}
+      {!atHelm && <WeaponSlots slots={weaponSlots} />}
+
+      {/* --- Bow crosshair while drawing --- */}
+      {!atHelm && bowDraw >= 0 && (
+        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
+          <div
+            className="rounded-full border border-[color:var(--kotfs-gold)] transition-all"
+            style={{
+              width: `${10 + (1 - Math.max(0, bowDraw)) * 26}px`,
+              height: `${10 + (1 - Math.max(0, bowDraw)) * 26}px`,
+              opacity: 0.35 + Math.max(0, bowDraw) * 0.5,
+            }}
+          />
+          <span className="absolute left-1/2 top-1/2 h-[2px] w-[2px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[color:var(--kotfs-gold)]" />
+        </div>
+      )}
+
+      {/* --- Damage vignette --- */}
+      {hurtFlash !== 0 && (
+        <div
+          key={hurtFlash}
+          className="kotfs-hurt-vignette pointer-events-none absolute inset-0"
+        />
+      )}
+
       {/* --- Bottom right: keymap hint --- */}
       <div className="absolute bottom-5 right-5 text-right text-[0.6rem] leading-relaxed tracking-wider text-[color:var(--kotfs-parchment-dim)] opacity-50">
         {sailing ? (
           <>
             <p>W/S VELAS · A/D TIMÓN · ESPACIO FONDEAR</p>
             <p>CLIC IZQ./DER. BORDADAS · RUEDA ZOOM · E DESEMBARCAR/ABORDAR</p>
+            {boss && <p className="text-[color:var(--kotfs-gold)]">¡APUNTA LAS BORDADAS AL WYVERN!</p>}
           </>
         ) : (
           <>
-            <p>TAB INVENTARIO · M MAPA · J DIARIO · K HABILIDADES</p>
-            <p>WASD MOVER · MAYÚS CORRER · ESPACIO SALTAR · E INTERACTUAR · F FAROL</p>
+            <p>CLIC ATACAR (MANTÉN = PESADO) · CLIC DER. BLOQUEAR · C ESQUIVAR</p>
+            <p>1-4 ARMAS · WASD MOVER · MAYÚS CORRER · ESPACIO SALTAR · E INTERACTUAR</p>
           </>
         )}
       </div>

@@ -25,6 +25,9 @@ export class AudioSystem {
   private chordIndex = 0;
   private melodyTimer = 0;
   musicIntensity = 0; // 0 calm exploration … 1 dramatic
+  /** Boss fight layer: war drums pulse while > 0. */
+  bossIntensity = 0;
+  private drumTimer = 0;
 
   private volumes = { master: 0.8, music: 0.6, sfx: 0.9 };
   private noiseBuffer: AudioBuffer | null = null;
@@ -202,6 +205,36 @@ export class AudioSystem {
       this.melodyTimer = 2.2 + Math.random() * 3.5;
       if (Math.random() < 0.55) this.playMelodyNote();
     }
+
+    // Boss war drums (taiko-ish pulse while a boss fight is active)
+    if (this.bossIntensity > 0.01) {
+      this.drumTimer -= dt;
+      if (this.drumTimer <= 0) {
+        this.drumTimer = 0.46;
+        this.warDrum(this.bossIntensity);
+      }
+    }
+  }
+
+  /** Deep two-hit war drum for boss fights. */
+  private warDrum(power: number): void {
+    if (!this.ctx || !this.musicGain) return;
+    const t = this.ctx.currentTime;
+    const hit = (at: number, freq: number, gain: number) => {
+      const osc = this.ctx!.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, at);
+      osc.frequency.exponentialRampToValueAtTime(freq * 0.55, at + 0.18);
+      const g = this.ctx!.createGain();
+      g.gain.setValueAtTime(0, at);
+      g.gain.linearRampToValueAtTime(gain, at + 0.012);
+      g.gain.exponentialRampToValueAtTime(0.0001, at + 0.34);
+      osc.connect(g).connect(this.musicGain!);
+      osc.start(at);
+      osc.stop(at + 0.4);
+    };
+    hit(t, 96, 0.16 * power);
+    hit(t + 0.22, 72, 0.1 * power);
   }
 
   // ---------------- Ambience voices ----------------
@@ -375,7 +408,12 @@ export class AudioSystem {
     else this.tone(420, 0.1, 0.04, 'triangle', 300);
   }
 
-  playEvent(kind: 'discovery' | 'quest' | 'levelup' | 'chest' | 'pickup' | 'swing' | 'damage' | 'splash' | 'unlock' | 'cannon' | 'hit_hull' | 'anchor' | 'sail' | 'grapple' | 'creak' | 'sink'): void {
+  playEvent(kind:
+    | 'discovery' | 'quest' | 'levelup' | 'chest' | 'pickup' | 'swing' | 'damage' | 'splash' | 'unlock'
+    | 'cannon' | 'hit_hull' | 'anchor' | 'sail' | 'grapple' | 'creak' | 'sink'
+    | 'roar' | 'roar_big' | 'wing' | 'wing_big' | 'thud' | 'fire' | 'hit_scale'
+    | 'block' | 'bow_draw' | 'bow_release' | 'arrow_hit' | 'stagger' | 'boss_die' | 'swap'
+  ): void {
     switch (kind) {
       case 'discovery':
         this.tone(587.33, 0.5, 0.06, 'sine');
@@ -440,6 +478,75 @@ export class AudioSystem {
       case 'sink':
         this.tone(160, 1.6, 0.12, 'sine', 40);
         this.noiseBurst({ freq: 400, q: 0.4, type: 'lowpass', dur: 1.8, gain: 0.18 });
+        break;
+      case 'roar':
+        // Mid growl: descending saw + throaty noise
+        this.tone(210, 0.85, 0.14, 'sawtooth', 95);
+        this.tone(105, 0.9, 0.12, 'square', 60);
+        this.noiseBurst({ freq: 340, q: 0.8, type: 'bandpass', dur: 0.8, gain: 0.12 });
+        break;
+      case 'roar_big':
+        // Boss roar: deep, long, with rumble
+        this.tone(140, 1.7, 0.2, 'sawtooth', 58);
+        this.tone(70, 1.9, 0.17, 'square', 36);
+        this.noiseBurst({ freq: 220, q: 0.6, type: 'lowpass', dur: 1.6, gain: 0.2 });
+        this.tone(50, 2.1, 0.12, 'sine', 32);
+        break;
+      case 'wing':
+        this.noiseBurst({ freq: 700, q: 0.5, type: 'bandpass', dur: 0.4, gain: 0.09 });
+        break;
+      case 'wing_big':
+        this.noiseBurst({ freq: 300, q: 0.4, type: 'lowpass', dur: 0.75, gain: 0.16 });
+        this.tone(85, 0.5, 0.07, 'sine', 45);
+        break;
+      case 'thud':
+        this.tone(90, 0.35, 0.16, 'sine', 36);
+        this.noiseBurst({ freq: 180, q: 0.5, type: 'lowpass', dur: 0.3, gain: 0.13 });
+        break;
+      case 'fire':
+        // Crackling breath
+        this.noiseBurst({ freq: 900, q: 0.7, type: 'bandpass', dur: 1.4, gain: 0.14 });
+        this.noiseBurst({ freq: 2600, q: 1.2, type: 'highpass', dur: 1.1, gain: 0.06 });
+        this.tone(120, 1.3, 0.08, 'sawtooth', 80);
+        break;
+      case 'hit_scale':
+        // Steel on dragon scales: metallic cling + heavy thump
+        this.tone(1400 + Math.random() * 320, 0.16, 0.06, 'triangle', 900);
+        this.tone(150, 0.2, 0.11, 'sawtooth', 70);
+        this.noiseBurst({ freq: 2000, q: 2.4, dur: 0.14, gain: 0.07 });
+        break;
+      case 'block':
+        // Shield clang
+        this.tone(880 + Math.random() * 200, 0.22, 0.08, 'triangle', 500);
+        this.tone(2200, 0.12, 0.035, 'sine', 1500);
+        this.noiseBurst({ freq: 3000, q: 1.8, type: 'highpass', dur: 0.16, gain: 0.06 });
+        break;
+      case 'bow_draw':
+        this.noiseBurst({ freq: 1200, q: 2.2, dur: 0.35, gain: 0.05 });
+        this.tone(320, 0.3, 0.03, 'triangle', 390);
+        break;
+      case 'bow_release':
+        this.noiseBurst({ freq: 2200, q: 0.9, type: 'highpass', dur: 0.18, gain: 0.09 });
+        this.tone(600, 0.12, 0.05, 'triangle', 220);
+        break;
+      case 'arrow_hit':
+        this.tone(400, 0.1, 0.06, 'square', 180);
+        this.noiseBurst({ freq: 900, q: 1.4, dur: 0.1, gain: 0.06 });
+        break;
+      case 'stagger':
+        this.tone(180, 0.7, 0.1, 'sawtooth', 70);
+        this.tone(90, 0.9, 0.09, 'sine', 45);
+        break;
+      case 'boss_die':
+        this.tone(170, 2.6, 0.2, 'sawtooth', 40);
+        this.tone(60, 3.0, 0.16, 'sine', 28);
+        this.noiseBurst({ freq: 300, q: 0.5, type: 'lowpass', dur: 2.6, gain: 0.18 });
+        this.tone(523.25, 1.4, 0.05, 'triangle', undefined, 1.1);
+        this.tone(783.99, 1.8, 0.04, 'sine', undefined, 1.5);
+        break;
+      case 'swap':
+        this.noiseBurst({ freq: 1500, q: 1.6, dur: 0.12, gain: 0.05 });
+        this.tone(500, 0.09, 0.04, 'triangle', 640);
         break;
     }
   }

@@ -2,8 +2,9 @@ import * as THREE from 'three';
 
 /**
  * Procedural humanoid character with articulated joints and code-driven
- * animations (idle breathing, walk, run, jump, swim, sword swing).
- * Reused for the player and all villagers with different palettes.
+ * animations (idle breathing, walk, run, jump, swim, weapon swings, block,
+ * dodge roll, bow draw). Reused for the player and all villagers with
+ * different palettes.
  */
 
 export interface CharacterPalette {
@@ -47,6 +48,9 @@ function box(w: number, h: number, d: number, color: number, rough = 0.85): THRE
   return m;
 }
 
+/** Weapon visual categories (mapped from item ids by the game). */
+export type WeaponKind = 'none' | 'sword' | 'axe' | 'spear' | 'bow';
+
 export interface AnimParams {
   dt: number;
   speed: number;        // horizontal speed m/s
@@ -55,6 +59,14 @@ export interface AnimParams {
   swimming: boolean;
   attackT: number;      // 0 = idle, 0..1 during swing
   talking?: boolean;
+  /** Attack animation variant (Fase 3). Default keeps the classic diagonal slash. */
+  attackKind?: 'light1' | 'light2' | 'heavy' | 'thrust' | 'bowRelease';
+  /** Block pose blend 0..1. */
+  blockT?: number;
+  /** Dodge roll progress 0..1 (drives the whole-body forward roll). */
+  rollT?: number;
+  /** Bow draw blend 0..1 (aim pose while drawing). */
+  bowDraw?: number;
 }
 
 export class CharacterModel {
@@ -71,13 +83,23 @@ export class CharacterModel {
   private elbowL = new THREE.Group();
   private elbowR = new THREE.Group();
   private cape: THREE.Mesh | null = null;
-  private swordHip = new THREE.Group();
-  private swordHand = new THREE.Group();
+  private hipSlots: Partial<Record<WeaponKind, THREE.Group>> = {};
+  private handSlots: Partial<Record<WeaponKind, THREE.Group>> = {};
+  private shieldGroup = new THREE.Group();
+  private bowInHand = new THREE.Group();
   private phase = Math.random() * 10;
   private t = 0;
+  private weapon: WeaponKind = 'none';
+  private weaponEquippedVisible = false;
+  private flashT = 0;
+  private flashMaterials: THREE.MeshStandardMaterial[] = [];
 
   constructor(palette: CharacterPalette) {
-    const mkMat = (c: number) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.85, metalness: 0.02 });
+    const mkMat = (c: number) => {
+      const m = new THREE.MeshStandardMaterial({ color: c, roughness: 0.85, metalness: 0.02 });
+      this.flashMaterials.push(m);
+      return m;
+    };
 
     this.root.add(this.hips);
     this.hips.position.y = 0.94;
@@ -85,9 +107,11 @@ export class CharacterModel {
     // --- Torso ---
     this.hips.add(this.chest);
     this.chest.position.y = 0.08;
-    const torso = box(0.42, 0.52, 0.26, palette.tunic);
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.52, 0.26), mkMat(palette.tunic));
     torso.position.y = 0.3;
+    torso.castShadow = true;
     this.chest.add(torso);
+    this.flashMaterials.push(torso.material as THREE.MeshStandardMaterial);
     // Belt
     const belt = box(0.45, 0.08, 0.28, 0x2e2118);
     belt.position.y = 0.06;
@@ -98,8 +122,9 @@ export class CharacterModel {
     this.chest.add(buckle);
     // Shoulder pads
     for (const s of [-1, 1]) {
-      const pad = box(0.16, 0.1, 0.22, palette.sleeves);
+      const pad = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.1, 0.22), mkMat(palette.sleeves));
       pad.position.set(s * 0.26, 0.5, 0);
+      pad.castShadow = true;
       this.chest.add(pad);
     }
 
@@ -124,13 +149,15 @@ export class CharacterModel {
     const buildArm = (side: number, arm: THREE.Group, elbow: THREE.Group) => {
       arm.position.set(side * 0.27, 0.48, 0);
       this.chest.add(arm);
-      const upper = box(0.11, 0.34, 0.13, palette.sleeves);
+      const upper = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.34, 0.13), mkMat(palette.sleeves));
       upper.position.y = -0.17;
+      upper.castShadow = true;
       arm.add(upper);
       elbow.position.y = -0.34;
       arm.add(elbow);
-      const fore = box(0.095, 0.3, 0.11, palette.sleeves);
+      const fore = new THREE.Mesh(new THREE.BoxGeometry(0.095, 0.3, 0.11), mkMat(palette.sleeves));
       fore.position.y = -0.15;
+      fore.castShadow = true;
       elbow.add(fore);
       const hand = box(0.09, 0.1, 0.1, palette.skin, 0.7);
       hand.position.y = -0.33;
@@ -143,13 +170,15 @@ export class CharacterModel {
     const buildLeg = (side: number, leg: THREE.Group, knee: THREE.Group) => {
       leg.position.set(side * 0.12, -0.02, 0);
       this.hips.add(leg);
-      const thigh = box(0.15, 0.42, 0.16, palette.pants);
+      const thigh = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.42, 0.16), mkMat(palette.pants));
       thigh.position.y = -0.21;
+      thigh.castShadow = true;
       leg.add(thigh);
       knee.position.y = -0.44;
       leg.add(knee);
-      const shin = box(0.13, 0.4, 0.14, palette.pants);
+      const shin = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.4, 0.14), mkMat(palette.pants));
       shin.position.y = -0.2;
+      shin.castShadow = true;
       knee.add(shin);
       const boot = box(0.15, 0.12, 0.24, palette.boots);
       boot.position.set(0, -0.4, 0.04);
@@ -170,49 +199,231 @@ export class CharacterModel {
       this.chest.add(this.cape);
     }
 
-    // --- Sword on the hip (visible when equipped) ---
-    this.buildSword(this.swordHip);
-    this.swordHip.position.set(0.22, 0.02, -0.05);
-    this.swordHip.rotation.set(0.2, 0, 0.25);
-    this.swordHip.visible = false;
-    this.chest.add(this.swordHip);
-    // Copy on the right hand (visible only during swings)
-    this.buildSword(this.swordHand);
-    this.swordHand.position.set(0, -0.36, 0.05);
-    this.swordHand.rotation.set(0, 0, Math.PI);
-    this.swordHand.visible = false;
-    this.elbowR.add(this.swordHand);
+    // --- Weapon park: one hip slot + one hand slot per weapon kind ---
+    for (const kind of ['sword', 'axe', 'spear'] as WeaponKind[]) {
+      const hip = new THREE.Group();
+      const hand = new THREE.Group();
+      this.buildWeapon(kind, hip, hand);
+      hip.visible = false;
+      hand.visible = false;
+      this.chest.add(hip);
+      this.elbowR.add(hand);
+      this.hipSlots[kind] = hip;
+      this.handSlots[kind] = hand;
+    }
+    // Hip weapon rest pose (sword at the belt, axe & spear across the back)
+    if (this.hipSlots.sword) this.hipSlots.sword.position.set(0.22, 0.02, -0.05);
+    if (this.hipSlots.axe) {
+      this.hipSlots.axe.position.set(-0.2, 0.32, -0.18);
+      this.hipSlots.axe.rotation.set(0.35, 0, 2.6);
+    }
+    if (this.hipSlots.spear) {
+      this.hipSlots.spear.position.set(-0.24, 0.1, -0.12);
+      this.hipSlots.spear.rotation.set(0.25, 0, 2.35);
+    }
+    for (const hand of Object.values(this.handSlots)) {
+      hand.position.set(0, -0.36, 0.05);
+      hand.rotation.set(0, 0, Math.PI);
+    }
 
-    void mkMat;
+    // --- Bow: carried on the back at rest, in the LEFT hand while drawn ---
+    this.buildBow(this.bowInHand);
+    this.bowInHand.position.set(0, -0.34, 0.1);
+    this.bowInHand.visible = false;
+    this.elbowL.add(this.bowInHand);
+
+    // --- Shield on the left forearm ---
+    this.buildShield(this.shieldGroup);
+    this.shieldGroup.position.set(-0.02, -0.3, 0.12);
+    this.shieldGroup.rotation.set(Math.PI / 2, 0, 0);
+    this.shieldGroup.visible = false;
+    this.elbowL.add(this.shieldGroup);
   }
 
-  private buildSword(parent: THREE.Group): void {
+  // ------------------------------------------------------------ weapons
+
+  private buildWeapon(kind: WeaponKind, hip: THREE.Group, hand: THREE.Group): void {
     const steel = new THREE.MeshStandardMaterial({ color: 0xaab0b6, roughness: 0.35, metalness: 0.85 });
+    const darkSteel = new THREE.MeshStandardMaterial({ color: 0x767c82, roughness: 0.45, metalness: 0.75 });
     const guardM = new THREE.MeshStandardMaterial({ color: 0xc9a227, roughness: 0.4, metalness: 0.7 });
+    const woodM = new THREE.MeshStandardMaterial({ color: 0x4a3624, roughness: 0.85 });
     const gripM = new THREE.MeshStandardMaterial({ color: 0x3a2a1a, roughness: 0.9 });
-    // Blade (tapered box)
-    const blade = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.78, 0.012), steel);
-    blade.position.y = 0.52;
-    blade.castShadow = true;
-    parent.add(blade);
-    const tip = new THREE.Mesh(new THREE.ConeGeometry(0.033, 0.12, 4), steel);
-    tip.position.y = 0.96;
-    parent.add(tip);
-    // Guard
-    const guard = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.035, 0.045), guardM);
-    guard.position.y = 0.13;
-    parent.add(guard);
-    // Grip + pommel
-    const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.022, 0.22, 6), gripM);
-    grip.position.y = 0.0;
-    parent.add(grip);
-    const pommel = new THREE.Mesh(new THREE.SphereGeometry(0.032, 6, 5), guardM);
-    pommel.position.y = -0.12;
-    parent.add(pommel);
+
+    if (kind === 'sword') {
+      const mk = (parent: THREE.Group) => {
+        const blade = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.78, 0.012), steel);
+        blade.position.y = 0.52;
+        blade.castShadow = true;
+        parent.add(blade);
+        const tip = new THREE.Mesh(new THREE.ConeGeometry(0.033, 0.12, 4), steel);
+        tip.position.y = 0.96;
+        parent.add(tip);
+        const guard = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.035, 0.045), guardM);
+        guard.position.y = 0.13;
+        parent.add(guard);
+        const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.022, 0.22, 6), gripM);
+        grip.position.y = 0.0;
+        parent.add(grip);
+        const pommel = new THREE.Mesh(new THREE.SphereGeometry(0.032, 6, 5), guardM);
+        pommel.position.y = -0.12;
+        parent.add(pommel);
+      };
+      mk(hip);
+      mk(hand);
+      return;
+    }
+
+    if (kind === 'axe') {
+      const mk = (parent: THREE.Group) => {
+        const haft = new THREE.Mesh(new THREE.CylinderGeometry(0.024, 0.028, 0.92, 7), woodM);
+        haft.position.y = 0.42;
+        haft.castShadow = true;
+        parent.add(haft);
+        // Axe head: two flaring blades joined at the socket
+        const headCore = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.16, 0.1), darkSteel);
+        headCore.position.set(0, 0.82, 0);
+        parent.add(headCore);
+        for (const s of [-1, 1]) {
+          const blade = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.05, 0.03, 3), darkSteel);
+          blade.rotation.set(0, 0, -s * Math.PI / 2);
+          blade.rotation.x = Math.PI / 2;
+          blade.position.set(s * 0.13, 0.82, 0);
+          blade.castShadow = true;
+          parent.add(blade);
+        }
+        const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.026, 0.026, 0.18, 7), gripM);
+        grip.position.y = 0.02;
+        parent.add(grip);
+        const pommel = new THREE.Mesh(new THREE.SphereGeometry(0.03, 6, 5), guardM);
+        pommel.position.y = -0.06;
+        parent.add(pommel);
+      };
+      mk(hip);
+      mk(hand);
+      return;
+    }
+
+    // spear
+    const mk = (parent: THREE.Group) => {
+      const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.021, 0.023, 1.72, 7), woodM);
+      shaft.position.y = 0.55;
+      shaft.castShadow = true;
+      parent.add(shaft);
+      const socket = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.024, 0.1, 7), guardM);
+      socket.position.y = 1.42;
+      parent.add(socket);
+      const tip = new THREE.Mesh(new THREE.ConeGeometry(0.045, 0.3, 6), steel);
+      tip.position.y = 1.6;
+      tip.castShadow = true;
+      parent.add(tip);
+      const butt = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.016, 0.12, 6), darkSteel);
+      butt.position.y = -0.32;
+      parent.add(butt);
+    };
+    mk(hip);
+    mk(hand);
   }
 
+  private buildBow(parent: THREE.Group): void {
+    const woodM = new THREE.MeshStandardMaterial({ color: 0x5a4128, roughness: 0.75 });
+    // Arc of the bow: 5 short segments following a curve
+    const segs = 6;
+    for (let i = 0; i < segs; i++) {
+      const k = i / (segs - 1);          // 0..1 along the bow
+      const ang = (k - 0.5) * 1.9;       // sweep
+      const seg = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.017, 0.19, 5), woodM);
+      seg.position.set(Math.cos(ang) * 0.12 - 0.12, Math.sin(ang) * 0.52, 0);
+      seg.rotation.z = -ang + Math.PI / 2;
+      seg.castShadow = true;
+      parent.add(seg);
+    }
+    // String
+    const stringM = new THREE.MeshStandardMaterial({ color: 0xd8d2c0, roughness: 0.9 });
+    const str = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, 1.04, 4), stringM);
+    str.position.set(-0.085, 0, 0);
+    parent.add(str);
+  }
+
+  private buildShield(parent: THREE.Group): void {
+    // Heater shield: extruded 2D silhouette + iron boss + scale bands
+    const shape = new THREE.Shape();
+    shape.moveTo(-0.26, 0.32);
+    shape.quadraticCurveTo(0, 0.4, 0.26, 0.32);
+    shape.quadraticCurveTo(0.3, 0.05, 0.2, -0.18);
+    shape.quadraticCurveTo(0.1, -0.36, 0, -0.44);
+    shape.quadraticCurveTo(-0.1, -0.36, -0.2, -0.18);
+    shape.quadraticCurveTo(-0.3, 0.05, -0.26, 0.32);
+    const geo = new THREE.ExtrudeGeometry(shape, { depth: 0.035, bevelEnabled: true, bevelThickness: 0.012, bevelSize: 0.012, bevelSegments: 1 });
+    const woodM = new THREE.MeshStandardMaterial({ color: 0x4c3a26, roughness: 0.8 });
+    const shield = new THREE.Mesh(geo, woodM);
+    shield.castShadow = true;
+    parent.add(shield);
+    // Iron boss
+    const boss = new THREE.Mesh(
+      new THREE.SphereGeometry(0.075, 10, 8, 0, Math.PI * 2, 0, Math.PI / 2),
+      new THREE.MeshStandardMaterial({ color: 0x8a9198, roughness: 0.35, metalness: 0.85 }),
+    );
+    boss.rotation.x = Math.PI / 2;
+    boss.position.z = 0.03;
+    boss.castShadow = true;
+    parent.add(boss);
+    // Scale bands (dragon-scale look, tide blue)
+    const scaleM = new THREE.MeshStandardMaterial({ color: 0x2e5a5e, roughness: 0.5, metalness: 0.35 });
+    for (let row = 0; row < 3; row++) {
+      for (let i = 0; i < 4; i++) {
+        const scale = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.012, 6), scaleM);
+        scale.rotation.x = Math.PI / 2;
+        scale.position.set(-0.15 + i * 0.1 + (row % 2) * 0.05, 0.2 - row * 0.19, 0.032);
+        parent.add(scale);
+      }
+    }
+  }
+
+  // ------------------------------------------------------------ state API
+
+  /** Equip a weapon visual by kind (null/'none' hides all). */
+  setWeapon(kind: WeaponKind): void {
+    this.weapon = kind;
+    this.weaponEquippedVisible = kind !== 'none';
+    this.refreshWeaponVisibility();
+  }
+
+  /** Show the shield on the left forearm. */
+  setShield(visible: boolean): void {
+    this.shieldGroup.visible = visible;
+  }
+
+  get hasShieldVisible(): boolean {
+    return this.shieldGroup.visible;
+  }
+
+  /** Legacy API (NPCs, boarding crew): sword shown at the hip. */
   setSwordEquipped(equipped: boolean): void {
-    this.swordHip.visible = equipped;
+    this.weapon = equipped ? 'sword' : 'none';
+    this.weaponEquippedVisible = equipped;
+    this.refreshWeaponVisibility();
+  }
+
+  /** Legacy API used by the game: any weapon equipped? */
+  setEquippedState(equipped: boolean): void {
+    this.weaponEquippedVisible = equipped;
+    if (equipped && this.weapon === 'none') this.weapon = 'sword';
+    if (!equipped) this.weapon = 'none';
+    this.refreshWeaponVisibility();
+  }
+
+  /** Brief red flash on the body when the character takes damage. */
+  flash(): void {
+    this.flashT = 1;
+  }
+
+  private refreshWeaponVisibility(): void {
+    for (const kind of ['sword', 'axe', 'spear'] as WeaponKind[]) {
+      const hip = this.hipSlots[kind];
+      const hand = this.handSlots[kind];
+      if (hip) hip.visible = this.weapon === kind && this.weaponEquippedVisible;
+      if (hand) hand.visible = false; // shown only mid-swing by update()
+    }
   }
 
   /** Face target yaw (world). */
@@ -226,6 +437,13 @@ export class CharacterModel {
     if (p.moving) this.phase += p.dt * walkFreq;
     const ph = this.phase;
 
+    // Damage flash decay (discrete hit feedback)
+    if (this.flashT > 0) {
+      this.flashT = Math.max(0, this.flashT - p.dt * 3.2);
+      const e = this.flashT * 0.55;
+      for (const m of this.flashMaterials) m.emissive.setRGB(e, e * 0.12, e * 0.08);
+    }
+
     const resetPose = () => {
       this.legL.rotation.x = 0; this.legR.rotation.x = 0;
       this.kneeL.rotation.x = 0; this.kneeR.rotation.x = 0;
@@ -234,8 +452,25 @@ export class CharacterModel {
       this.elbowL.rotation.x = 0; this.elbowR.rotation.x = 0;
       this.chest.rotation.x = 0; this.chest.rotation.y = 0;
       this.hips.position.y = 0.94; this.head.rotation.x = 0; this.head.rotation.y = 0;
+      this.root.rotation.x = 0;
     };
     resetPose();
+
+    // --- Dodge roll: full-body tumble, overrides everything else ---
+    const rollT = p.rollT ?? 0;
+    if (rollT > 0) {
+      this.root.rotation.x = rollT * Math.PI * 2;
+      this.hips.position.y = 0.94 - 0.32 * Math.sin(rollT * Math.PI);
+      this.legL.rotation.x = -1.9; this.legR.rotation.x = -1.7;
+      this.kneeL.rotation.x = -1.9; this.kneeR.rotation.x = -1.7;
+      this.armL.rotation.x = -1.4; this.armR.rotation.x = -1.2;
+      this.elbowL.rotation.x = -1.6; this.elbowR.rotation.x = -1.6;
+      this.chest.rotation.x = 0.7;
+      this.head.rotation.x = 0.5;
+      if (this.cape) this.cape.rotation.x = 1.2;
+      this.updateWeaponPose(p, false);
+      return;
+    }
 
     if (p.swimming) {
       // Breaststroke: body pitched forward, sweeping arms, flutter kick
@@ -254,6 +489,7 @@ export class CharacterModel {
       this.kneeR.rotation.x = -0.2;
       this.head.rotation.x = -0.5;
       if (this.cape) this.cape.rotation.x = 0.9;
+      this.updateWeaponPose(p, false);
       return;
     }
 
@@ -265,6 +501,35 @@ export class CharacterModel {
       this.kneeL.rotation.x = -0.7; this.kneeR.rotation.x = -0.3;
       this.chest.rotation.x = 0.12;
       if (this.cape) this.cape.rotation.x = 0.55 + Math.sin(this.t * 6) * 0.06;
+      this.updateWeaponPose(p, false);
+      return;
+    }
+
+    // --- Bow draw aim pose (overrides walk arms while aiming) ---
+    const bowDraw = p.bowDraw ?? 0;
+    if (bowDraw > 0) {
+      const sway = Math.sin(this.t * 1.8) * 0.015;
+      this.armL.rotation.x = -1.45 + sway;
+      this.armL.rotation.z = 0.12;
+      this.elbowL.rotation.x = -0.1;
+      this.armR.rotation.x = -1.2 + bowDraw * 0.25 + sway;
+      this.armR.rotation.z = -0.3;
+      this.elbowR.rotation.x = -0.25 - bowDraw * 1.15;
+      this.chest.rotation.y = -0.22;
+      this.chest.rotation.x = 0.05;
+      this.head.rotation.y = 0.12;
+      if (p.moving) {
+        const amp = 0.28;
+        this.legL.rotation.x = Math.sin(ph) * amp;
+        this.legR.rotation.x = Math.sin(ph + Math.PI) * amp;
+        this.hips.position.y = 0.94 + Math.abs(Math.sin(ph)) * 0.03;
+      } else {
+        this.kneeL.rotation.x = -0.12;
+        this.kneeR.rotation.x = -0.18;
+        this.hips.position.y = 0.94 - bowDraw * 0.03;
+      }
+      if (this.cape) this.cape.rotation.x = 0.18 + Math.sin(this.t * 2) * 0.03;
+      this.updateWeaponPose(p, true);
       return;
     }
 
@@ -304,46 +569,151 @@ export class CharacterModel {
       if (this.cape) this.cape.rotation.x = 0.06 + Math.sin(this.t * 1.2) * 0.02;
     }
 
-    // --- Sword swing overlay (0..1) ---
+    // --- Block pose overlay (right mouse hold) ---
+    const blockT = p.blockT ?? 0;
+    if (blockT > 0) {
+      const k = Math.min(1, blockT);
+      if (this.shieldGroup.visible) {
+        // Shield forward, braced
+        this.armL.rotation.x = THREE.MathUtils.lerp(this.armL.rotation.x, -1.15, k);
+        this.armL.rotation.z = THREE.MathUtils.lerp(this.armL.rotation.z, 0.3, k);
+        this.elbowL.rotation.x = THREE.MathUtils.lerp(this.elbowL.rotation.x, -0.85, k);
+        this.armR.rotation.x = THREE.MathUtils.lerp(this.armR.rotation.x, -0.35, k);
+        this.elbowR.rotation.x = THREE.MathUtils.lerp(this.elbowR.rotation.x, -1.5, k);
+      } else {
+        // Sword held vertical in front
+        this.armR.rotation.x = THREE.MathUtils.lerp(this.armR.rotation.x, -0.95, k);
+        this.armR.rotation.z = THREE.MathUtils.lerp(this.armR.rotation.z, -0.25, k);
+        this.elbowR.rotation.x = THREE.MathUtils.lerp(this.elbowR.rotation.x, -1.35, k);
+        this.armL.rotation.x = THREE.MathUtils.lerp(this.armL.rotation.x, -0.5, k);
+        this.elbowL.rotation.x = THREE.MathUtils.lerp(this.elbowL.rotation.x, -1.0, k);
+      }
+      this.chest.rotation.x = THREE.MathUtils.lerp(this.chest.rotation.x, 0.12, k);
+      this.hips.position.y -= k * 0.06;
+    }
+
+    // --- Attack overlays ---
     if (p.attackT > 0) {
       const k = p.attackT;
-      // Windup (0..0.35) then slash (0.35..0.75) then recover
-      let armX: number, armZ: number, chestY: number;
-      if (k < 0.35) {
-        const u = k / 0.35;
-        armX = THREE.MathUtils.lerp(this.armR.rotation.x, -2.3, u);
-        armZ = THREE.MathUtils.lerp(-0.08, -0.9, u);
-        chestY = THREE.MathUtils.lerp(0, -0.4, u);
-      } else if (k < 0.75) {
-        const u = (k - 0.35) / 0.4;
-        armX = THREE.MathUtils.lerp(-2.3, 0.5, u);
-        armZ = THREE.MathUtils.lerp(-0.9, 0.55, u);
-        chestY = THREE.MathUtils.lerp(-0.4, 0.45, u);
+      let armX: number, armZ: number, chestY: number, elbow = -0.15;
+      const kind = p.attackKind ?? 'light1';
+      if (kind === 'heavy') {
+        // Overhead smash: big windup up-back, crouch, then slam down
+        let ax: number, az: number, cy: number, hipY = 0;
+        if (k < 0.42) {
+          const u = k / 0.42;
+          ax = THREE.MathUtils.lerp(0, -2.7, u);
+          az = THREE.MathUtils.lerp(-0.08, -0.35, u);
+          cy = THREE.MathUtils.lerp(0, -0.42, u);
+          hipY = -0.1 * u;
+        } else if (k < 0.68) {
+          const u = (k - 0.42) / 0.26;
+          ax = THREE.MathUtils.lerp(-2.7, 0.85, u);
+          az = THREE.MathUtils.lerp(-0.35, 0, u);
+          cy = THREE.MathUtils.lerp(-0.42, 0.38, u);
+          hipY = -0.1 * (1 - u);
+        } else {
+          const u = (k - 0.68) / 0.32;
+          ax = THREE.MathUtils.lerp(0.85, 0, u);
+          az = THREE.MathUtils.lerp(0, -0.06, u);
+          cy = THREE.MathUtils.lerp(0.38, 0, u);
+        }
+        this.armR.rotation.x = ax;
+        this.armR.rotation.z = az;
+        this.chest.rotation.y = cy;
+        this.hips.position.y += hipY;
+        this.chest.rotation.x = 0.18 * Math.sin(k * Math.PI);
+        this.elbowR.rotation.x = -0.5 + Math.max(0, k - 0.42) * 1.6;
+      } else if (kind === 'thrust') {
+        // Spear jab: pull back, lunge forward
+        if (k < 0.35) {
+          const u = k / 0.35;
+          this.armR.rotation.x = THREE.MathUtils.lerp(0, -0.5, u);
+          this.elbowR.rotation.x = THREE.MathUtils.lerp(-0.15, -1.7, u);
+          this.chest.rotation.y = THREE.MathUtils.lerp(0, 0.35, u);
+        } else if (k < 0.6) {
+          const u = (k - 0.35) / 0.25;
+          this.armR.rotation.x = THREE.MathUtils.lerp(-0.5, -1.5, u);
+          this.elbowR.rotation.x = THREE.MathUtils.lerp(-1.7, -0.05, u);
+          this.chest.rotation.y = THREE.MathUtils.lerp(0.35, -0.3, u);
+          this.chest.rotation.x = 0.15 * u;
+        } else {
+          const u = (k - 0.6) / 0.4;
+          this.armR.rotation.x = THREE.MathUtils.lerp(-1.5, 0, u);
+          this.elbowR.rotation.x = THREE.MathUtils.lerp(-0.05, -0.15, u);
+          this.chest.rotation.y = THREE.MathUtils.lerp(-0.3, 0, u);
+        }
+      } else if (kind === 'light2') {
+        // Backhand: windup right, sweep left
+        if (k < 0.35) {
+          const u = k / 0.35;
+          armX = THREE.MathUtils.lerp(0, -1.9, u);
+          armZ = THREE.MathUtils.lerp(-0.08, 0.55, u);
+          chestY = THREE.MathUtils.lerp(0, 0.4, u);
+        } else if (k < 0.75) {
+          const u = (k - 0.35) / 0.4;
+          armX = THREE.MathUtils.lerp(-1.9, 0.4, u);
+          armZ = THREE.MathUtils.lerp(0.55, -0.85, u);
+          chestY = THREE.MathUtils.lerp(0.4, -0.45, u);
+        } else {
+          const u = (k - 0.75) / 0.25;
+          armX = THREE.MathUtils.lerp(0.4, 0, u);
+          armZ = THREE.MathUtils.lerp(-0.85, -0.06, u);
+          chestY = THREE.MathUtils.lerp(-0.45, 0, u);
+        }
+        this.armR.rotation.x = armX!;
+        this.armR.rotation.z = armZ!;
+        this.chest.rotation.y = chestY!;
+        this.elbowR.rotation.x = elbow;
+      } else if (kind === 'bowRelease') {
+        // String snap: right hand flies forward off the cheek
+        const u = Math.min(1, k * 2.2);
+        this.armL.rotation.x = -1.45;
+        this.elbowL.rotation.x = -0.1;
+        this.armR.rotation.x = THREE.MathUtils.lerp(-1.45, -1.2, u);
+        this.elbowR.rotation.x = THREE.MathUtils.lerp(-1.4, -0.2, u);
+        this.chest.rotation.y = -0.22;
       } else {
-        const u = (k - 0.75) / 0.25;
-        armX = THREE.MathUtils.lerp(0.5, 0, u);
-        armZ = THREE.MathUtils.lerp(0.55, -0.06, u);
-        chestY = THREE.MathUtils.lerp(0.45, 0, u);
+        // light1 — classic diagonal slash (windup → slash → recover)
+        if (k < 0.35) {
+          const u = k / 0.35;
+          armX = THREE.MathUtils.lerp(this.armR.rotation.x, -2.3, u);
+          armZ = THREE.MathUtils.lerp(-0.08, -0.9, u);
+          chestY = THREE.MathUtils.lerp(0, -0.4, u);
+        } else if (k < 0.75) {
+          const u = (k - 0.35) / 0.4;
+          armX = THREE.MathUtils.lerp(-2.3, 0.5, u);
+          armZ = THREE.MathUtils.lerp(-0.9, 0.55, u);
+          chestY = THREE.MathUtils.lerp(-0.4, 0.45, u);
+        } else {
+          const u = (k - 0.75) / 0.25;
+          armX = THREE.MathUtils.lerp(0.5, 0, u);
+          armZ = THREE.MathUtils.lerp(0.55, -0.06, u);
+          chestY = THREE.MathUtils.lerp(0.45, 0, u);
+        }
+        this.armR.rotation.x = armX!;
+        this.armR.rotation.z = armZ!;
+        this.chest.rotation.y = chestY!;
+        this.elbowR.rotation.x = elbow;
       }
-      this.armR.rotation.x = armX;
-      this.armR.rotation.z = armZ;
-      this.chest.rotation.y = chestY;
-      this.swordHand.visible = true;
-      this.swordHip.visible = false;
-      if (k >= 1) {
-        this.swordHand.visible = false;
-        // restore hip visibility if equipped
-      }
-    } else if (this.swordHip.userData.equipped) {
-      this.swordHip.visible = true;
-      this.swordHand.visible = false;
     }
+
+    this.updateWeaponPose(p, p.attackT > 0);
   }
 
-  setEquippedState(equipped: boolean): void {
-    this.swordHip.userData.equipped = equipped;
-    this.swordHip.visible = equipped;
-    this.swordHand.visible = false;
+  /** Show hip/hand weapon copies + bow according to the current context. */
+  private updateWeaponPose(p: AnimParams, attacking: boolean): void {
+    const hip = this.hipSlots[this.weapon];
+    const showHip = this.weaponEquippedVisible && this.weapon !== 'none';
+    if (hip) hip.visible = showHip && !attacking;
+    // Hand copy: visible only mid-swing for melee weapons
+    if (this.weapon !== 'none' && this.weapon !== 'bow') {
+      const hand = this.handSlots[this.weapon];
+      if (hand) hand.visible = attacking;
+    }
+    // Bow: visible only while aiming/drawing (held in the left hand)
+    const bowDraw = p.bowDraw ?? 0;
+    this.bowInHand.visible = this.weapon === 'bow' && (bowDraw > 0 || (p.attackKind === 'bowRelease' && p.attackT > 0));
   }
 
   dispose(): void {

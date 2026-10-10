@@ -167,6 +167,8 @@ interface Cannonball {
   vel: THREE.Vector3;
   life: number;
   fromPlayer: boolean;
+  /** Previous-frame position for swept dragon collision. */
+  prev: THREE.Vector3;
 }
 
 /** Floating loot barrel left behind by a sunken pirate. */
@@ -186,6 +188,10 @@ export class NavalSystem {
   enemies: EnemyBrain[] = [];
   boarding: { brain: EnemyBrain; crew: BoardingCrew[]; done: boolean; endTimer: number } | null = null;
   private sinkRespawn: { timer: number } | null = null;
+
+  /** Fase 3 hook: cannonballs can strike flying dragons (sea wyvern fight).
+   *  Return an object whose damage(amount) applies the hit, or null. */
+  dragonHitTest: ((pos: THREE.Vector3, prevPos?: THREE.Vector3) => { damage: (amount: number) => void } | null) | null = null;
 
   private balls: Cannonball[] = [];
   private ballPool: THREE.Mesh[] = [];
@@ -349,7 +355,7 @@ export class NavalSystem {
     if (!mesh) return;
     mesh.position.copy(from);
     mesh.visible = true;
-    this.balls.push({ mesh, vel: vel.clone(), life: 0, fromPlayer });
+    this.balls.push({ mesh, vel: vel.clone(), life: 0, fromPlayer, prev: from.clone() });
   }
 
   // ------------------------------------------------------------- boarding
@@ -424,8 +430,12 @@ export class NavalSystem {
     this.onBoardingStarted?.(enemy);
   }
 
-  /** Called by Game when the player's sword swing lands. Returns true if hit. */
-  crewHitCheck(playerWorld: THREE.Vector3, playerYaw: number, damage: number): boolean {
+  /** Called by CombatSystem when a melee swing lands. Returns true if hit.
+   *  Fase 3: weapon reach/arc are honored (spear pikes across the deck). */
+  crewHitCheck(
+    playerWorld: THREE.Vector3, playerYaw: number, damage: number,
+    reach = 2.35, arc = Math.PI * 0.85,
+  ): boolean {
     if (!this.boarding) return false;
     const enemy = this.boarding.brain.ship;
     let hitAny = false;
@@ -435,9 +445,11 @@ export class NavalSystem {
       const dx = cw.x - playerWorld.x;
       const dz = cw.z - playerWorld.z;
       const dist = Math.hypot(dx, dz);
-      if (dist < 2.35) {
+      if (dist < reach) {
         const facing = Math.sin(playerYaw) * dx + Math.cos(playerYaw) * dz;
-        if (facing > -0.25) {
+        // Facing within the weapon's half-arc (side distance test)
+        const side = Math.abs(dx * Math.cos(playerYaw) - dz * Math.sin(playerYaw));
+        if (facing > -0.25 && side < Math.tan(arc / 2) * Math.max(0.8, facing) + 0.5) {
           c.hp -= damage;
           hitAny = true;
           this.cb.sound('hit_hull');
@@ -895,6 +907,7 @@ export class NavalSystem {
 
       let dead = false;
       const p = ball.mesh.position;
+      const ballPrev = ball.prev.clone();
 
       // --- Ship impacts ---
       const targets: Array<{ ship: Ship; fromPlayer: boolean }> = [];
@@ -932,6 +945,18 @@ export class NavalSystem {
         }
       }
 
+      // --- Dragon impacts (Fase 3: the sea wyvern hunts the Colibrí) ---
+      if (!dead && this.dragonHitTest) {
+        const dragon = this.dragonHitTest(p, ballPrev);
+        if (dragon) {
+          dragon.damage(42);
+          this.flashes.spawn(p.clone(), 1.7, 0.12, 2);
+          this.smoke.spawn(p.clone(), 1.5, 1.0, 1.9, new THREE.Vector3(0, 1, 0));
+          this.cb.sound('hit_hull');
+          dead = true;
+        }
+      }
+
       // --- Water splash ---
       if (!dead) {
         const wh = this.water.waveHeightAt(p.x, p.z);
@@ -947,6 +972,8 @@ export class NavalSystem {
       if (dead) {
         ball.mesh.visible = false;
         this.balls.splice(i, 1);
+      } else {
+        ball.prev.copy(p);
       }
     }
   }

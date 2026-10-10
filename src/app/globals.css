@@ -413,6 +413,28 @@
   animation: kotfs-shine 4.5s ease-in-out infinite;
 }
 
+/* Gold shimmer applied per-letter (works with the animated .kotfs-letter
+   spans — the parent-level .kotfs-shine-text clip breaks on transformed
+   inline-block children and renders them invisible). */
+.kotfs-letter.kotfs-letter-shine {
+  background: linear-gradient(
+    100deg,
+    var(--kotfs-gold) 20%,
+    #ffe9a8 38%,
+    #fff8dc 50%,
+    #ffe9a8 62%,
+    var(--kotfs-gold) 80%
+  );
+  background-size: 220% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation:
+    kotfs-letter 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards,
+    kotfs-shine 4.5s ease-in-out infinite;
+  animation-delay: var(--letter-delay, 0s), calc(var(--letter-delay, 0s) + 0.7s);
+}
+
 /* Breathing glow behind the main title */
 @keyframes kotfs-title-glow {
   0%, 100% { opacity: 0.35; transform: scale(1); }
@@ -420,6 +442,17 @@
 }
 .kotfs-title-glow {
   animation: kotfs-title-glow 5s ease-in-out infinite;
+}
+
+/* Damage vignette: red edges flashing when the player takes a hit */
+@keyframes kotfs-hurt {
+  0% { opacity: 0.85; }
+  100% { opacity: 0; }
+}
+.kotfs-hurt-vignette {
+  background: radial-gradient(ellipse at center, transparent 42%, rgba(140, 20, 10, 0.55) 100%);
+  animation: kotfs-hurt 0.9s ease-out forwards;
+  z-index: 25;
 }
 
 /* Staggered menu entrance */

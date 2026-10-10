@@ -72,7 +72,7 @@ export default function MainMenu() {
           <h1 className="kotfs-title relative mb-1 text-4xl leading-[1.05] text-[color:var(--kotfs-parchment)] md:text-6xl">
             <EpicTitle text="KINGDOMS OF THE" delay={0.4} />
             <br />
-            <EpicTitle text="FORGOTTEN SEAS" delay={1.2} className="kotfs-shine-text" />
+            <EpicTitle text="FORGOTTEN SEAS" delay={1.2} letterClassName="kotfs-letter-shine" />
             <span
               className="kotfs-title-glow pointer-events-none absolute left-1/2 top-[64%] -z-10 h-20 w-[125%] -translate-x-1/2 -translate-y-1/2 rounded-full"
               style={{ background: 'radial-gradient(ellipse, rgba(201,162,39,0.3), transparent 70%)' }}
@@ -81,7 +81,7 @@ export default function MainMenu() {
 
           <p className="kotfs-rise mb-1 mt-2 flex items-center gap-2 text-sm italic tracking-wide text-[color:var(--kotfs-parchment-dim)] md:text-base" style={{ ['--rise-delay' as string]: '2.1s' }}>
             <Ship size={14} className="text-[color:var(--kotfs-gold)]" />
-            Capítulo II — Los Mares Olvidados · El océano y los piratas
+            Capítulo III — El Rumor de las Alas · Dragones y combate
           </p>
           <div className="kotfs-rise mb-10 mt-4 h-[1px] w-64 bg-gradient-to-r from-[color:var(--kotfs-gold)] via-[rgba(201,162,39,0.35)] to-transparent" style={{ ['--rise-delay' as string]: '2.3s' }} />
 
@@ -194,7 +194,7 @@ export default function MainMenu() {
 
           {subMenu === null && (
             <p className="kotfs-rise mt-10 text-xs tracking-widest text-[color:var(--kotfs-parchment-dim)] opacity-60" style={{ ['--rise-delay' as string]: '3s' }}>
-              FASE 2 — EL OCÉANO Y LOS PIRATAS · v0.2
+              FASE 3 — DRAGONES Y COMBATE · v0.3
             </p>
           )}
         </div>

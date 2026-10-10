@@ -16,6 +16,8 @@ export const SKILLS: SkillDef[] = [
   { id: 'comb_vigor2', name: 'Aguante II', desc: 'Resistencia máxima +20 adicional.', tree: 'combate', requires: ['comb_vigor'] },
   { id: 'comb_piel', name: 'Piel de Hierro', desc: 'Salud máxima +20.', tree: 'combate' },
   { id: 'comb_aliento', name: 'Aliento de Batalla', desc: 'Recuperas resistencia un 40% más rápido.', tree: 'combate', requires: ['comb_vigor'] },
+  { id: 'comb_maestria', name: 'Maestría del Acero', desc: 'Daño cuerpo a cuerpo +15%.', tree: 'combate', requires: ['comb_piel'] },
+  { id: 'comb_punteria', name: 'Ojo del Arquero', desc: 'Daño de arco +30% y tensado más rápido.', tree: 'combate', requires: ['comb_aliento'] },
   { id: 'sup_botanico', name: 'Botánico', desc: 'Cada pétalo de marfil recogido cuenta doble.', tree: 'supervivencia' },
   { id: 'sup_zancada', name: 'Zancada del Explorador', desc: 'Velocidad de marcha y carrera +8%.', tree: 'supervivencia' },
   { id: 'sup_corazon', name: 'Corazón de Roble', desc: 'Salud máxima +25 y lenta regeneración continua.', tree: 'supervivencia' },
@@ -199,7 +201,9 @@ export class GameState {
               (obj.target === 'aldric' && this.flags.has('talked_aldric')) ||
               (obj.target === 'maren' && this.flags.has('maren_met')) ||
               (obj.target === 'aldric_ship' && this.flags.has('aldric_ship_talked')) ||
-              (obj.target === 'rosa_return' && this.flags.has('rosa_return_talked'));
+              (obj.target === 'rosa_return' && this.flags.has('rosa_return_talked')) ||
+              (obj.target === 'aldric_dragons' && this.flags.has('aldric_dragons_talked')) ||
+              (obj.target === 'aldric_report' && this.flags.has('aldric_report_talked'));
             break;
           case 'collect':
             done =

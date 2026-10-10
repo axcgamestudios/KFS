@@ -57,14 +57,27 @@ export function Embers({ count = 26, seed = 7 }: { count?: number; seed?: number
   );
 }
 
-/** Letter-by-letter cinematic title reveal. */
-export function EpicTitle({ text, delay = 0, className = '' }: { text: string; delay?: number; className?: string }) {
+/** Letter-by-letter cinematic title reveal.
+ *  `letterClassName` styles EACH letter (used for the gold shimmer line —
+ *  gradient-clip on the parent doesn't survive transformed inline-block
+ *  children, so the shine must live on the letters themselves). */
+export function EpicTitle({
+  text,
+  delay = 0,
+  className = '',
+  letterClassName = '',
+}: {
+  text: string;
+  delay?: number;
+  className?: string;
+  letterClassName?: string;
+}) {
   return (
     <span className={className} aria-label={text}>
       {text.split('').map((ch, i) => (
         <span
           key={i}
-          className="kotfs-letter"
+          className={`kotfs-letter ${letterClassName}`.trim()}
           style={{ ['--letter-delay' as string]: `${delay + i * 0.055}s` }}
         >
           {ch}

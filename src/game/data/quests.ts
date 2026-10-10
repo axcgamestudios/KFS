@@ -112,10 +112,65 @@ export const QUESTS: Record<string, QuestDef> = {
       { id: 'o3', text: 'Recupera el Sello de la Orden de la Marea', type: 'collect', target: 'sello', count: 1 },
     ],
     rewards: { xp: 250, items: [{ id: 'coin', count: 100 }] },
+    nextQuest: 'q6_alas',
     completionJournal: 'El Sello de la Orden descansa en mi mano. Morwen se hundió con su nave jurando que el Cuervo «ya había despertado algo peor» en las cumbres. Si mi padre vivió para custodiar esto... yo viviré para averiguar qué duerme bajo las aguas. Capítulo III: el rumor de las alas.',
+  },
+  q6_alas: {
+    id: 'q6_alas',
+    title: 'El Rumor de las Alas',
+    description: 'Los pastores ven sombras aladas sobre las Garrahielo y los guardias hablan de ruinas que «respiran». Aldric debe saber qué está despertando.',
+    journal: 'Morwen se hundió jurando que el Cuervo despertó «algo peor». Los pastores ven sombras sobre las cumbres y en Puerto Cuervo nadie duerme. Aldric guardó los archivos de la Orden: es hora de que los abra.',
+    objectives: [
+      { id: 'o1', text: 'Habla con Aldric sobre las sombras aladas', type: 'talk', target: 'aldric_dragons' },
+      { id: 'o2', text: 'Investiga las ruinas de Vaelthara', type: 'flag', target: 'vaelthara_seen' },
+      { id: 'o3', text: 'Vuelve con Aldric y cuenta lo que viste', type: 'talk', target: 'aldric_report' },
+    ],
+    rewards: { xp: 180, items: [{ id: 'hacha_orden', count: 1 }, { id: 'pocion', count: 2 }] },
+    nextQuest: 'q7_guardiana',
+    completionJournal: 'Aldric abrió la vieja armería de la Orden y me puso el Hacha de la Orden en las manos. «Los dragones no son lo que dicen las canciones», repitió. La guardiana de Vaelthara no despertó por casualidad: algo la llamó desde las cumbres.',
+  },
+  q7_guardiana: {
+    id: 'q7_guardiana',
+    title: 'La Guardiana de Vaelthara',
+    description: 'Un dragón territorial custodia las ruinas de Vaelthara. Derrotarla será el primer acero verdadero contra los cielos de Eldoria.',
+    journal: 'La guardiana de Vaelthara me ha visto — y yo a ella. Es territorial, pesada, escupidora de fuego: se yergue sobre las columnas como si aún custodiara a su ciudad muerta. Aldric dice que Bram podrá forjar algo con sus escamas... si sobrevivo.',
+    objectives: [
+      { id: 'o1', text: 'Derrota a la Guardiana de Vaelthara', type: 'flag', target: 'vaelthara_dead' },
+    ],
+    rewards: { xp: 300, items: [{ id: 'escudo_marea', count: 1 }, { id: 'escama', count: 2 }] },
+    nextQuest: 'q8_skarnvind',
+    completionJournal: 'La guardiana cayó sobre las columnas que juró proteger. De su pecho extraje el Corazón de Marea, un rubí que late con las olas. Bram ya está forjando un escudo con sus escamas. «Donde late la guardiana, duerme el ancestro», decía la inscripción. Dormir... por ahora.',
+  },
+  q8_skarnvind: {
+    id: 'q8_skarnvind',
+    title: 'Alas sobre el Mar',
+    description: 'Un wyvern caza las aguas entre Puerto Cuervo y las Islas de la Bruma. Zarpa hacia el sur y enfréntalo con los cañones del Colibrí.',
+    journal: 'Los pescadores ya no salen al sur: «una vela con garras» ronda el paso hacia las Islas de la Bruma. Aldric asegura que es Skarnvind, el wyvern de las brumas. Solo hay una forma de cruzar esas aguas: con los cañones del Colibrí cargados y los nervios templados.',
+    objectives: [
+      { id: 'o1', text: 'Zarpa hacia las aguas de caza, al sur de la bahía', type: 'flag', target: 'skarnvind_seen' },
+      { id: 'o2', text: 'Derrota a Skarnvind con las bordadas del Colibrí', type: 'flag', target: 'skarnvind_dead' },
+    ],
+    rewards: { xp: 320, items: [{ id: 'coin', count: 120 }, { id: 'flecha', count: 10 }] },
+    nextQuest: 'q9_ancestro',
+    completionJournal: 'Skarnvind cayó al mar con un estruendo de trueno y sal. De sus garras guardo la mayor: Aldric jura que encaja en el cerradero del Nido de Garrahielo. El paso al sur vuelve a estar libre... y el norte espera.',
+  },
+  q9_ancestro: {
+    id: 'q9_ancestro',
+    title: 'El Ancestro de Garrahielo',
+    description: 'Con la Garra de Skarnvind y el Corazón de Marea, el Nido del Ancestro se abrirá. Las cumbres de Garrahielo guardan al dragón que firmó el pacto antiguo.',
+    journal: 'Todo conduce a las cumbres: la carta de mi padre, el sello, el Corazón de Marea, la garra del wyvern. En lo alto de Garrahielo duerme el Ancestro, el dragón que firmó el pacto con los reyes hundidos. La Orden de la Marea vuelve a tener un Guardián. Voy a necesitarlo.',
+    objectives: [
+      { id: 'o1', text: 'Sube al Nido del Ancestro en las cumbres de Garrahielo', type: 'flag', target: 'ancestro_seen' },
+      { id: 'o2', text: 'Derrota al Ancestro de Garrahielo', type: 'flag', target: 'ancestro_dead' },
+    ],
+    rewards: { xp: 600, items: [{ id: 'coin', count: 250 }] },
+    completionJournal: 'El Ancestro de Garrahielo ha caído. Del pacto antiguo quedan un colmillo, un sello y un Guardián joven con un barco reparado. «Los dragones no son lo que dicen las canciones», escribía mi padre. Ahora lo sé: son exactamente lo que las canciones no se atreven a contar. FIN DEL CAPÍTULO III — El Rumor de las Alas.',
   },
 };
 
 /** Main quest order across chapters. */
-export const MAIN_QUEST_ORDER = ['q1_legacy', 'q2_herbs', 'q3_chest', 'q4_refit', 'q5_raven'];
+export const MAIN_QUEST_ORDER = [
+  'q1_legacy', 'q2_herbs', 'q3_chest', 'q4_refit', 'q5_raven',
+  'q6_alas', 'q7_guardiana', 'q8_skarnvind', 'q9_ancestro',
+];
 export const SIDE_QUESTS = ['q_rosa'];

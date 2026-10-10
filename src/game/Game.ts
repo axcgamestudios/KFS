@@ -12,6 +12,10 @@ import { CameraRig } from './entities/CameraRig';
 import { NPC } from './entities/NPC';
 import { NavalSystem, type SailingHud } from './naval/NavalSystem';
 import type { Ship } from './naval/Ship';
+import { VfxSystem } from './systems/VfxSystem';
+import { CombatSystem, WEAPONS } from './systems/CombatSystem';
+import { DragonManager } from './systems/DragonManager';
+import type { Dragon } from './entities/Dragon';
 import { windTime } from './world/VegetationSystem';
 import { POIS } from './world/WorldConfig';
 import { ITEMS } from './data/items';
@@ -67,7 +71,11 @@ export class Game {
   private rig?: CameraRig;
   private npcs: NPC[] = [];
   private naval?: NavalSystem;
+  private vfx?: VfxSystem;
+  private combat?: CombatSystem;
+  private dragons?: DragonManager;
   private settings: Settings;
+  private shakeT = 0;
 
   private hudTimer = 0;
   private discoveryTimer = 0;
@@ -78,7 +86,6 @@ export class Game {
   private introDone = false;
   private lastIntroShot = -1;
   private musicIntensityTarget = 0.15;
-  private lastSwingHit = false;
   private dead = false;
 
   constructor(canvas: HTMLCanvasElement) {
@@ -171,15 +178,82 @@ export class Game {
         lore: (title, paragraphs) => this.dialogue.startLore(title, paragraphs),
         closeDialogue: () => this.dialogue.close(),
         playerDamage: (amount, source) => {
-          const p = this.player!;
-          p.health = Math.max(0, p.health - amount);
-          this.audio.playEvent('damage');
-          void source;
+          // Routed through the block/i-frame system (Fase 3)
+          this.applyPlayerDamage(amount, undefined, undefined, source ?? 'naval');
         },
         returnPlayerToShip: () => this.takeHelm(),
       },
     );
     this.naval.dockSpawn = world.dockSpawn;
+
+    // --- Fase 3: VFX pool, player combat and the dragons of Eldoria ---
+    this.vfx = new VfxSystem(this.engine.scene);
+    this.combat = new CombatSystem(this.engine.scene, this.player, this.state, this.vfx, {
+      sound: (kind) => this.audio.playEvent(kind),
+      notify: (kind, title, body) => useGameStore.getState().notify(kind, title, body),
+      dragonMelee: (origin, yaw, reach, arc) =>
+        this.dragons ? this.dragons.meleeHitCheck(origin, yaw, reach, arc) : null,
+      damageDragon: (dragon, amount, heavy) => {
+        this.dragons?.damage(dragon, amount, heavy);
+        this.musicIntensityTarget = Math.max(this.musicIntensityTarget, 0.7);
+      },
+      crewHit: (origin, yaw, dmg, reach, arc) => {
+        const hit = this.naval!.crewHitCheck(origin, yaw, dmg, reach, arc);
+        if (hit) this.state.giveXp(5);
+        return hit;
+      },
+      dummyHit: (origin, yaw) => {
+        const d = this.world!.dummyPos;
+        const dx = d.x - origin.x;
+        const dz = d.z - origin.z;
+        if (Math.hypot(dx, dz) < 2.3) {
+          const facing = Math.sin(yaw) * dx + Math.cos(yaw) * dz;
+          if (facing > 0) {
+            this.state.giveXp(2);
+            return true;
+          }
+        }
+        return false;
+      },
+      aimRay: () => {
+        const cam = this.engine.camera;
+        const dir = new THREE.Vector3();
+        cam.getWorldDirection(dir);
+        return { origin: cam.position.clone(), dir };
+      },
+    });
+    this.combat.dragonHitRef = (pos, radius) =>
+      this.dragons ? this.dragons.projectileHitTest(pos, radius) : null;
+    this.combat.terrainHeightRef = (x, z) => world.terrainHeight.height(x, z);
+    this.dragons = new DragonManager(
+      this.engine.scene, world.terrainHeight, this.state, this.vfx,
+      {
+        notify: (kind, title, body) => useGameStore.getState().notify(kind, title, body),
+        sound: (kind) => this.audio.playEvent(kind),
+        music: (intensity, boss) => {
+          this.musicIntensityTarget = intensity;
+          this.audio.bossIntensity = boss ? 1 : 0;
+        },
+        setFlag: (flag) => this.state.setFlag(flag),
+        addItem: (id, count) => this.state.addItem(id, count),
+        giveXp: (xp) => this.state.giveXp(xp),
+        bossHud: (s) => useGameStore.getState().setBoss(s),
+        playerDamage: (dmg, fromX, fromZ, reason) => this.applyPlayerDamage(dmg, fromX, fromZ, reason),
+        shipDamage: (dmg) => {
+          this.naval?.playerShip?.applyDamage(dmg);
+        },
+        cameraShake: (i) => { this.shakeT = Math.max(this.shakeT, i); },
+      },
+    );
+    // Broadside cannons can clip the sea wyvern mid-flight (swept collision)
+    this.naval.dragonHitTest = (pos, prev) => {
+      const d = this.dragons?.projectileHitTest(pos, 1.2, prev);
+      return d ? { damage: (amount: number) => this.dragons!.damage(d, amount, true) } : null;
+    };
+    this.player.onBlockSparks = (pos) => {
+      this.vfx!.blockSparks(pos);
+      this.audio.playEvent('block');
+    };
     this.naval.onDisembark = (spot) => {
       const p = this.player!;
       const g = world.terrainHeight.height(spot.x, spot.z);
@@ -308,6 +382,16 @@ export class Game {
             state.addItem('petalo', 2);
             state.addItem('coin', 35);
             store.getState().notify('item', 'Algo late en el cofre', 'Una escama que duerme, dos pétalos de marfil y 35 monedas. Léela desde el inventario (Tab).');
+          } else if (chest.id === 'chest_lanza') {
+            state.addItem('lanza_caza', 1);
+            state.addItem('flecha', 6);
+            state.addItem('coin', 15);
+            store.getState().notify('item', 'El arsenal del vigía', 'Lanza de Caza, 6 flechas y 15 monedas. Equípala con la tecla 3.');
+          } else if (chest.id === 'chest_arco') {
+            state.addItem('arco_naufragio', 1);
+            state.addItem('flecha', 12);
+            state.addItem('coin', 10);
+            store.getState().notify('item', 'El arco varado por la marea', 'Arco del Naufragio y 12 flechas. Equípalo con la tecla 4: mantén el clic para tensar.');
           }
         },
       });
@@ -505,6 +589,10 @@ export class Game {
     this.player!.stamina = 100;
     this.player!.model.setEquippedState(false);
     this.applyStats();
+    // Fase 3: dragons reset to their lairs, combat state cleared
+    this.dragons?.syncWithState();
+    this.combat?.refreshVisuals();
+    this.audio.bossIntensity = 0;
     for (const npc of this.npcs) {
       npc.deserialize({ x: npc.def.work.x, y: npc.def.work.y, z: npc.def.work.z, yaw: 0 });
     }
@@ -530,6 +618,7 @@ export class Game {
     this.musicIntensityTarget = 0.35;
     store.notify('quest', 'Nueva misión: El Legado de Eirik', 'Habla con el Maestre Aldric en el puerto.');
     store.notify('info', 'Controles', 'WASD moverse · Mayús correr · Espacio saltar · E interactuar · Tab inventario · M mapa · J diario');
+    store.notify('info', 'Combate', 'Clic atacar (mantén = pesado) · Clic der. bloquear · C esquivar · 1-4 cambiar de arma');
     this.autosave();
     this.input.requestLock();
   }
@@ -631,6 +720,10 @@ export class Game {
     this.restoreWorldFromState();
     this.applyStats();
     this.syncProgression();
+    // Fase 3: align dragons & weapon visuals with the loaded save
+    this.dragons?.syncWithState();
+    this.combat?.refreshVisuals();
+    this.audio.bossIntensity = 0;
     const store = useGameStore.getState();
     store.setPhase('playing');
     this.input.requestLock();
@@ -651,7 +744,7 @@ export class Game {
     for (const herb of w.herbs) {
       herb.mesh.visible = !this.state.pickedHerbs.has(herb.id);
     }
-    this.player!.model.setEquippedState(!!this.state.equippedWeapon);
+    this.combat?.refreshVisuals();
   }
 
   // --------------------------------------------------------------- skills
@@ -798,6 +891,19 @@ export class Game {
     }
   }
 
+  /** Central player-damage router (dragons, fire, …) with block support. */
+  private applyPlayerDamage(dmg: number, fromX?: number, fromZ?: number, reason?: string): number {
+    const p = this.player!;
+    const lost = p.takeHit(dmg, fromX, fromZ);
+    if (lost > 0) {
+      this.audio.playEvent('damage');
+      useGameStore.getState().triggerHurtFlash();
+      this.musicIntensityTarget = Math.max(this.musicIntensityTarget, 0.6);
+    }
+    void reason;
+    return lost;
+  }
+
   private updatePlaying(dt: number, store: ReturnType<typeof useGameStore.getState>): void {
     const w = this.world!;
     const p = this.player!;
@@ -809,9 +915,19 @@ export class Game {
     // --- Naval layer: wind, fleets, cannonballs, boarding, effects ---
     const sailingHud: SailingHud | null = naval.update(dt, p.position);
 
+    // --- Fase 3: dragons + combat VFX (both on foot and at sea) ---
+    this.dragons?.update(
+      dt, p.position, !this.dead, sailing,
+      sailing && naval.playerShip ? naval.playerShip.pos : null,
+    );
+    this.vfx?.update(dt);
+
     // --- Death / respawn ---
     if (p.health <= 0 && !this.dead) {
       this.dead = true;
+      // Dragons lose interest and return to their lairs at full strength
+      this.dragons?.resetCombat();
+      this.audio.bossIntensity = 0;
       if (naval.boardingActive) {
         naval.abortBoarding();
         p.platformProbe = undefined;
@@ -834,6 +950,9 @@ export class Game {
       // ================= SAILING MODE — the player holds the wheel =================
       const ship = naval.playerShip!;
       rig.handleInput(this.input, dt);
+      // No personal weapons while steering — the cannons are the weapon
+      p.blocking = false;
+      p.bowDraw = -1;
       if (!dialogueActive) {
         // Sails: W raises, S furls
         if (this.input.anyPressed('KeyW')) {
@@ -867,8 +986,10 @@ export class Game {
       }
     } else {
       // ================= FOOT MODE — normal third-person play =================
-      // Camera input & player physics
+      // Camera input & combat (Fase 3) before physics so anims stay in sync
       rig.handleInput(this.input, dt);
+      this.combat!.setCameraYaw(rig.yawForward);
+      this.combat!.update(dt, this.input, dialogueActive, this.dead);
       p.update(dt, this.input, rig.yawForward, w.terrainHeight, this.colliders, dialogueActive || this.dead);
 
       // While fighting on a ship deck: the grappled hulls keep you aboard —
@@ -892,37 +1013,6 @@ export class Game {
         }
       }
 
-      // --- Attack (LMB) ---
-      if (!dialogueActive && this.input.leftPressed && p.attackT === 0 && this.state.equippedWeapon) {
-        p.attackT = 0.001;
-        p.onAttackSwing?.();
-        this.lastSwingHit = false;
-      }
-      if (p.attackT > 0 && !this.lastSwingHit && p.attackT >= 0.45) {
-        this.lastSwingHit = true;
-        if (naval.boardingActive) {
-          // Boarding combat: strike the pirate crew
-          const dmg = this.state.equippedWeapon === 'espada_eirik' ? 34 : 16;
-          if (naval.crewHitCheck(p.position, p.yaw, dmg)) {
-            this.audio.playEvent('damage');
-            this.state.giveXp(5);
-          }
-        } else {
-          // Training dummy hit check
-          const d = w.dummyPos;
-          const dx = d.x - p.position.x;
-          const dz = d.z - p.position.z;
-          const dist = Math.hypot(dx, dz);
-          if (dist < 2.3) {
-            const facing = Math.sin(p.yaw) * dx + Math.cos(p.yaw) * dz;
-            if (facing > 0) {
-              this.audio.playEvent('damage');
-              this.state.giveXp(2);
-            }
-          }
-        }
-      }
-
       // --- Lantern ---
       if (!dialogueActive && this.input.pressed('lantern')) {
         p.toggleLantern();
@@ -933,6 +1023,16 @@ export class Game {
     // --- Camera ---
     const sprinting = this.input.isDown('sprint') && !dialogueActive;
     rig.update(dt, p.position, sprinting, w.terrainHeight, this.colliders);
+
+    // Impact camera shake (Fase 3)
+    if (this.shakeT > 0.002) {
+      const cam = this.engine.camera;
+      const s = this.shakeT;
+      cam.position.x += (Math.random() - 0.5) * s * 0.55;
+      cam.position.y += (Math.random() - 0.5) * s * 0.45;
+      cam.position.z += (Math.random() - 0.5) * s * 0.55;
+      this.shakeT = Math.max(0, this.shakeT - dt * 1.9);
+    }
 
     // --- World systems ---
     w.sky.update(this.engine.camera, p.position, this.engine.quality.shadowsEnabled);
@@ -1024,7 +1124,11 @@ export class Game {
         fps: this.engine.fps,
         prompt: clickHint ?? store.prompt,
         sailing: sailingHud,
+        atHelm: sailing,
       });
+      // Fase 3 combat HUD
+      store.setWeaponSlots(this.combat!.slots());
+      store.setBowDraw(p.bowDraw);
       this.pollQuestEvents();
     }
 
@@ -1217,13 +1321,21 @@ export class Game {
     gameApi.equipItem = (id) => {
       if (!ITEMS[id]?.equipable) return;
       st().equip(id);
-      this.player!.model.setEquippedState(true);
+      this.combat?.onUiEquip();
       this.audio.playEvent('unlock');
-      useGameStore.getState().notify('item', ITEMS[id].name, 'Equipada. Haz clic izquierdo para atacar.');
+      const w = WEAPONS[id];
+      const hint = w
+        ? w.kind === 'bow'
+          ? 'Mantén pulsado el clic para tensar; suelta para disparar. Las flechas clavadas se recuperan.'
+          : w.kind === 'spear'
+            ? 'Clic para estocadas rápidas de largo alcance; mantén pulsado para un golpe pesado.'
+            : 'Clic para atacar; mantén pulsado para un golpe pesado que tambalea a las bestias.'
+        : 'Haz clic izquierdo para atacar.';
+      useGameStore.getState().notify('item', ITEMS[id].name, hint);
     };
     gameApi.unequipWeapon = () => {
       st().unequip();
-      this.player!.model.setEquippedState(false);
+      this.combat?.onUiEquip();
     };
     gameApi.equippedWeapon = () => st().equippedWeapon;
 

@@ -32,17 +32,19 @@ export class WaterSystem {
   constructor(terrain: TerrainHeight, worldHalf = 1024) {
     this.terrain = terrain;
     // --- Pre-bake a low-res terrain height texture for shore effects ---
+    // HalfFloat: linear filtering is guaranteed in WebGL2 core (Float32 would
+    // silently sample black on GPUs without OES_texture_float_linear).
     const texRes = 256;
-    const data = new Float32Array(texRes * texRes);
+    const data = new Uint16Array(texRes * texRes);
     for (let j = 0; j < texRes; j++) {
       for (let i = 0; i < texRes; i++) {
         const x = (i / (texRes - 1) - 0.5) * 2 * worldHalf;
         const z = (j / (texRes - 1) - 0.5) * 2 * worldHalf;
-        data[j * texRes + i] = terrain.height(x, z);
+        data[j * texRes + i] = THREE.DataUtils.toHalfFloat(terrain.height(x, z));
       }
     }
     const heightTex = new THREE.DataTexture(
-      data, texRes, texRes, THREE.RedFormat, THREE.FloatType,
+      data, texRes, texRes, THREE.RedFormat, THREE.HalfFloatType,
     );
     heightTex.minFilter = THREE.LinearFilter;
     heightTex.magFilter = THREE.LinearFilter;
@@ -53,6 +55,7 @@ export class WaterSystem {
     this.material = new THREE.ShaderMaterial({
       transparent: true,
       depthWrite: false,
+      side: THREE.DoubleSide, // visible from underwater (swimming / diving views)
       uniforms: {
         uTime: { value: 0 },
         uSunDir: { value: new THREE.Vector3(0.4, 0.7, 0.2) },
@@ -147,6 +150,8 @@ export class WaterSystem {
         void main() {
           vec3 viewDir = normalize(uCameraPos - vWorldPos);
           vec3 n = normalize(vNormal);
+          // When seen from below, flip the normal so shading still works
+          if (!gl_FrontFacing) n = -n;
           // Small detail ripples
           float rip = noise(vWorldPos.xz * 1.4 + uTime * 0.35) - 0.5;
           float rip2 = noise(vWorldPos.xz * 3.1 - uTime * 0.5) - 0.5;
@@ -163,14 +168,15 @@ export class WaterSystem {
           vec3 refl = mix(uHorizonColor, uSkyColor, 0.5);
           vec3 col = mix(body, refl, fres * 0.85);
 
-          // Sun specular glint
+          // Sun specular glint (not underwater)
           vec3 sunDir = normalize(uSunDir);
           vec3 halfV = normalize(viewDir + sunDir);
+          float upK = gl_FrontFacing ? 1.0 : 0.0;
           float spec = pow(max(dot(n, halfV), 0.0), 220.0);
-          col += uSunColor * spec * 1.4;
+          col += uSunColor * spec * 1.4 * upK;
           // Broad glitter path
           float glit = pow(max(dot(n, halfV), 0.0), 24.0);
-          col += uSunColor * glit * 0.12;
+          col += uSunColor * glit * 0.12 * upK;
 
           // Foam: wave crests + shore band with noise
           float crestFoam = smoothstep(0.62, 0.95, vCrest);
@@ -181,6 +187,11 @@ export class WaterSystem {
 
           // Night darkening
           col *= mix(1.0, 0.22, uNightFactor);
+
+          // Underside (seen while swimming): darker, murkier
+          if (!gl_FrontFacing) {
+            col = mix(col, col * vec3(0.35, 0.5, 0.55), 0.75);
+          }
 
           float alpha = mix(0.86, 0.62, shallowT);
           alpha = mix(alpha, 0.95, foam);

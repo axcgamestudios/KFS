@@ -8,7 +8,7 @@ import { StructureStreamer } from './world/StructureStreamer';
 import { buildCastle } from './structures/Castle';
 import { buildVillage, type VillageLayout } from './structures/Village';
 import {
-  buildRuins, buildStoneCircle, buildWatchtower, buildShipwreck, buildGrotto, buildWaterfall,
+  buildRuins, buildStoneCircle, buildWatchtower, buildShipwreck, buildGrotto, buildWaterfall, buildDragonLair,
 } from './structures/POIs';
 import { buildPirateFort, buildFaroRuins, buildBrumaCamp } from './structures/Islands';
 import { createChest, createHerb, type ChestHandles } from './structures/Props';
@@ -119,6 +119,8 @@ export function buildWorld(
   prog(0.06, 'Esculpiendo montañas y valles…');
   const water = new WaterSystem(terrainHeight);
   const sky = new SkySystem();
+  scene.add(water.mesh); // ← the ocean surface itself (was missing: water was
+  // physically simulated but never rendered, so the player "swam in the air")
   scene.add(sky.dome);
   scene.add(sky.sunLight);
   scene.add(sky.sunLight.target);
@@ -199,6 +201,15 @@ export function buildWorld(
   scene.add(brumaGroup);
   streamer.register(brumaGroup, -80, 748, 30);
 
+  prog(0.60, 'Alzando el Nido del Ancestro…');
+  const lairB = new StaticBuilder(colliders, 'lair');
+  const lair = buildDragonLair(lairB, terrainHeight);
+  const lairGroup = new THREE.Group();
+  lairB.build(lairGroup, { shadows: true });
+  scene.add(lairGroup);
+  streamer.register(lairGroup, 20, -300, 55);
+  void lair.lockStone;
+
   prog(0.62, 'Escondiendo tesoros entre las rocas…');
   const chests: ChestRef[] = [];
   const herbs: HerbRef[] = [];
@@ -216,6 +227,8 @@ export function buildWorld(
   addChest('chest_crow', fort.chestPos.x, fort.chestPos.z, 0.8);
   addChest('chest_faro', faro.chestPos.x, faro.chestPos.z, 1.2);
   addChest('chest_bruma', bruma.chestPos.x, bruma.chestPos.z, -0.5);
+  addChest('chest_lanza', 295.5, 60.5, 0.8);   // watchtower base — la Lanza de Caza
+  addChest('chest_arco', -77, 750.5, 1.9);     // mist isles camp — el Arco del Naufragio
 
   // Shipwright material crates (oak for the Colibrí refit)
   const crateB = new StaticBuilder(colliders, 'crates');

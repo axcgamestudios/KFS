@@ -110,10 +110,62 @@ export const ITEMS: Record<string, ItemDef> = {
   escama: {
     id: 'escama', name: 'Escama de dragón', kind: 'treasure',
     desc: 'Ni fría ni caliente. Al sostenerla, late muy despacio... como si durmiera. Los dragones duermen — algo los está despertando.',
-    icon: 'Shell', stackable: false, rarity: 'legendary', lore: [
+    icon: 'Shell', stackable: true, rarity: 'legendary', lore: [
       'La escama es tan grande como tu palma y cambia de color según la luz: azul abismo, verde marea, gris tormenta.',
       'Al acercarla al oído, juras oír respirar. Muy hondo. Muy despacio.',
       'Alguien la dejó en este cofro a propósito: espirales de agua rodean el hueco donde descansaba, idénticas a las de las ruinas de Vaelthara.',
+    ],
+  },
+  hacha_orden: {
+    id: 'hacha_orden', name: 'Hacha de la Orden', kind: 'weapon',
+    desc: 'Hacha de guerra de la armería de la Orden de la Marea. Pesada como un juramento roto: los golpes pesados tambalean incluso a las bestias.',
+    icon: 'Axe', stackable: false, equipable: true, rarity: 'rare',
+  },
+  lanza_caza: {
+    id: 'lanza_caza', name: 'Lanza de Caza', kind: 'weapon',
+    desc: 'Lanza de fresno con punta ballenera, dejada por los vigías de la torre. Su alcance mantiene a las fauces a raya.',
+    icon: 'Navigation', stackable: false, equipable: true, rarity: 'rare',
+  },
+  arco_naufragio: {
+    id: 'arco_naufragio', name: 'Arco del Naufragio', kind: 'weapon',
+    desc: 'Un arco largo de tejo curado en sal, varado por la marea en las Islas de la Bruma. Mantén pulsado el clic para tensar; suelta para disparar.',
+    icon: 'BowArrow', stackable: false, equipable: true, rarity: 'rare',
+  },
+  escudo_marea: {
+    id: 'escudo_marea', name: 'Escudo de Marea', kind: 'weapon',
+    desc: 'Bram lo forjó con escamas de Vaelthara sobre un corazón de roble. Se ciñe al brazo izquierdo: el bloqueo derecho se vuelve casi impenetrable.',
+    icon: 'Shield', stackable: false, equipable: false, rarity: 'legendary',
+  },
+  flecha: {
+    id: 'flecha', name: 'Flechas', kind: 'material',
+    desc: 'Saetas de corazón de pino con plumas de gaviota. Las que fallan quedan clavadas en la tierra: pasa cerca para recogerlas.',
+    icon: 'MoveUpRight', stackable: true,
+  },
+  corazon_marea: {
+    id: 'corazon_marea', name: 'Corazón de Marea', kind: 'key',
+    desc: 'Un rubí palpitante arrancado del pecho de Vaelthara. Late al ritmo de las olas. La Orden lo llamaba «el ancla de la guardiana».',
+    icon: 'Droplets', stackable: false, rarity: 'legendary', lore: [
+      'La gema está tibia como una frente con fiebre y late una vez por cada tres olas que rompen en la costa.',
+      'Aldric dirá que los Guardianes usaban corazones así para sellar los pactos con los dragones.',
+      'En su base hay una inscripción: «Donde late la guardiana, duerme el ancestro».',
+    ],
+  },
+  garra_skarnvind: {
+    id: 'garra_skarnvind', name: 'Garra de Skarnvind', kind: 'key',
+    desc: 'La garra del wyvern de las brumas, negra como basalto y afilada como una vela cortante. Con ella, el Nido del Ancestro reconoce a un cazador.',
+    icon: 'Grab', stackable: false, rarity: 'legendary', lore: [
+      'Mide un palmo. Skarnvind tenía seis así, y ninguna le sirvió contra tus bordadas.',
+      'Los pescadores tallan amuletos con garras así «para que el mar sepa quién eres».',
+      'Aldric juró que esta garra encaja en el cerradero del Nido de Garrahielo.',
+    ],
+  },
+  colmillo_ancestro: {
+    id: 'colmillo_ancestro', name: 'Colmillo del Ancestro', kind: 'treasure',
+    desc: 'Un colmillo más largo que tu antebrazo, tan viejo que la luz se pierde dentro. El pacto de los dragones se firmó con sangre sobre este colmillo.',
+    icon: 'Swords', stackable: false, rarity: 'legendary', lore: [
+      'El colmillo pesa como el remordimiento. Al girarlo, la luz dibuja espirales de agua y alas en su interior.',
+      'Los reinos hundidos pagaban reinos enteros por un colmillo así. Los Guardianes juraban nunca venderlos.',
+      'Con esto, la Orden de la Marea tiene de nuevo un Guardián… y los mares olvidados, una historia que contar.',
     ],
   },
 };

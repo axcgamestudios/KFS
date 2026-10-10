@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CharacterModel, PLAYER_PALETTE } from './CharacterModel';
+import { CharacterModel, PLAYER_PALETTE, type WeaponKind } from './CharacterModel';
 import type { Input } from '../core/Input';
 import type { TerrainHeight } from '../world/TerrainHeight';
 import type { ColliderRegistry } from '../systems/ColliderRegistry';
@@ -26,6 +26,29 @@ export class Player {
   swimming = false;
   attackT = 0;
   lanternOn = false;
+
+  // ---- Fase 3 combat state (driven by CombatSystem, read for animation) ----
+  /** Current attack animation variant. */
+  attackKind: 'light1' | 'light2' | 'heavy' | 'thrust' | 'bowRelease' = 'light1';
+  /** Duration of the current swing (heavy attacks are slower). */
+  attackDur = 0.5;
+  /** Recovery gate after a swing before the next may start. */
+  attackRecovery = 0;
+  /** Block pose blend target (RMB). */
+  blocking = false;
+  blockT = 0;
+  /** Dodge roll in progress (0..1). */
+  rollT = 0;
+  readonly rollDir = new THREE.Vector3(0, 0, -1);
+  /** Bow draw progress: -1 = not drawing, else 0..1. */
+  bowDraw = -1;
+  /** Post-hit invulnerability window (seconds left). */
+  invulnT = 0;
+  /** Movement multiplier (block / bow draw slow the player). */
+  moveMult = 1;
+  /** Damage taken while blocking is also paid with stamina. */
+  hasShieldEquipped = false;
+
   private verticalVel = 0;
   private stepTimer = 0;
   private lanternLight: THREE.PointLight;
@@ -42,6 +65,7 @@ export class Player {
   onFootstep?: (surface: FootstepSurface) => void;
   onAttackSwing?: () => void;
   onDamaged?: (amount: number, reason: string) => void;
+  onBlockSparks?: (pos: THREE.Vector3) => void;
 
   /** Optional ship-deck ground probe (set while walking a ship's deck).
    *  Returns the deck height at a world XZ or null when off-deck. */
@@ -83,11 +107,78 @@ export class Player {
     this.group.position.set(x, y, z);
     this.velocity.set(0, 0, 0);
     this.verticalVel = 0;
+    // Cancel any combat action in progress
+    this.attackT = 0;
+    this.rollT = 0;
+    this.bowDraw = -1;
+    this.invulnT = 0;
   }
 
   toggleLantern(): void {
     this.lanternOn = !this.lanternOn;
     this.lanternFlame.visible = this.lanternOn;
+  }
+
+  // ---------------------------------------------------------------- combat
+
+  /** Start a dodge roll toward a world-space direction (length-irrelevant). */
+  beginRoll(dirX: number, dirZ: number): void {
+    const len = Math.hypot(dirX, dirZ);
+    if (len > 0.001) this.rollDir.set(dirX / len, 0, dirZ / len);
+    else this.rollDir.set(-Math.sin(this.yaw), 0, -Math.cos(this.yaw)); // backward
+    this.rollT = 0.001;
+    this.attackT = 0;
+    this.bowDraw = -1;
+  }
+
+  get rolling(): boolean {
+    return this.rollT > 0;
+  }
+
+  get invulnerable(): boolean {
+    return this.invulnT > 0 || this.rollT > 0; // roll grants i-frames
+  }
+
+  /**
+   * Central damage entry — applies i-frames, block reduction and stamina
+   * drain. Returns the health actually lost (0 when fully avoided/blocked)
+   * so callers can spawn the right VFX.
+   */
+  takeHit(damage: number, fromX?: number, fromZ?: number): number {
+    if (this.invulnerable) return 0;
+    // Blocking: absorb if the source is roughly in front (±60°)
+    if (this.blockT > 0.5) {
+      let facing = true;
+      if (fromX !== undefined && fromZ !== undefined) {
+        const toSrc = Math.atan2(fromX - this.position.x, fromZ - this.position.z);
+        let d = toSrc - this.yaw;
+        while (d > Math.PI) d -= Math.PI * 2;
+        while (d < -Math.PI) d += Math.PI * 2;
+        facing = Math.abs(d) < 1.05;
+      }
+      if (facing) {
+        const reduce = this.hasShieldEquipped ? 0.82 : 0.5;
+        const blocked = damage * reduce;
+        // Blocking drains stamina instead of most health
+        this.stamina = Math.max(0, this.stamina - blocked * 0.55);
+        const through = Math.max(0, damage - blocked);
+        this.health = Math.max(0, this.health - through);
+        this.invulnT = 0.45;
+        this.model.flash();
+        if (through <= 0.5 && this.onBlockSparks) {
+          this.onBlockSparks(new THREE.Vector3(
+            this.position.x + Math.sin(this.yaw) * 0.6,
+            this.position.y + 1.1,
+            this.position.z + Math.cos(this.yaw) * 0.6,
+          ));
+        }
+        return through;
+      }
+    }
+    this.health = Math.max(0, this.health - damage);
+    this.invulnT = 0.7;
+    this.model.flash();
+    return damage;
   }
 
   update(dt: number, input: Input, cameraYaw: number, terrain: TerrainHeight, colliders: ColliderRegistry, dialogueActive: boolean): void {
@@ -118,7 +209,10 @@ export class Player {
     }
 
     const wantRun = input.isDown('sprint') && inputLen > 0 && this.stamina > 1 && !this.swimming;
-    const speed = this.swimming ? this.stats.swimSpeed : wantRun ? this.stats.runSpeed : this.stats.walkSpeed;
+    let speed = this.swimming ? this.stats.swimSpeed : wantRun ? this.stats.runSpeed : this.stats.walkSpeed;
+    // Combat movement modifiers (Fase 3)
+    if (this.rollT > 0) speed = 7.6;                 // dodge roll burst
+    else speed *= this.moveMult;                     // block / bow-draw slow
 
     // --- Stamina ---
     if (wantRun && inputLen > 0) this.stamina = Math.max(0, this.stamina - dt * 13);
@@ -127,8 +221,16 @@ export class Player {
     else this.stamina = Math.min(this.stats.maxStamina, this.stamina + dt * 17);
 
     // --- Horizontal velocity (smooth accel) ---
-    const targetVX = moveX * speed;
-    const targetVZ = moveZ * speed;
+    let targetVX: number;
+    let targetVZ: number;
+    if (this.rollT > 0) {
+      // Dodge roll: fixed burst along the roll direction, input ignored
+      targetVX = this.rollDir.x * speed;
+      targetVZ = this.rollDir.z * speed;
+    } else {
+      targetVX = moveX * speed;
+      targetVZ = moveZ * speed;
+    }
     const accel = this.grounded || this.swimming ? 12 : 4;
     this.velocity.x = damp(this.velocity.x, targetVX, accel, dt);
     this.velocity.z = damp(this.velocity.z, targetVZ, accel, dt);
@@ -215,11 +317,22 @@ export class Player {
     this.model.root.rotation.x = damp(this.model.root.rotation.x, this.swimming ? 1.15 : 0, 8, dt);
     this.model.root.position.y = damp(this.model.root.position.y, this.swimming ? 0.55 : 0, 8, dt);
 
-    // --- Attack progress ---
-    if (this.attackT > 0) {
-      this.attackT += dt / 0.5;
-      if (this.attackT >= 1) this.attackT = 0;
+    // --- Combat timers (Fase 3) ---
+    if (this.rollT > 0) {
+      this.rollT += dt / 0.55;
+      if (this.rollT >= 1) this.rollT = 0;
     }
+    if (this.invulnT > 0) this.invulnT -= dt;
+    if (this.attackRecovery > 0) this.attackRecovery -= dt;
+    // Block pose blend
+    const blockTarget = this.blocking && this.grounded && this.rollT === 0 && this.attackT === 0 ? 1 : 0;
+    this.blockT = damp(this.blockT, blockTarget, 14, dt);
+    // Movement multiplier from context
+    let mm = 1;
+    if (this.blockT > 0.1) mm *= 1 - 0.55 * this.blockT;
+    if (this.bowDraw >= 0) mm *= 0.55;
+    if (this.attackT > 0) mm *= 0.35;
+    this.moveMult = mm;
 
     // --- Animate ---
     this.model.update({
@@ -229,6 +342,10 @@ export class Player {
       grounded: this.grounded,
       swimming: this.swimming,
       attackT: this.attackT,
+      attackKind: this.attackKind,
+      blockT: this.blockT,
+      rollT: this.rollT,
+      bowDraw: this.bowDraw,
     });
 
     // --- Footsteps ---
@@ -323,5 +440,15 @@ export class Player {
     this.yaw = d.yaw;
     this.health = d.health;
     this.stamina = d.stamina;
+  }
+
+  /** Weapon visual hookup used by the game (item id → model kind). */
+  setWeaponVisual(kind: WeaponKind): void {
+    this.model.setWeapon(kind);
+  }
+
+  setShieldVisual(visible: boolean): void {
+    this.hasShieldEquipped = visible;
+    this.model.setShield(visible);
   }
 }

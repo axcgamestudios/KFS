@@ -1,0 +1,1344 @@
+     1→     1→import * as THREE from 'three';
+     2→     2→import { Engine } from './core/Engine';
+     3→     3→import { Input } from './core/Input';
+     4→     4→import { buildWorld, type WorldRefs, type Interactable } from './GameWorld';
+     5→     5→import { ColliderRegistry } from './systems/ColliderRegistry';
+     6→     6→import { GameState, SKILLS, xpForLevel } from './systems/GameState';
+     7→     7→import { DialogueSystem } from './systems/DialogueSystem';
+     8→     8→import { AudioSystem } from './systems/AudioSystem';
+     9→     9→import { SaveSystem, type SaveData, type Settings } from './systems/SaveSystem';
+    10→    10→import { Player } from './entities/Player';
+    11→    11→import { CameraRig } from './entities/CameraRig';
+    12→    12→import { NPC } from './entities/NPC';
+    13→    13→import { NavalSystem, type SailingHud } from './naval/NavalSystem';
+    14→    14→import type { Ship } from './naval/Ship';
+    15→    15→import { windTime } from './world/VegetationSystem';
+    16→    16→import { POIS } from './world/WorldConfig';
+    17→    17→import { ITEMS } from './data/items';
+    18→    18→import { QUESTS, MAIN_QUEST_ORDER, SIDE_QUESTS } from './data/quests';
+    19→    19→import { LORE } from './data/dialogues';
+    20→    20→import { useGameStore } from '../store/gameStore';
+    21→    21→import { gameApi, type QuestView } from './api';
+    22→    22→import { clamp, formatClock, smoothstep } from './core/MathUtils';
+    23→    23→import { updateChests } from './structures/Props';
+    24→    24→
+    25→    25→interface IntroShot {
+    26→    26→  from: THREE.Vector3; to: THREE.Vector3;
+    27→    27→  lookFrom: THREE.Vector3; lookTo: THREE.Vector3;
+    28→    28→  dur: number; text: string;
+    29→    29→}
+    30→    30→
+    31→    31→const INTRO_SHOTS: IntroShot[] = [
+    32→    32→  {
+    33→    33→    from: new THREE.Vector3(-60, 55, 720), to: new THREE.Vector3(20, 42, 620),
+    34→    34→    lookFrom: new THREE.Vector3(0, 30, 100), lookTo: new THREE.Vector3(20, 25, 150),
+    35→    35→    dur: 11,
+    36→    36→    text: 'Eldoria… Tierra de reinos que fueron. Los antiguos dominaron los mares bajo el pacto de los dragones… hasta que la gran guerra lo hundió todo bajo las olas.',
+    37→    37→  },
+    38→    38→  {
+    39→    39→    from: new THREE.Vector3(220, 120, -80), to: new THREE.Vector3(160, 95, -140),
+    40→    40→    lookFrom: new THREE.Vector3(40, 70, -320), lookTo: new THREE.Vector3(60, 80, -300),
+    41→    41→    dur: 11,
+    42→    42→    text: 'Los dragones duermen en las cumbres de Garrahielo. Los piratas siembran el miedo en las rutas. Y algo antiguo despierta bajo las ruinas del océano.',
+    43→    43→  },
+    44→    44→  {
+    45→    45→    from: new THREE.Vector3(210, 70, 60), to: new THREE.Vector3(160, 58, 20),
+    46→    46→    lookFrom: new THREE.Vector3(110, 45, -45), lookTo: new THREE.Vector3(105, 50, -40),
+    47→    47→    dur: 10,
+    48→    48→    text: 'Los reinos están divididos y los muros se agrietan. En Puerto Cuervo, un maestre de puerto guarda la última voluntad de un amigo desaparecido…',
+    49→    49→  },
+    50→    50→  {
+    51→    51→    from: new THREE.Vector3(70, 30, 250), to: new THREE.Vector3(38, 10, 252),
+    52→    52→    lookFrom: new THREE.Vector3(25, 8, 235), lookTo: new THREE.Vector3(21, 2.2, 244),
+    53→    53→    dur: 10,
+    54→    54→    text: '…y la marea trae a alguien de vuelta a casa. El hijo del Guardián ha regresado. KINGDOMS OF THE FORGOTTEN SEAS — Capítulo I: El Legado de Eirik.',
+    55→    55→  },
+    56→    56→];
+    57→    57→
+    58→    58→export class Game {
+    59→    59→  private engine: Engine;
+    60→    60→  private input: Input;
+    61→    61→  private colliders = new ColliderRegistry();
+    62→    62→  private state = new GameState();
+    63→    63→  private dialogue: DialogueSystem;
+    64→    64→  private audio = new AudioSystem();
+    65→    65→  private world?: WorldRefs;
+    66→    66→  private player?: Player;
+    67→    67→  private rig?: CameraRig;
+    68→    68→  private npcs: NPC[] = [];
+    69→    69→  private naval?: NavalSystem;
+    70→    70→  private settings: Settings;
+    71→    71→
+    72→    72→  private hudTimer = 0;
+    73→    73→  private discoveryTimer = 0;
+    74→    74→  private autosaveTimer = 0;
+    75→    75→  private mapTimer = 0;
+    76→    76→  private menuOrbit = 0;
+    77→    77→  private introT = 0;
+    78→    78→  private introDone = false;
+    79→    79→  private lastIntroShot = -1;
+    80→    80→  private musicIntensityTarget = 0.15;
+    81→    81→  private lastSwingHit = false;
+    82→    82→  private dead = false;
+    83→    83→
+    84→    84→  constructor(canvas: HTMLCanvasElement) {
+    85→    85→    this.engine = new Engine(canvas);
+    86→    86→    this.input = new Input(canvas);
+    87→    87→    this.dialogue = new DialogueSystem(this.state);
+    88→    88→    this.settings = {
+    89→    89→      quality: 'high', masterVolume: 0.8, musicVolume: 0.6, sfxVolume: 0.9,
+    90→    90→      sensitivity: 1, invertY: false,
+    91→    91→      ...SaveSystem.readSettings(),
+    92→    92→    };
+    93→    93→
+    94→    94→    this.state.onChange = () => this.syncProgression();
+    95→    95→
+    96→    96→    this.engine.onWebGLContextLost = () => {
+    97→    97→      useGameStore.getState().notify('info', 'Contexto gráfico perdido', 'Recarga la página para continuar.');
+    98→    98→    };
+    99→    99→
+   100→   100→    // Click canvas → resume pointer lock while playing
+   101→   101→    canvas.addEventListener('click', () => {
+   102→   102→      const s = useGameStore.getState();
+   103→   103→      if (s.phase === 'playing' && !s.overlay && !s.dialogue && !this.input.pointerLocked) {
+   104→   104→        this.input.requestLock();
+   105→   105→      }
+   106→   106→    });
+   107→   107→
+   108→   108→    // Esc exits pointer lock → open pause menu automatically (debounced so a
+   109→   109→    // failed lock request right after resuming doesn't instantly re-pause)
+   110→   110→    document.addEventListener('pointerlockchange', () => {
+   111→   111→      const s = useGameStore.getState();
+   112→   112→      if (
+   113→   113→        !this.input.pointerLocked &&
+   114→   114→        s.phase === 'playing' &&
+   115→   115→        !s.overlay &&
+   116→   116→        !s.dialogue &&
+   117→   117→        !s.introActive &&
+   118→   118→        performance.now() - this.lastResumeAt > 1200
+   119→   119→      ) {
+   120→   120→        this.pause();
+   121→   121→      }
+   122→   122→    });
+   123→   123→
+   124→   124→    // Escape while playing without pointer lock → pause as well
+   125→   125→    window.addEventListener('keydown', (e) => {
+   126→   126→      if (e.code !== 'Escape') return;
+   127→   127→      const s = useGameStore.getState();
+   128→   128→      if (s.phase === 'playing' && !s.overlay && !s.dialogue) {
+   129→   129→        this.pause();
+   130→   130→      }
+   131→   131→    });
+   132→   132→
+   133→   133→    this.engine.addUpdater((dt) => this.update(dt));
+   134→   134→  }
+   135→   135→
+   136→   136→  // ---------------------------------------------------------------- boot
+   137→   137→
+   138→   138→  async boot(): Promise<void> {
+   139→   139→    const store = useGameStore.getState();
+   140→   140→    store.setProgress(0.02, 'Desplegando las velas…');
+   141→   141→    await new Promise((r) => setTimeout(r, 30));
+   142→   142→
+   143→   143→    const world = buildWorld(
+   144→   144→      this.engine.scene, this.colliders, this.state, this.settings.quality,
+   145→   145→      (frac, label) => store.setProgress(0.05 + frac * 0.75, label),
+   146→   146→    );
+   147→   147→    this.world = world;
+   148→   148→
+   149→   149→    store.setProgress(0.85, 'Despertando al explorador…');
+   150→   150→    this.player = new Player(this.engine.scene);
+   151→   151→    this.player.onFootstep = (surface) => this.audio.playFootstep(surface);
+   152→   152→    this.player.onDamaged = (amount) => {
+   153→   153→      this.audio.playEvent('damage');
+   154→   154→      useGameStore.getState().notify('info', `Has perdido ${amount} de salud`, 'La caída fue dura.');
+   155→   155→    };
+   156→   156→    this.player.onAttackSwing = () => this.audio.playEvent('swing');
+   157→   157→    this.rig = new CameraRig(this.engine.camera);
+   158→   158→    this.rig.sensitivity = this.settings.sensitivity;
+   159→   159→    this.rig.invertY = this.settings.invertY;
+   160→   160→
+   161→   161→    // Naval layer (Fase 2): the player's caravel + the pirate fleets
+   162→   162→    this.naval = new NavalSystem(
+   163→   163→      this.engine.scene, world.terrainHeight, world.water, this.state,
+   164→   164→      {
+   165→   165→        notify: (kind, title, body) => useGameStore.getState().notify(kind, title, body),
+   166→   166→        sound: (kind) => this.audio.playEvent(kind),
+   167→   167→        music: (intensity) => {
+   168→   168→          this.musicIntensityTarget = intensity;
+   169→   169→        },
+   170→   170→        setFlag: (flag) => this.state.setFlag(flag),
+   171→   171→        lore: (title, paragraphs) => this.dialogue.startLore(title, paragraphs),
+   172→   172→        closeDialogue: () => this.dialogue.close(),
+   173→   173→        playerDamage: (amount, source) => {
+   174→   174→          const p = this.player!;
+   175→   175→          p.health = Math.max(0, p.health - amount);
+   176→   176→          this.audio.playEvent('damage');
+   177→   177→          void source;
+   178→   178→        },
+   179→   179→        returnPlayerToShip: () => this.takeHelm(),
+   180→   180→      },
+   181→   181→    );
+   182→   182→    this.naval.dockSpawn = world.dockSpawn;
+   183→   183→    this.naval.onDisembark = (spot) => {
+   184→   184→      const p = this.player!;
+   185→   185→      const g = world.terrainHeight.height(spot.x, spot.z);
+   186→   186→      p.teleport(spot.x, Math.max(g, 1.2), spot.z);
+   187→   187→      p.platformProbe = undefined;
+   188→   188→      this.rig!.setShipMode(null);
+   189→   189→    };
+   190→   190→    this.naval.onShipRespawned = () => {
+   191→   191→      const p = this.player!;
+   192→   192→      const sp = world.village.spawnPoint;
+   193→   193→      p.teleport(sp.x, Math.max(world.terrainHeight.height(sp.x, sp.z), 1.5), sp.z);
+   194→   194→      p.platformProbe = undefined;
+   195→   195→      this.rig!.setShipMode(null);
+   196→   196→    };
+   197→   197→    this.naval.onBoardingStarted = (enemy) => {
+   198→   198→      const p = this.player!;
+   199→   199→      const deck = enemy.toWorld(0, 0, 3.4);
+   200→   200→      p.teleport(deck.x, enemy.deckHeightAt(0, 3.4) ?? 1, deck.z);
+   201→   201→      p.yaw = enemy.heading + Math.PI;
+   202→   202→      p.velocity.set(0, 0, 0);
+   203→   203→      p.platformProbe = (x, z) => {
+   204→   204→        const local = enemy.toLocal(x, z);
+   205→   205→        return enemy.deckHeightAt(local.x, local.y);
+   206→   206→      };
+   207→   207→      this.rig!.setShipMode(null);
+   208→   208→      this.state.setFlag('boarding_fought');
+   209→   209→    };
+   210→   210→    this.naval.spawnEnemies();
+   211→   211→
+   212→   212→    for (const def of world.npcDefs) {
+   213→   213→      this.npcs.push(new NPC(def, this.engine.scene));
+   214→   214→    }
+   215→   215→
+   216→   216→    this.buildInteractables();
+   217→   217→    this.installApi();
+   218→   218→    // Debug/testing hook (harmless in production)
+   219→   219→    (window as unknown as { __kotfsGame?: Game }).__kotfsGame = this;
+   220→   220→
+   221→   221→    // Menu ambience: golden hour over the bay
+   222→   222→    world.sky.dayFraction = 0.78;
+   223→   223→    this.player.teleport(world.village.spawnPoint.x, world.village.spawnPoint.y, world.village.spawnPoint.z);
+   224→   224→
+   225→   225→    store.setProgress(1, 'Eldoria espera…');
+   226→   226→    store.setHasSave(SaveSystem.newestSlot() !== null);
+   227→   227→    await new Promise((r) => setTimeout(r, 250));
+   228→   228→    store.setPhase('menu');
+   229→   229→    this.engine.start();
+   230→   230→  }
+   231→   231→
+   232→   232→  // -------------------------------------------------------- interactables
+   233→   233→
+   234→   234→  private buildInteractables(): void {
+   235→   235→    const w = this.world!;
+   236→   236→    const state = this.state;
+   237→   237→    const audio = this.audio;
+   238→   238→    const store = useGameStore;
+   239→   239→    const terrainH = (x: number, z: number) => w.terrainHeight.height(x, z);
+   240→   240→
+   241→   241→    // --- Chests ---
+   242→   242→    const wreck = POIS.find((p) => p.id === 'wreck')!;
+   243→   243→    for (const chest of w.chests) {
+   244→   244→      w.interactables.push({
+   245→   245→        id: chest.id,
+   246→   246→        pos: chest.pos,
+   247→   247→        radius: 2.4,
+   248→   248→        get prompt() {
+   249→   249→          if (chest.id === 'chest_eirik') {
+   250→   250→            return state.hasItem('amuleto') && !state.openedChests.has('chest_eirik')
+   251→   251→              ? 'Abrir el cofre de Eirik'
+   252→   252→              : state.openedChests.has('chest_eirik') ? '' : 'Examinar el cofre de Eirik';
+   253→   253→          }
+   254→   254→          return state.openedChests.has(chest.id) ? '' : 'Abrir el cofre';
+   255→   255→        },
+   256→   256→        available: () =>
+   257→   257→          chest.id === 'chest_eirik' ? !state.openedChests.has(chest.id) : true,
+   258→   258→        run: () => {
+   259→   259→          if (chest.id === 'chest_eirik') {
+   260→   260→            if (!state.hasItem('amuleto')) {
+   261→   261→              this.dialogue.startLore('El cofre de Eirik', [
+   262→   262→                'Un cofre de mar reforzado con bandas de hierro. El cierre es extraño: un círculo de mareas alrededor de una llama, fundido en cobre.',
+   263→   263→                'No hay cerradura ni bisagra visible. «Solo el amuleto lo abre», diría Aldric. Maren, la herborista, sabe dónde está.',
+   264→   264→              ]);
+   265→   265→              return;
+   266→   266→            }
+   267→   267→            chest.handles.open();
+   268→   268→            state.openedChests.add('chest_eirik');
+   269→   269→            state.setFlag('chest_opened');
+   270→   270→            state.interactMilestone('chest_eirik');
+   271→   271→            audio.playEvent('chest');
+   272→   272→            state.addItem('espada_eirik', 1);
+   273→   273→            state.addItem('mapa', 1);
+   274→   274→            state.addItem('carta', 1);
+   275→   275→            state.giveXp(25);
+   276→   276→            this.musicIntensityTarget = 0.7;
+   277→   277→            store.getState().notify('quest', 'El cofre de Eirik se abre', 'Espada de Eirik, Mapa antiguo y Carta de Eirik añadidos al inventario.');
+   278→   278→            store.getState().notify('info', 'Lee la carta de tu padre', 'Ábrela desde el inventario (Tab).');
+   279→   279→            return;
+   280→   280→          }
+   281→   281→          if (state.openedChests.has(chest.id)) return;
+   282→   282→          chest.handles.open();
+   283→   283→          state.openedChests.add(chest.id);
+   284→   284→          audio.playEvent('chest');
+   285→   285→          state.giveXp(15);
+   286→   286→          if (chest.id === 'chest_grotto') {
+   287→   287→            state.addItem('colmillo', 1);
+   288→   288→            state.addItem('coin', 25);
+   289→   289→            store.getState().notify('item', 'Tesoro encontrado', 'Colmillo tallado y 25 monedas de oro.');
+   290→   290→          } else if (chest.id === 'chest_wreck') {
+   291→   291→            state.addItem('coin', 18);
+   292→   292→            state.addItem('pocion', 1);
+   293→   293→            store.getState().notify('item', 'Tesoro encontrado', '18 monedas de oro y una poción de curación.');
+   294→   294→          } else if (chest.id === 'chest_falls') {
+   295→   295→            state.addItem('coin', 20);
+   296→   296→            state.addItem('petalo', 1);
+   297→   297→            store.getState().notify('item', 'Tesoro encontrado', '20 monedas de oro y un pétalo de marfil.');
+   298→   298→          } else if (chest.id === 'chest_crow') {
+   299→   299→            state.addItem('botin', 1);
+   300→   300→            state.addItem('coin', 60);
+   301→   301→            store.getState().notify('item', 'El botín del Cuervo', 'Botín del Cuervo y 60 monedas de oro, arrancados a la guarida pirata.');
+   302→   302→          } else if (chest.id === 'chest_faro') {
+   303→   303→            state.addItem('espejo', 1);
+   304→   304→            state.addItem('coin', 30);
+   305→   305→            store.getState().notify('item', 'El espejo del faro', 'El viejo espejo de latón de los Guardianes y 30 monedas.');
+   306→   306→          } else if (chest.id === 'chest_bruma') {
+   307→   307→            state.addItem('escama', 1);
+   308→   308→            state.addItem('petalo', 2);
+   309→   309→            state.addItem('coin', 35);
+   310→   310→            store.getState().notify('item', 'Algo late en el cofre', 'Una escama que duerme, dos pétalos de marfil y 35 monedas. Léela desde el inventario (Tab).');
+   311→   311→          }
+   312→   312→        },
+   313→   313→      });
+   314→   314→    }
+   315→   315→
+   316→   316→    // --- Herbs ---
+   317→   317→    for (const herb of w.herbs) {
+   318→   318→      w.interactables.push({
+   319→   319→        id: herb.id,
+   320→   320→        pos: herb.pos,
+   321→   321→        radius: 1.8,
+   322→   322→        prompt: 'Recoger pétalo de marfil',
+   323→   323→        available: () => !state.pickedHerbs.has(herb.id),
+   324→   324→        run: () => {
+   325→   325→          state.pickedHerbs.add(herb.id);
+   326→   326→          herb.mesh.visible = false;
+   327→   327→          const mult = state.learnedSkills.has('sup_botanico') ? 2 : 1;
+   328→   328→          state.addItem('petalo', mult);
+   329→   329→          audio.playEvent('pickup');
+   330→   330→          state.giveXp(8);
+   331→   331→          store.getState().notify(
+   332→   332→            'item',
+   333→   333→            mult > 1 ? 'Pétalos de marfil ×2' : 'Pétalo de marfil recogido',
+   334→   334→            'Crece donde el agua canta. Maren los necesita.',
+   335→   335→          );
+   336→   336→        },
+   337→   337→      });
+   338→   338→    }
+   339→   339→
+   340→   340→    // --- Rosa's crate (wreck) ---
+   341→   341→    w.interactables.push({
+   342→   342→      id: 'crate_rosa',
+   343→   343→      pos: new THREE.Vector3(wreck.x + 4.5, terrainH(wreck.x + 4.5, wreck.z + 3.5), wreck.z + 3.5),
+   344→   344→      radius: 2.2,
+   345→   345→      prompt: 'Examinar el cargamento',
+   346→   346→      available: () => !state.hasFlag('rosa_crate_found'),
+   347→   347→      run: () => {
+   348→   348→        state.setFlag('rosa_crate_found');
+   349→   349→        state.addItem('cargamento', 1);
+   350→   350→        state.interactMilestone('crate_rosa');
+   351→   351→        audio.playEvent('pickup');
+   352→   352→        state.giveXp(10);
+   353→   353→        store.getState().notify('item', 'Cargamento de Rosa', 'La caja lleva el sello del Ancla Rota. Rosa pagará bien por esto.');
+   354→   354→      },
+   355→   355→    });
+   356→   356→
+   357→   357→    // --- Oak crates for the Colibrí refit (Fase 2) ---
+   358→   358→    const oakCrates: Array<[string, number, number]> = [
+   359→   359→      ['crate_madera_a', 17.5, 231.5],
+   360→   360→      ['crate_madera_b', -326, 183],
+   361→   361→      ['crate_madera_c', -100, -188],
+   362→   362→    ];
+   363→   363→    for (const [id, x, z] of oakCrates) {
+   364→   364→      w.interactables.push({
+   365→   365→        id,
+   366→   366→        pos: new THREE.Vector3(x, terrainH(x, z), z),
+   367→   367→        radius: 2.2,
+   368→   368→        prompt: 'Recoger madera de roble (×2)',
+   369→   369→        available: () => !state.hasFlag(`oak_${id}`),
+   370→   370→        run: () => {
+   371→   371→          state.setFlag(`oak_${id}`);
+   372→   372→          state.addItem('madera', 2);
+   373→   373→          audio.playEvent('pickup');
+   374→   374→          state.giveXp(6);
+   375→   375→          store.getState().notify('item', 'Madera de roble ×2', 'Roble curado con el sello de Bram. Perfecto para el casco del Colibrí.');
+   376→   376→        },
+   377→   377→      });
+   378→   378→    }
+   379→   379→
+   380→   380→    // --- The refit delivery point: the Colibrí itself ---
+   381→   381→    w.interactables.push({
+   382→   382→      id: 'colibri_refit',
+   383→   383→      pos: new THREE.Vector3(w.village.shipPos.x, 0, w.village.shipPos.z),
+   384→   384→      radius: 9,
+   385→   385→      get prompt(): string {
+   386→   386→        if (state.hasFlag('ship_repaired')) return '';
+   387→   387→        const ready = state.hasItem('madera', 4) && state.hasItem('lona', 3) && state.hasItem('cuerda', 2);
+   388→   388→        return ready
+   389→   389→          ? 'Entregar los materiales para la reparación'
+   390→   390→          : 'Examinar el Colibrí de Mar';
+   391→   391→      },
+   392→   392→      available: () => !state.hasFlag('ship_repaired'),
+   393→   393→      run: () => {
+   394→   394→        const ready = state.hasItem('madera', 4) && state.hasItem('lona', 3) && state.hasItem('cuerda', 2);
+   395→   395→        if (!ready) {
+   396→   396→          const missing: string[] = [];
+   397→   397→          if (!state.hasItem('madera', 4)) missing.push(`madera (${Math.min(4, state.countItem('madera'))}/4)`);
+   398→   398→          if (!state.hasItem('lona', 3)) missing.push(`lona (${Math.min(3, state.countItem('lona'))}/3)`);
+   399→   399→          if (!state.hasItem('cuerda', 2)) missing.push(`cuerda (${Math.min(2, state.countItem('cuerda'))}/2)`);
+   400→   400→          this.dialogue.startLore('El Colibrí de Mar', [
+   401→   401→            'El casco aguarda entre andamios. Bram revisa la lista garabateada en carbón sobre la cubierta.',
+   402→   402→            `«Todavía falta: ${missing.join(', ')}. El roble está en cajas con mi sello — muelle, costa del naufragio y sendero de la cascada. La lona la prepara Rosa y la cuerda la tiene Tom.»`,
+   403→   403→          ]);
+   404→   404→          return;
+   405→   405→        }
+   406→   406→        state.removeItem('madera', 4);
+   407→   407→        state.removeItem('lona', 3);
+   408→   408→        state.removeItem('cuerda', 2);
+   409→   409→        state.setFlag('ship_repaired');
+   410→   410→        state.interactMilestone('colibri_refit');
+   411→   411→        audio.playEvent('unlock');
+   412→   412→        this.launchShip();
+   413→   413→      },
+   414→   414→    });
+   415→   415→
+   416→   416→    // --- Lore tablets ---
+   417→   417→    const addLore = (id: string, x: number, z: number, prompt: string) => {
+   418→   418→      w.interactables.push({
+   419→   419→        id,
+   420→   420→        pos: new THREE.Vector3(x, terrainH(x, z), z),
+   421→   421→        radius: 2.6,
+   422→   422→        prompt,
+   423→   423→        run: () => {
+   424→   424→          const lore = LORE[id];
+   425→   425→          this.dialogue.startLore(lore.title, lore.text);
+   426→   426→          if (!state.hasFlag(`lore_${id}`)) {
+   427→   427→            state.setFlag(`lore_${id}`);
+   428→   428→            state.giveXp(10);
+   429→   429→          }
+   430→   430→        },
+   431→   431→      });
+   432→   432→    };
+   433→   433→    addLore('tablet_ruins', -243, -135, 'Leer la tablilla antigua');
+   434→   434→    addLore('stones_center', -140, -260, 'Tocar el altar de piedra');
+   435→   435→    addLore('tower_door', 300, 64.2, 'Examinar la puerta tapiada');
+   436→   436→    addLore('ship_colibri', w.village.shipDeck.x, w.village.shipDeck.z, 'Contemplar el Colibrí de Mar');
+   437→   437→  }
+   438→   438→
+   439→   439→  // -------------------------------------------------------- helm helpers
+   440→   440→
+   441→   441→  /** Attach the player to the wheel of their ship (sailing mode). */
+   442→   442→  private takeHelm(): void {
+   443→   443→    const naval = this.naval;
+   444→   444→    const ship = naval?.playerShip;
+   445→   445→    if (!naval || !ship || ship.sunk || ship.sinking > 0) return;
+   446→   446→    naval.playerBoardsHelm();
+   447→   447→    this.attachPlayerToWheel();
+   448→   448→    this.rig!.setShipMode(ship);
+   449→   449→    if (!this.state.hasFlag('tut_sailing')) {
+   450→   450→      this.state.setFlag('tut_sailing');
+   451→   451→      useGameStore.getState().notify(
+   452→   452→        'info',
+   453→   453→        'Al timón del Colibrí',
+   454→   454→        'W/S velas · A/D timón · Espacio fondear · Clic izq./der. bordadas · E desembarcar o abordar',
+   455→   455→      );
+   456→   456→    }
+   457→   457→  }
+   458→   458→
+   459→   459→  private attachPlayerToWheel(): void {
+   460→   460→    const ship = this.naval!.playerShip!;
+   461→   461→    const wheel = ship.wheelWorld;
+   462→   462→    this.player!.teleport(wheel.x, wheel.y, wheel.z);
+   463→   463→    this.player!.yaw = ship.heading;
+   464→   464→    this.player!.velocity.set(0, 0, 0);
+   465→   465→  }
+   466→   466→
+   467→   467→  /** The refit is complete: swap the static hull for the real ship. */
+   468→   468→  private launchShip(): void {
+   469→   469→    const w = this.world!;
+   470→   470→    w.village.setStaticShip(false);
+   471→   471→    // Stop the streamer from re-showing the retired static hull
+   472→   472→    w.streamer.unregister(w.village.staticShip);
+   473→   473→    const dock = w.dockSpawn;
+   474→   474→    this.naval!.spawnPlayerShip(dock.x, dock.z, dock.heading);
+   475→   475→    this.naval!.applyPerks();
+   476→   476→    this.audio.playEvent('quest');
+   477→   477→    this.musicIntensityTarget = 0.8;
+   478→   478→    useGameStore.getState().notify(
+   479→   479→      'quest',
+   480→   480→      '¡El Colibrí de Mar flota de nuevo!',
+   481→   481→      'La carena está lista. Acércate al costado del barco, junto al muelle, para zarpar. Las habilidades de navegación (K) se han desbloqueado.',
+   482→   482→    );
+   483→   483→    this.autosave();
+   484→   484→  }
+   485→   485→
+   486→   486→  // ---------------------------------------------------------------- phases
+   487→   487→
+   488→   488→  private startNewGameCore(): void {
+   489→   489→    const w = this.world!;
+   490→   490→    this.state.resetForNewGame();
+   491→   491→    this.state.setFlag('intro_done');
+   492→   492→    w.sky.dayFraction = 0.295;
+   493→   493→    w.sky.dayCount = 1;
+   494→   494→    this.dead = false;
+   495→   495→    // Fresh naval layer: the Colibrí is still under repair on land
+   496→   496→    this.naval?.resetAll();
+   497→   497→    w.village.setStaticShip(true);
+   498→   498→    w.streamer.register(w.village.staticShip, w.village.shipPos.x, w.village.shipPos.z, 30);
+   499→   499→    this.player!.platformProbe = undefined;
+   500→   500→    this.rig?.setShipMode(null);
+   501→   501→    const sp = w.village.spawnPoint;
+   502→   502→    const groundY = w.terrainHeight.height(sp.x, sp.z);
+   503→   503→    this.player!.teleport(sp.x, Math.max(groundY, 1.5), sp.z);
+   504→   504→    this.player!.health = 100;
+   505→   505→    this.player!.stamina = 100;
+   506→   506→    this.player!.model.setEquippedState(false);
+   507→   507→    this.applyStats();
+   508→   508→    for (const npc of this.npcs) {
+   509→   509→      npc.deserialize({ x: npc.def.work.x, y: npc.def.work.y, z: npc.def.work.z, yaw: 0 });
+   510→   510→    }
+   511→   511→    this.restoreWorldFromState();
+   512→   512→    this.syncProgression();
+   513→   513→  }
+   514→   514→
+   515→   515→  newGameWithIntro(): void {
+   516→   516→    this.startNewGameCore();
+   517→   517→    this.introT = 0;
+   518→   518→    this.introDone = false;
+   519→   519→    this.lastIntroShot = -1;
+   520→   520→    useGameStore.getState().setPhase('intro');
+   521→   521→    useGameStore.getState().setIntro({ text: INTRO_SHOTS[0].text, shot: 0, total: INTRO_SHOTS.length, title: false });
+   522→   522→  }
+   523→   523→
+   524→   524→  private finishIntro(): void {
+   525→   525→    const store = useGameStore.getState();
+   526→   526→    store.setIntroActive(false);
+   527→   527→    store.setPhase('playing');
+   528→   528→    this.state.startQuest('q1_legacy');
+   529→   529→    this.audio.playEvent('quest');
+   530→   530→    this.musicIntensityTarget = 0.35;
+   531→   531→    store.notify('quest', 'Nueva misión: El Legado de Eirik', 'Habla con el Maestre Aldric en el puerto.');
+   532→   532→    store.notify('info', 'Controles', 'WASD moverse · Mayús correr · Espacio saltar · E interactuar · Tab inventario · M mapa · J diario');
+   533→   533→    this.autosave();
+   534→   534→    this.input.requestLock();
+   535→   535→  }
+   536→   536→
+   537→   537→  pause(): void {
+   538→   538→    const store = useGameStore.getState();
+   539→   539→    if (store.phase !== 'playing') return;
+   540→   540→    store.setPhase('paused');
+   541→   541→    this.input.releaseLock();
+   542→   542→    this.input.clearAll();
+   543→   543→  }
+   544→   544→
+   545→   545→  resume(): void {
+   546→   546→    const store = useGameStore.getState();
+   547→   547→    if (store.phase !== 'paused') return;
+   548→   548→    store.setPhase('playing');
+   549→   549→    this.lastResumeAt = performance.now();
+   550→   550→    this.input.requestLock();
+   551→   551→  }
+   552→   552→
+   553→   553→  private lastResumeAt = 0;
+   554→   554→
+   555→   555→  returnToMenu(): void {
+   556→   556→    this.autosave();
+   557→   557→    const store = useGameStore.getState();
+   558→   558→    store.setPhase('menu');
+   559→   559→    store.setDialogue(null);
+   560→   560→    this.input.releaseLock();
+   561→   561→    this.input.clearAll();
+   562→   562→    this.world!.sky.timePaused = false;
+   563→   563→    store.setHasSave(SaveSystem.newestSlot() !== null);
+   564→   564→  }
+   565→   565→
+   566→   566→  // ------------------------------------------------------------ save/load
+   567→   567→
+   568→   568→  buildSaveData(): SaveData {
+   569→   569→    return {
+   570→   570→      version: 2,
+   571→   571→      timestamp: Date.now(),
+   572→   572→      player: this.player!.serialize(),
+   573→   573→      time: this.world!.sky.serialize(),
+   574→   574→      gameState: this.state.serialize(),
+   575→   575→      naval: this.naval?.serialize(),
+   576→   576→    };
+   577→   577→  }
+   578→   578→
+   579→   579→  autosave(): void {
+   580→   580→    if (!this.world || !this.player) return;
+   581→   581→    if (SaveSystem.autosave(this.buildSaveData())) {
+   582→   582→      useGameStore.getState().setHasSave(true);
+   583→   583→    }
+   584→   584→  }
+   585→   585→
+   586→   586→  saveToSlot(slot: number): boolean {
+   587→   587→    const ok = SaveSystem.save(slot, this.buildSaveData());
+   588→   588→    if (ok) {
+   589→   589→      useGameStore.getState().setHasSave(true);
+   590→   590→      useGameStore.getState().notify('save', 'Partida guardada', `Ranura ${slot + 1} · Día ${this.world!.sky.dayCount}`);
+   591→   591→      this.audio.playEvent('unlock');
+   592→   592→    }
+   593→   593→    return ok;
+   594→   594→  }
+   595→   595→
+   596→   596→  loadFromSlot(slot: number): boolean {
+   597→   597→    const data = SaveSystem.load(slot);
+   598→   598→    if (!data || !this.world || !this.player || !this.naval) return false;
+   599→   599→    this.state.deserialize(data.gameState);
+   600→   600→    this.player.deserialize(data.player);
+   601→   601→    this.world.sky.deserialize(data.time);
+   602→   602→    this.dead = false;
+   603→   603→
+   604→   604→    // Naval restoration: only when the Colibrí was already repaired
+   605→   605→    if (this.state.hasFlag('ship_repaired')) {
+   606→   606→      this.world.village.setStaticShip(false);
+   607→   607→      if (data.naval) {
+   608→   608→        this.naval.deserialize(data.naval, true);
+   609→   609→      } else {
+   610→   610→        // v1 save that somehow has the flag — spawn at dock
+   611→   611→        const dock = this.world.dockSpawn;
+   612→   612→        this.naval.spawnPlayerShip(dock.x, dock.z, dock.heading);
+   613→   613→      }
+   614→   614→      this.naval.applyPerks();
+   615→   615→    } else {
+   616→   616→      this.world.village.setStaticShip(true);
+   617→   617→      this.world.streamer.register(this.world.village.staticShip, this.world.village.shipPos.x, this.world.village.shipPos.z, 30);
+   618→   618→      this.naval.resetAll();
+   619→   619→      if (data.naval) this.naval.deserialize(data.naval, false);
+   620→   620→    }
+   621→   621→
+   622→   622→    // Sailing state after load: resume at the helm or on foot
+   623→   623→    this.player.platformProbe = undefined;
+   624→   624→    this.rig!.setShipMode(null);
+   625→   625→    if (this.naval.playerSailing && this.naval.playerShip) {
+   626→   626→      this.naval.playerBoardsHelm();
+   627→   627→      this.attachPlayerToWheel();
+   628→   628→      this.rig!.setShipMode(this.naval.playerShip);
+   629→   629→    }
+   630→   630→
+   631→   631→    this.restoreWorldFromState();
+   632→   632→    this.applyStats();
+   633→   633→    this.syncProgression();
+   634→   634→    const store = useGameStore.getState();
+   635→   635→    store.setPhase('playing');
+   636→   636→    this.input.requestLock();
+   637→   637→    store.notify('save', 'Partida cargada', `Día ${data.time.dayCount} · Nivel ${data.gameState.level}`);
+   638→   638→    return true;
+   639→   639→  }
+   640→   640→
+   641→   641→  /** Sync chests/herbs visuals with loaded state. */
+   642→   642→  private restoreWorldFromState(): void {
+   643→   643→    const w = this.world!;
+   644→   644→    for (const chest of w.chests) {
+   645→   645→      const opened = this.state.openedChests.has(chest.id);
+   646→   646→      if (opened && !chest.handles.isOpen()) chest.handles.open();
+   647→   647→      if (!opened && chest.handles.isOpen()) {
+   648→   648→        chest.handles.lid.rotation.x = 0;
+   649→   649→      }
+   650→   650→    }
+   651→   651→    for (const herb of w.herbs) {
+   652→   652→      herb.mesh.visible = !this.state.pickedHerbs.has(herb.id);
+   653→   653→    }
+   654→   654→    this.player!.model.setEquippedState(!!this.state.equippedWeapon);
+   655→   655→  }
+   656→   656→
+   657→   657→  // --------------------------------------------------------------- skills
+   658→   658→
+   659→   659→  private applyStats(): void {
+   660→   660→    const p = this.player!;
+   661→   661→    const s = this.state;
+   662→   662→    let maxHp = 100;
+   663→   663→    let maxSt = 100;
+   664→   664→    let speedMult = 1;
+   665→   665→    if (s.learnedSkills.has('comb_piel')) maxHp += 20;
+   666→   666→    if (s.learnedSkills.has('sup_corazon')) maxHp += 25;
+   667→   667→    if (s.learnedSkills.has('comb_vigor')) maxSt += 20;
+   668→   668→    if (s.learnedSkills.has('comb_vigor2')) maxSt += 20;
+   669→   669→    if (s.learnedSkills.has('sup_zancada')) speedMult = 1.08;
+   670→   670→    p.stats.maxHealth = maxHp;
+   671→   671→    p.stats.maxStamina = maxSt;
+   672→   672→    p.stats.walkSpeed = 3.6 * speedMult;
+   673→   673→    p.stats.runSpeed = 6.6 * speedMult;
+   674→   674→    p.stats.swimSpeed = 2.3 * speedMult;
+   675→   675→    p.health = Math.min(p.health, maxHp);
+   676→   676→    p.stamina = Math.min(p.stamina, maxSt);
+   677→   677→  }
+   678→   678→
+   679→   679→  private syncProgression(): void {
+   680→   680→    const st = useGameStore.getState();
+   681→   681→    st.setProgression({
+   682→   682→      level: this.state.level,
+   683→   683→      xp: this.state.xp,
+   684→   684→      xpToNext: xpForLevel(this.state.level),
+   685→   685→      skillPoints: this.state.skillPoints,
+   686→   686→      inventoryVersion: st.inventoryVersion + 1,
+   687→   687→    });
+   688→   688→  }
+   689→   689→
+   690→   690→  // ------------------------------------------------------------- main loop
+   691→   691→
+   692→   692→  private update(dt: number): void {
+   693→   693→    if (!this.world || !this.player || !this.rig) return;
+   694→   694→    const store = useGameStore.getState();
+   695→   695→    const w = this.world;
+   696→   696→    const p = this.player;
+   697→   697→    windTime.value += dt;
+   698→   698→
+   699→   699→    switch (store.phase) {
+   700→   700→      case 'menu': {
+   701→   701→        this.menuOrbit += dt * 0.021;
+   702→   702→        const r = 150;
+   703→   703→        const cx = 20 + Math.cos(this.menuOrbit) * r;
+   704→   704→        const cz = 200 + Math.sin(this.menuOrbit) * r;
+   705→   705→        const cy = w.terrainHeight.height(cx, cz) + 42;
+   706→   706→        this.rig.setManual(new THREE.Vector3(cx, cy, cz), new THREE.Vector3(20, 12, 170));
+   707→   707→        w.sky.dayFraction = 0.78;
+   708→   708→        w.sky.update(this.engine.camera, p.position, this.engine.quality.shadowsEnabled);
+   709→   709→        w.water.update(dt, this.engine.camera);
+   710→   710→        w.water.setSky(w.sky.sunDir, w.sky.sunColor, w.sky.zenithColor, w.sky.horizonColor, w.sky.nightFactor);
+   711→   711→        w.gulls.update(dt);
+   712→   712→        w.village.torches.update(dt, w.sky.nightFactor, this.engine.camera.position);
+   713→   713→        w.terrain.update(cx, cz);
+   714→   714→        w.vegetation.update();
+   715→   715→        break;
+   716→   716→      }
+   717→   717→      case 'intro': {
+   718→   718→        this.updateIntro(dt);
+   719→   719→        w.sky.tick(dt);
+   720→   720→        w.sky.update(this.engine.camera, p.position, this.engine.quality.shadowsEnabled);
+   721→   721→        w.water.update(dt, this.engine.camera);
+   722→   722→        w.water.setSky(w.sky.sunDir, w.sky.sunColor, w.sky.zenithColor, w.sky.horizonColor, w.sky.nightFactor);
+   723→   723→        w.gulls.update(dt);
+   724→   724→        w.village.torches.update(dt, w.sky.nightFactor, this.engine.camera.position);
+   725→   725→        break;
+   726→   726→      }
+   727→   727→      case 'playing': {
+   728→   728→        // Toggle overlays (works whether or not one is already open)
+   729→   729→        const toggle = this.input.menuTogglePressed();
+   730→   730→        if (toggle && !store.dialogue) {
+   731→   731→          const map: Record<string, 'inventory' | 'map' | 'journal' | 'skills'> = {
+   732→   732→            inventory: 'inventory', map: 'map', journal: 'journal', skills: 'skills',
+   733→   733→          };
+   734→   734→          const target = map[toggle];
+   735→   735→          if (store.overlay === target) {
+   736→   736→            store.closeOverlay();
+   737→   737→            this.input.requestLock();
+   738→   738→          } else {
+   739→   739→            store.openOverlay(target);
+   740→   740→            this.input.releaseLock();
+   741→   741→          }
+   742→   742→        }
+   743→   743→        if (!store.overlay) {
+   744→   744→          this.updatePlaying(dt, store);
+   745→   745→        } else {
+   746→   746→          // Overlays pause input but keep rendering a frozen frame
+   747→   747→          w.sky.update(this.engine.camera, p.position, this.engine.quality.shadowsEnabled);
+   748→   748→        }
+   749→   749→        break;
+   750→   750→      }
+   751→   751→      case 'paused': {
+   752→   752→        // frozen — nothing updates
+   753→   753→        break;
+   754→   754→      }
+   755→   755→      default:
+   756→   756→        break;
+   757→   757→    }
+   758→   758→    this.input.endFrame();
+   759→   759→  }
+   760→   760→
+   761→   761→  private updateIntro(dt: number): void {
+   762→   762→    const store = useGameStore.getState();
+   763→   763→    // Skip
+   764→   764→    if (this.input.anyPressed('Space', 'Escape', 'Enter', 'KeyE')) {
+   765→   765→      this.finishIntro();
+   766→   766→      return;
+   767→   767→    }
+   768→   768→    this.introT += dt;
+   769→   769→    let shot = 0;
+   770→   770→    let t0 = 0;
+   771→   771→    for (let i = 0; i < INTRO_SHOTS.length; i++) {
+   772→   772→      if (this.introT < t0 + INTRO_SHOTS[i].dur) {
+   773→   773→        shot = i;
+   774→   774→        break;
+   775→   775→      }
+   776→   776→      t0 += INTRO_SHOTS[i].dur;
+   777→   777→      shot = i;
+   778→   778→    }
+   779→   779→    const totalDur = INTRO_SHOTS.reduce((a, s) => a + s.dur, 0);
+   780→   780→    if (this.introT >= totalDur) {
+   781→   781→      this.finishIntro();
+   782→   782→      return;
+   783→   783→    }
+   784→   784→    const s = INTRO_SHOTS[shot];
+   785→   785→    const k = smoothstep(0, 1, clamp((this.introT - t0) / s.dur, 0, 1));
+   786→   786→    const pos = s.from.clone().lerp(s.to, k);
+   787→   787→    const look = s.lookFrom.clone().lerp(s.lookTo, k);
+   788→   788→    this.rig!.setManual(pos, look);
+   789→   789→    // Only push to the store when the shot changes (avoids per-frame renders)
+   790→   790→    if (this.lastIntroShot !== shot) {
+   791→   791→      this.lastIntroShot = shot;
+   792→   792→      store.setIntro({
+   793→   793→        text: s.text,
+   794→   794→        shot,
+   795→   795→        total: INTRO_SHOTS.length,
+   796→   796→        title: shot === INTRO_SHOTS.length - 1,
+   797→   797→      });
+   798→   798→    }
+   799→   799→  }
+   800→   800→
+   801→   801→  private updatePlaying(dt: number, store: ReturnType<typeof useGameStore.getState>): void {
+   802→   802→    const w = this.world!;
+   803→   803→    const p = this.player!;
+   804→   804→    const rig = this.rig!;
+   805→   805→    const naval = this.naval!;
+   806→   806→    const dialogueActive = !!store.dialogue;
+   807→   807→    const sailing = naval.playerSailing && !!naval.playerShip;
+   808→   808→
+   809→   809→    // --- Naval layer: wind, fleets, cannonballs, boarding, effects ---
+   810→   810→    const sailingHud: SailingHud | null = naval.update(dt, p.position);
+   811→   811→
+   812→   812→    // --- Death / respawn ---
+   813→   813→    if (p.health <= 0 && !this.dead) {
+   814→   814→      this.dead = true;
+   815→   815→      if (naval.boardingActive) {
+   816→   816→        naval.abortBoarding();
+   817→   817→        p.platformProbe = undefined;
+   818→   818→        rig.setShipMode(null);
+   819→   819→      }
+   820→   820→      const sp = w.village.spawnPoint;
+   821→   821→      p.teleport(sp.x, 1.5, sp.z);
+   822→   822→      p.health = Math.floor(p.stats.maxHealth * 0.5);
+   823→   823→      store.notify('info', 'Las olas te devuelven a la orilla', 'Despiertas en el muelle, empapado pero vivo.');
+   824→   824→      this.audio.playEvent('splash');
+   825→   825→    }
+   826→   826→
+   827→   827→    // --- Clock ---
+   828→   828→    const newDay = w.sky.tick(dt);
+   829→   829→    if (newDay) {
+   830→   830→      store.notify('info', `Día ${w.sky.dayCount} en Aldmor`, formatClock(w.sky.dayFraction));
+   831→   831→    }
+   832→   832→
+   833→   833→    if (sailing && !naval.boardingActive) {
+   834→   834→      // ================= SAILING MODE — the player holds the wheel =================
+   835→   835→      const ship = naval.playerShip!;
+   836→   836→      rig.handleInput(this.input, dt);
+   837→   837→      if (!dialogueActive) {
+   838→   838→        // Sails: W raises, S furls
+   839→   839→        if (this.input.anyPressed('KeyW')) {
+   840→   840→          naval.setSailState(Math.min(2, ship.sailState + 1) as 0 | 1 | 2);
+   841→   841→        }
+   842→   842→        if (this.input.anyPressed('KeyS')) {
+   843→   843→          naval.setSailState(Math.max(0, ship.sailState - 1) as 0 | 1 | 2);
+   844→   844→        }
+   845→   845→        // Rudder: A = turn to port, D = turn to starboard
+   846→   846→        ship.rudderInput = (this.input.isDown('left') ? 1 : 0) + (this.input.isDown('right') ? -1 : 0);
+   847→   847→        // Anchor
+   848→   848→        if (this.input.pressed('jump')) naval.toggleAnchor();
+   849→   849→        // Broadside cannons
+   850→   850→        if (this.input.leftPressed) naval.firePlayer('port');
+   851→   851→        if (this.input.rightPressed) naval.firePlayer('starboard');
+   852→   852→      } else {
+   853→   853→        ship.rudderInput = 0;
+   854→   854→      }
+   855→   855→      // Keep the player glued to the helm (no free physics while sailing)
+   856→   856→      this.attachPlayerToWheel();
+   857→   857→      p.stamina = Math.min(p.stats.maxStamina, p.stamina + dt * 12);
+   858→   858→      p.model.update({ dt, speed: 0, moving: false, grounded: true, swimming: false, attackT: 0 });
+   859→   859→
+   860→   860→      // Chapter II milestone: reaching the Crow Isle waters
+   861→   861→      if (this.state.isQuestActive('q5_raven') && !this.state.hasFlag('reached_crow')) {
+   862→   862→        if (Math.hypot(ship.pos.x + 620, ship.pos.z + 520) < 300) {
+   863→   863→          this.state.setFlag('reached_crow');
+   864→   864→          this.musicIntensityTarget = 0.7;
+   865→   865→          store.notify('quest', 'Aguas del Cuervo Viejo', 'Acantilados negros al noroeste. La Gaviota Sangrienta patrulla esta cala.');
+   866→   866→        }
+   867→   867→      }
+   868→   868→    } else {
+   869→   869→      // ================= FOOT MODE — normal third-person play =================
+   870→   870→      // Camera input & player physics
+   871→   871→      rig.handleInput(this.input, dt);
+   872→   872→      p.update(dt, this.input, rig.yawForward, w.terrainHeight, this.colliders, dialogueActive || this.dead);
+   873→   873→
+   874→   874→      // While fighting on a ship deck: the grappled hulls keep you aboard —
+   875→   875→      // recover the player if they slip off, and clamp inside the rails.
+   876→   876→      if (naval.boardingActive && naval.boardingShip) {
+   877→   877→        const enemy = naval.boardingShip;
+   878→   878→        const local = enemy.toLocal(p.position.x, p.position.z);
+   879→   879→        const deck = enemy.deckHeightAt(local.x, local.y);
+   880→   880→        if (deck === null) {
+   881→   881→          // Fell between the hulls / pushed off — the boarding lines pull you back
+   882→   882→          const back = enemy.toWorld(0, 0, 2.5);
+   883→   883→          p.teleport(back.x, (enemy.deckHeightAt(0, 2.5) ?? 1) + 0.05, back.z);
+   884→   884→          p.velocity.set(0, 0, 0);
+   885→   885→        } else if (Math.abs(local.x) > 1.5) {
+   886→   886→          const clampedX = Math.sign(local.x) * 1.5;
+   887→   887→          const fixed = enemy.toWorld(clampedX, 0, local.y);
+   888→   888→          p.position.x = fixed.x;
+   889→   889→          p.position.z = fixed.z;
+   890→   890→          p.velocity.x = 0;
+   891→   891→          p.velocity.z = 0;
+   892→   892→        }
+   893→   893→      }
+   894→   894→
+   895→   895→      // --- Attack (LMB) ---
+   896→   896→      if (!dialogueActive && this.input.leftPressed && p.attackT === 0 && this.state.equippedWeapon) {
+   897→   897→        p.attackT = 0.001;
+   898→   898→        p.onAttackSwing?.();
+   899→   899→        this.lastSwingHit = false;
+   900→   900→      }
+   901→   901→      if (p.attackT > 0 && !this.lastSwingHit && p.attackT >= 0.45) {
+   902→   902→        this.lastSwingHit = true;
+   903→   903→        if (naval.boardingActive) {
+   904→   904→          // Boarding combat: strike the pirate crew
+   905→   905→          const dmg = this.state.equippedWeapon === 'espada_eirik' ? 34 : 16;
+   906→   906→          if (naval.crewHitCheck(p.position, p.yaw, dmg)) {
+   907→   907→            this.audio.playEvent('damage');
+   908→   908→            this.state.giveXp(5);
+   909→   909→          }
+   910→   910→        } else {
+   911→   911→          // Training dummy hit check
+   912→   912→          const d = w.dummyPos;
+   913→   913→          const dx = d.x - p.position.x;
+   914→   914→          const dz = d.z - p.position.z;
+   915→   915→          const dist = Math.hypot(dx, dz);
+   916→   916→          if (dist < 2.3) {
+   917→   917→            const facing = Math.sin(p.yaw) * dx + Math.cos(p.yaw) * dz;
+   918→   918→            if (facing > 0) {
+   919→   919→              this.audio.playEvent('damage');
+   920→   920→              this.state.giveXp(2);
+   921→   921→            }
+   922→   922→          }
+   923→   923→        }
+   924→   924→      }
+   925→   925→
+   926→   926→      // --- Lantern ---
+   927→   927→      if (!dialogueActive && this.input.pressed('lantern')) {
+   928→   928→        p.toggleLantern();
+   929→   929→        this.audio.playEvent('pickup');
+   930→   930→      }
+   931→   931→    }
+   932→   932→
+   933→   933→    // --- Camera ---
+   934→   934→    const sprinting = this.input.isDown('sprint') && !dialogueActive;
+   935→   935→    rig.update(dt, p.position, sprinting, w.terrainHeight, this.colliders);
+   936→   936→
+   937→   937→    // --- World systems ---
+   938→   938→    w.sky.update(this.engine.camera, p.position, this.engine.quality.shadowsEnabled);
+   939→   939→    w.water.update(dt, this.engine.camera);
+   940→   940→    w.water.setSky(w.sky.sunDir, w.sky.sunColor, w.sky.zenithColor, w.sky.horizonColor, w.sky.nightFactor);
+   941→   941→    const focusX = sailing ? naval.playerShip!.pos.x : p.position.x;
+   942→   942→    const focusZ = sailing ? naval.playerShip!.pos.z : p.position.z;
+   943→   943→    w.terrain.update(focusX, focusZ);
+   944→   944→    w.vegetation.update();
+   945→   945→    this.refreshGrass(focusX, focusZ);
+   946→   946→    w.streamer.update(dt, focusX, focusZ);
+   947→   947→    w.gulls.update(dt);
+   948→   948→    w.village.torches.update(dt, w.sky.nightFactor, p.position);
+   949→   949→    updateChests(dt, w.chests.map((c) => c.handles));
+   950→   950→
+   951→   951→    // Waterfall shimmer
+   952→   952→    const sheetMat = w.waterfallSheet.material as THREE.MeshStandardMaterial;
+   953→   953→    sheetMat.opacity = 0.48 + Math.sin(windTime.value * 2.2) * 0.08;
+   954→   954→    const foamMat = w.waterfallFoam.material as THREE.MeshBasicMaterial;
+   955→   955→    foamMat.opacity = 0.42 + Math.sin(windTime.value * 3.1) * 0.12;
+   956→   956→
+   957→   957→    // NPC updates
+   958→   958→    for (const npc of this.npcs) {
+   959→   959→      npc.update(dt, w.sky.dayFraction, w.terrainHeight, this.colliders, p.position);
+   960→   960→    }
+   961→   961→
+   962→   962→    // --- Interaction scan ---
+   963→   963→    this.updateInteractions(store, dialogueActive);
+   964→   964→
+   965→   965→    // --- Discoveries ---
+   966→   966→    this.discoveryTimer -= dt;
+   967→   967→    if (this.discoveryTimer <= 0) {
+   968→   968→      this.discoveryTimer = 0.5;
+   969→   969→      this.checkDiscoveries(store);
+   970→   970→    }
+   971→   971→
+   972→   972→    // --- Herb glow pulse ---
+   973→   973→    for (const herb of w.herbs) {
+   974→   974→      if (herb.mesh.visible) {
+   975→   975→        const petals = herb.mesh.children[herb.mesh.children.length - 1] as THREE.Mesh;
+   976→   976→        const m = petals.material as THREE.MeshStandardMaterial;
+   977→   977→        m.emissiveIntensity = 0.55 + Math.sin(windTime.value * 2 + herb.pos.x) * 0.25;
+   978→   978→      }
+   979→   979→    }
+   980→   980→
+   981→   981→    // --- Audio ambience ---
+   982→   982→    const terrainHNow = w.terrainHeight.height(
+   983→   983→      sailing ? naval.playerShip!.pos.x : p.position.x,
+   984→   984→      sailing ? naval.playerShip!.pos.z : p.position.z,
+   985→   985→    );
+   986→   986→    this.audio.update(dt, {
+   987→   987→      altitude: Math.max(0, p.position.y),
+   988→   988→      shoreDist: clamp(terrainHNow, 0, 160),
+   989→   989→      dayFactor: w.sky.dayFactor,
+   990→   990→      waterfallDist: p.position.distanceTo(w.waterfallBasin),
+   991→   991→      sailSpeed: sailingHud ? sailingHud.knots / 1.944 : 0,
+   992→   992→    });
+   993→   993→
+   994→   994→    // --- Heart of Oak slow regeneration ---
+   995→   995→    if (this.state.learnedSkills.has('sup_corazon') && p.health < p.stats.maxHealth) {
+   996→   996→      p.health = Math.min(p.stats.maxHealth, p.health + 0.6 * dt);
+   997→   997→    }
+   998→   998→
+   999→   999→    // --- Music intensity decay ---
+  1000→  1000→    this.audio.musicIntensity += (this.musicIntensityTarget - this.audio.musicIntensity) * dt * 0.3;
+  1001→  1001→    this.musicIntensityTarget += (0.15 - this.musicIntensityTarget) * dt * 0.05;
+  1002→  1002→
+  1003→  1003→    // --- HUD sync ---
+  1004→  1004→    this.hudTimer -= dt;
+  1005→  1005→    if (this.hudTimer <= 0) {
+  1006→  1006→      this.hudTimer = 0.15;
+  1007→  1007→      (window as unknown as { __kotfsYaw?: number }).__kotfsYaw = rig.yaw;
+  1008→  1008→      (window as unknown as { __kotfsPlayer?: { x: number; y: number; z: number } }).__kotfsPlayer = {
+  1009→  1009→        x: p.position.x, y: p.position.y, z: p.position.z,
+  1010→  1010→      };
+  1011→  1011→      const tracker = this.state.currentTracker();
+  1012→  1012→      const clickHint =
+  1013→  1013→        !this.input.pointerLocked && !dialogueActive
+  1014→  1014→          ? 'Haz clic para tomar el control'
+  1015→  1015→          : null;
+  1016→  1016→      store.setHud({
+  1017→  1017→        health: p.health,
+  1018→  1018→        maxHealth: p.stats.maxHealth,
+  1019→  1019→        stamina: p.stamina,
+  1020→  1020→        maxStamina: p.stats.maxStamina,
+  1021→  1021→        clock: formatClock(w.sky.dayFraction),
+  1022→  1022→        dayCount: w.sky.dayCount,
+  1023→  1023→        questTracker: tracker,
+  1024→  1024→        fps: this.engine.fps,
+  1025→  1025→        prompt: clickHint ?? store.prompt,
+  1026→  1026→        sailing: sailingHud,
+  1027→  1027→      });
+  1028→  1028→      this.pollQuestEvents();
+  1029→  1029→    }
+  1030→  1030→
+  1031→  1031→    // --- Map exploration ---
+  1032→  1032→    this.mapTimer -= dt;
+  1033→  1033→    if (this.mapTimer <= 0) {
+  1034→  1034→      this.mapTimer = 2;
+  1035→  1035→      this.markExplored(p.position.x, p.position.z, 3);
+  1036→  1036→    }
+  1037→  1037→
+  1038→  1038→    // --- Playtime & autosave ---
+  1039→  1039→    this.state.playtimeSeconds += dt;
+  1040→  1040→    this.autosaveTimer -= dt;
+  1041→  1041→    if (this.autosaveTimer <= 0) {
+  1042→  1042→      this.autosaveTimer = 120;
+  1043→  1043→      this.autosave();
+  1044→  1044→    }
+  1045→  1045→
+  1046→  1046→    // --- Tutorials ---
+  1047→  1047→    if (!this.state.hasFlag('tut_night') && w.sky.dayFactor < 0.2) {
+  1048→  1048→      this.state.setFlag('tut_night');
+  1049→  1049→      store.notify('info', 'Cae la noche', 'Pulsa F para encender tu farol. Las antorchas del pueblo iluminan los caminos.');
+  1050→  1050→    }
+  1051→  1051→    if (!this.state.hasFlag('tut_stamina') && p.stamina < 25) {
+  1052→  1052→      this.state.setFlag('tut_stamina');
+  1053→  1053→      store.notify('info', 'Resistencia baja', 'Deja de correr para recuperarla. Mejórala con habilidades (K).');
+  1054→  1054→    }
+  1055→  1055→  }
+  1056→  1056→
+  1057→  1057→  private grassRefreshKey = '';
+  1058→  1058→
+  1059→  1059→  private refreshGrass(px: number, pz: number): void {
+  1060→  1060→    const cx = Math.floor(px / 64);
+  1061→  1061→    const cz = Math.floor(pz / 64);
+  1062→  1062→    const key = `${cx},${cz}`;
+  1063→  1063→    if (key === this.grassRefreshKey) return;
+  1064→  1064→    this.grassRefreshKey = key;
+  1065→  1065→    this.world!.vegetation.refreshGrassNear(px, pz, 2);
+  1066→  1066→  }
+  1067→  1067→
+  1068→  1068→  // Interactions -----------------------------------------------------------
+  1069→  1069→
+  1070→  1070→  private updateInteractions(store: ReturnType<typeof useGameStore.getState>, dialogueActive: boolean): void {
+  1071→  1071→    const w = this.world!;
+  1072→  1072→    const p = this.player!;
+  1073→  1073→    let best: { prompt: string; run: () => void } | null = null;
+  1074→  1074→    let bestDist = Infinity;
+  1075→  1075→
+  1076→  1076→    if (!dialogueActive) {
+  1077→  1077→      // Naval prompts have priority while aboard / at sea
+  1078→  1078→      const navalPrompt = this.naval?.currentPrompt(p.position) ?? null;
+  1079→  1079→      if (navalPrompt) {
+  1080→  1080→        best = { prompt: navalPrompt.prompt, run: navalPrompt.run };
+  1081→  1081→        bestDist = 0;
+  1082→  1082→      } else if (!this.naval?.playerSailing) {
+  1083→  1083→        for (const it of w.interactables) {
+  1084→  1084→          if (it.available && !it.available()) continue;
+  1085→  1085→          const d = it.pos.distanceTo(p.position);
+  1086→  1086→          if (d < it.radius && d < bestDist) {
+  1087→  1087→            const prompt = typeof it.prompt === 'string' ? it.prompt : it.prompt;
+  1088→  1088→            if (!prompt) continue;
+  1089→  1089→            bestDist = d;
+  1090→  1090→            best = { prompt, run: it.run };
+  1091→  1091→          }
+  1092→  1092→        }
+  1093→  1093→        // NPCs
+  1094→  1094→        for (const npc of this.npcs) {
+  1095→  1095→          const d = npc.position.distanceTo(p.position);
+  1096→  1096→          if (d < 2.6 && d < bestDist) {
+  1097→  1097→            bestDist = d;
+  1098→  1098→            best = {
+  1099→  1099→              prompt: `Hablar con ${npc.name}`,
+  1100→  1100→              run: () => {
+  1101→  1101→                npc.talkTo(p.position);
+  1102→  1102→                if (!this.dialogue.start(npc.def.dialogueId)) {
+  1103→  1103→                  this.dialogue.startLore(npc.name, ['…']);
+  1104→  1104→                }
+  1105→  1105→                this.audio.playUi('click');
+  1106→  1106→              },
+  1107→  1107→            };
+  1108→  1108→          }
+  1109→  1109→        }
+  1110→  1110→      }
+  1111→  1111→    }
+  1112→  1112→
+  1113→  1113→    const promptText = best ? `[E] ${best.prompt}` : null;
+  1114→  1114→    if (promptText !== store.prompt) {
+  1115→  1115→      store.setHud({ prompt: promptText });
+  1116→  1116→    }
+  1117→  1117→    if (best && !dialogueActive && this.input.pressed('interact')) {
+  1118→  1118→      best.run();
+  1119→  1119→    }
+  1120→  1120→  }
+  1121→  1121→
+  1122→  1122→  private checkDiscoveries(store: ReturnType<typeof useGameStore.getState>): void {
+  1123→  1123→    const w = this.world!;
+  1124→  1124→    const p = this.player!;
+  1125→  1125→    for (const poi of POIS) {
+  1126→  1126→      if (this.state.discoveredPOIs.has(poi.id)) continue;
+  1127→  1127→      const d = Math.hypot(p.position.x - poi.x, p.position.z - poi.z);
+  1128→  1128→      if (d < poi.radius) {
+  1129→  1129→        this.state.discoveredPOIs.add(poi.id);
+  1130→  1130→        this.state.giveXp(poi.xp);
+  1131→  1131→        this.state.addJournal({
+  1132→  1132→          id: `poi_${poi.id}`,
+  1133→  1133→          kind: 'discovery',
+  1134→  1134→          title: poi.name,
+  1135→  1135→          text: poi.journal,
+  1136→  1136→        });
+  1137→  1137→        this.audio.playEvent('discovery');
+  1138→  1138→        this.musicIntensityTarget = 0.45;
+  1139→  1139→        store.setDiscovery({ title: poi.name, sub: `Lugar descubierto · +${poi.xp} XP` });
+  1140→  1140→        setTimeout(() => {
+  1141→  1141→          if (useGameStore.getState().discovery?.title === poi.name) {
+  1142→  1142→            useGameStore.getState().setDiscovery(null);
+  1143→  1143→          }
+  1144→  1144→        }, 4200);
+  1145→  1145→        this.markExplored(poi.x, poi.z, 6);
+  1146→  1146→      }
+  1147→  1147→    }
+  1148→  1148→  }
+  1149→  1149→
+  1150→  1150→  private markExplored(x: number, z: number, radiusCells: number): void {
+  1151→  1151→    const size = 128;
+  1152→  1152→    if (this.state.exploredMap.length !== size * size) {
+  1153→  1153→      this.state.exploredMap = new Array(size * size).fill(false);
+  1154→  1154→    }
+  1155→  1155→    const cx = Math.floor(((x + 1024) / 2048) * size);
+  1156→  1156→    const cz = Math.floor(((z + 1024) / 2048) * size);
+  1157→  1157→    for (let dz = -radiusCells; dz <= radiusCells; dz++) {
+  1158→  1158→      for (let dx = -radiusCells; dx <= radiusCells; dx++) {
+  1159→  1159→        const ix = cx + dx;
+  1160→  1160→        const iz = cz + dz;
+  1161→  1161→        if (ix < 0 || iz < 0 || ix >= size || iz >= size) continue;
+  1162→  1162→        this.state.exploredMap[iz * size + ix] = true;
+  1163→  1163→      }
+  1164→  1164→    }
+  1165→  1165→  }
+  1166→  1166→
+  1167→  1167→  // ------------------------------------------------------------------- api
+  1168→  1168→
+  1169→  1169→  private installApi(): void {
+  1170→  1170→    const st = () => this.state;
+  1171→  1171→
+  1172→  1172→    gameApi.startNewGame = () => {
+  1173→  1173→      this.audio.init();
+  1174→  1174→      this.audio.resume();
+  1175→  1175→      this.newGameWithIntro();
+  1176→  1176→    };
+  1177→  1177→    gameApi.continueGame = () => {
+  1178→  1178→      this.audio.init();
+  1179→  1179→      this.audio.resume();
+  1180→  1180→      const slot = SaveSystem.newestSlot();
+  1181→  1181→      return slot !== null && this.loadFromSlot(slot);
+  1182→  1182→    };
+  1183→  1183→    gameApi.loadSlot = (slot) => {
+  1184→  1184→      this.audio.init();
+  1185→  1185→      this.audio.resume();
+  1186→  1186→      return this.loadFromSlot(slot);
+  1187→  1187→    };
+  1188→  1188→    gameApi.saveSlot = (slot) => this.saveToSlot(slot);
+  1189→  1189→    gameApi.slotMetas = () => SaveSystem.SAVE_SLOTS.map((s) => SaveSystem.slotMeta(s));
+  1190→  1190→    gameApi.resume = () => this.resume();
+  1191→  1191→    gameApi.returnToMenu = () => this.returnToMenu();
+  1192→  1192→
+  1193→  1193→    gameApi.inventory = () => {
+  1194→  1194→      const inv = [...st().inventory.entries()].map(([id, count]) => ({ id, count }));
+  1195→  1195→      return inv.sort((a, b) => (ITEMS[a.id]?.kind ?? '').localeCompare(ITEMS[b.id]?.kind ?? ''));
+  1196→  1196→    };
+  1197→  1197→    gameApi.useItem = (id) => {
+  1198→  1198→      const item = ITEMS[id];
+  1199→  1199→      if (!item?.usable) return;
+  1200→  1200→      if (id === 'pocion') {
+  1201→  1201→        if (!st().removeItem('pocion', 1)) return;
+  1202→  1202→        const p = this.player!;
+  1203→  1203→        p.health = Math.min(p.stats.maxHealth, p.health + 45);
+  1204→  1204→        this.audio.playEvent('pickup');
+  1205→  1205→        useGameStore.getState().notify('item', 'Poción de curación', 'Salud restaurada.');
+  1206→  1206→      }
+  1207→  1207→    };
+  1208→  1208→    gameApi.readItem = (id) => {
+  1209→  1209→      const item = ITEMS[id];
+  1210→  1210→      if (!item?.lore) return;
+  1211→  1211→      this.dialogue.startLore(item.name, item.lore);
+  1212→  1212→      if (id === 'carta' && !st().hasFlag('read_letter')) {
+  1213→  1213→        st().setFlag('read_letter');
+  1214→  1214→      }
+  1215→  1215→      useGameStore.getState().openOverlay(null);
+  1216→  1216→    };
+  1217→  1217→    gameApi.equipItem = (id) => {
+  1218→  1218→      if (!ITEMS[id]?.equipable) return;
+  1219→  1219→      st().equip(id);
+  1220→  1220→      this.player!.model.setEquippedState(true);
+  1221→  1221→      this.audio.playEvent('unlock');
+  1222→  1222→      useGameStore.getState().notify('item', ITEMS[id].name, 'Equipada. Haz clic izquierdo para atacar.');
+  1223→  1223→    };
+  1224→  1224→    gameApi.unequipWeapon = () => {
+  1225→  1225→      st().unequip();
+  1226→  1226→      this.player!.model.setEquippedState(false);
+  1227→  1227→    };
+  1228→  1228→    gameApi.equippedWeapon = () => st().equippedWeapon;
+  1229→  1229→
+  1230→  1230→    gameApi.journal = () => st().journal;
+  1231→  1231→    gameApi.quests = (): QuestView[] => {
+  1232→  1232→      const views: QuestView[] = [];
+  1233→  1233→      const all = [...MAIN_QUEST_ORDER, ...SIDE_QUESTS];
+  1234→  1234→      for (const qid of all) {
+  1235→  1235→        const def = QUESTS[qid];
+  1236→  1236→        const qs = st().questStates.get(qid);
+  1237→  1237→        if (!qs) {
+  1238→  1238→          // Hide not-yet-started quests
+  1239→  1239→          continue;
+  1240→  1240→        }
+  1241→  1241→        views.push({
+  1242→  1242→          id: qid,
+  1243→  1243→          title: def.title,
+  1244→  1244→          description: def.description,
+  1245→  1245→          status: qs.status,
+  1246→  1246→          objectives: def.objectives.map((o) => ({
+  1247→  1247→            text: o.text,
+  1248→  1248→            done: qs.objectives.has(o.id),
+  1249→  1249→          })),
+  1250→  1250→        });
+  1251→  1251→      }
+  1252→  1252→      return views;
+  1253→  1253→    };
+  1254→  1254→    gameApi.skills = () =>
+  1255→  1255→      SKILLS.map((s) => ({
+  1256→  1256→        ...s,
+  1257→  1257→        learned: st().learnedSkills.has(s.id),
+  1258→  1258→        canLearn: st().canLearn(s.id),
+  1259→  1259→      }));
+  1260→  1260→    gameApi.skillPoints = () => st().skillPoints;
+  1261→  1261→    gameApi.learnSkill = (id) => {
+  1262→  1262→      if (st().learnSkill(id)) {
+  1263→  1263→        this.applyStats();
+  1264→  1264→        this.naval?.applyPerks(); // navigation skills change the ship
+  1265→  1265→        this.audio.playEvent('levelup');
+  1266→  1266→        useGameStore.getState().notify('item', 'Habilidad aprendida', SKILLS.find((s) => s.id === id)?.name ?? id);
+  1267→  1267→      }
+  1268→  1268→    };
+  1269→  1269→    gameApi.levelInfo = () => ({
+  1270→  1270→      level: st().level,
+  1271→  1271→      xp: st().xp,
+  1272→  1272→      xpToNext: xpForLevel(st().level),
+  1273→  1273→    });
+  1274→  1274→
+  1275→  1275→    gameApi.mapCanvas = () => this.world?.mapCanvas ?? null;
+  1276→  1276→    gameApi.playerMap = () => ({
+  1277→  1277→      x: this.player!.position.x,
+  1278→  1278→      z: this.player!.position.z,
+  1279→  1279→      yaw: this.player!.yaw,
+  1280→  1280→      discovered: [...st().discoveredPOIs],
+  1281→  1281→      explored: st().exploredMap,
+  1282→  1282→      ship: this.naval?.playerShip && !this.naval.playerShip.sunk
+  1283→  1283→        ? {
+  1284→  1284→          x: this.naval.playerShip.pos.x,
+  1285→  1285→          z: this.naval.playerShip.pos.z,
+  1286→  1286→          heading: this.naval.playerShip.heading,
+  1287→  1287→        }
+  1288→  1288→        : undefined,
+  1289→  1289→    });
+  1290→  1290→    gameApi.settings = () => ({ ...this.settings });
+  1291→  1291→    gameApi.applySettings = (s) => {
+  1292→  1292→      this.settings = { ...s };
+  1293→  1293→      SaveSystem.writeSettings(s);
+  1294→  1294→      this.engine.applyQuality(s.quality);
+  1295→  1295→      this.world?.terrain.updateQuality(s.quality);
+  1296→  1296→      this.world?.vegetation.setGrassDensity(
+  1297→  1297→        s.quality === 'low' ? 0 : s.quality === 'medium' ? 0.4 : s.quality === 'high' ? 0.75 : 1,
+  1298→  1298→      );
+  1299→  1299→      // Rebuild the grass ring at the new density right away
+  1300→  1300→      if (this.player) {
+  1301→  1301→        this.world?.vegetation.refreshGrassNear(this.player.position.x, this.player.position.z, 2);
+  1302→  1302→      }
+  1303→  1303→      this.input.sensitivity = s.sensitivity;
+  1304→  1304→      this.rig!.sensitivity = s.sensitivity;
+  1305→  1305→      this.rig!.invertY = s.invertY;
+  1306→  1306→      this.audio.setVolumes({ master: s.masterVolume, music: s.musicVolume, sfx: s.sfxVolume });
+  1307→  1307→    };
+  1308→  1308→    gameApi.skipIntro = () => this.finishIntro();
+  1309→  1309→    gameApi.chooseDialogue = (i) => this.dialogue.choose(i);
+  1310→  1310→    gameApi.closeDialogue = () => this.dialogue.close();
+  1311→  1311→    gameApi.narrationBlip = () => this.audio.playWhooshVoice();
+  1312→  1312→    gameApi.playtime = () => st().playtimeSeconds;
+  1313→  1313→    gameApi.clickResumeHint = () => {
+  1314→  1314→      const phase = useGameStore.getState().phase;
+  1315→  1315→      if (phase === 'playing') this.input.requestLock();
+  1316→  1316→    };
+  1317→  1317→  }
+  1318→  1318→
+  1319→  1319→  // ---------------------------------------------------------------- state events
+  1320→  1320→
+  1321→  1321→  private lastQuestCount = -1;
+  1322→  1322→
+  1323→  1323→  /** Detect newly completed quests → notify + autosave (polled from HUD sync). */
+  1324→  1324→  pollQuestEvents(): void {
+  1325→  1325→    const completed = [...this.state.questStates.entries()]
+  1326→  1326→      .filter(([, s]) => s.status === 'completed').length;
+  1327→  1327→    if (this.lastQuestCount >= 0 && completed > this.lastQuestCount) {
+  1328→  1328→      const store = useGameStore.getState();
+  1329→  1329→      store.notify('quest', 'Misión completada', 'Consulta tu diario (J) para saber más.');
+  1330→  1330→      this.audio.playEvent('quest');
+  1331→  1331→      this.musicIntensityTarget = 0.8;
+  1332→  1332→      this.autosave();
+  1333→  1333→      // Level-up check
+  1334→  1334→      this.syncProgression();
+  1335→  1335→    }
+  1336→  1336→    this.lastQuestCount = completed;
+  1337→  1337→  }
+  1338→  1338→
+  1339→  1339→  dispose(): void {
+  1340→  1340→    this.engine.dispose();
+  1341→  1341→    this.input.dispose();
+  1342→  1342→  }
+  1343→  1343→}
+  1344→  1344→

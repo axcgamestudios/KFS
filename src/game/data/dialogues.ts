@@ -128,6 +128,136 @@ export const DIALOGUES: Record<string, NPCDialogue> = {
         },
       },
       {
+        cond: 'morwen_defeated',
+        notCond: 'aldric_dragons_talked',
+        start: 'w1',
+        nodes: {
+          w1: {
+            text: '¡Has vuelto! Todo el puerto habla del incendio del Cuervo... y de otra cosa. Los pastores bajan de las Garrahielo con los rebaños mermados: juran que una sombra con alas cruza el cielo al atardecer. Y los guardias del castillo dicen que las ruinas de Vaelthara «respiran».',
+            options: [
+              { text: '¿Dragones? Aquí, en Aldmor?', next: 'w2' },
+              { text: 'La carta de mi padre los mencionaba.', next: 'w2' },
+            ],
+          },
+          w2: {
+            text: 'Los archivos de la Orden que custodio hablan de tres despertares: la guardiana de las ruinas, el cazador del mar y el que duerme en la cumbre. Si uno solo despierta, los demás lo oyen. Eirik murió intentando averiguar por qué despiertan.',
+            options: [
+              { text: 'Entonces iré a las ruinas de Vaelthara.', next: 'w3' },
+              { text: '¿Qué sabéis de la guardiana?', next: 'w4' },
+            ],
+          },
+          w4: {
+            text: 'Territorial, vieja, más lenta en tierra que en el aire pero con un aliento que derrite el acero. Custodia Vaelthara como un perro custodia la tumba de su amo. Ve con el acero de tu padre... y cuando su cabeza se eche hacia atrás, corre: el fuego ya está cargando.',
+            options: [{ text: 'Iré con cuidado.', next: 'w3' }],
+          },
+          w3: {
+            text: 'Las ruinas están al suroeste, más allá del bosque: columnas rotas con espirales de agua talladas. Mira con tus propios ojos y vuelve a contarme. Y muchacho... si de verdad hay un dragón allí, no lo despiertes tú.',
+            options: [
+              {
+                text: 'Volveré con noticias, Aldric.',
+                action: [
+                  { t: 'flag', flag: 'aldric_dragons_talked' },
+                  { t: 'talk', target: 'aldric_dragons' },
+                  { t: 'close' },
+                ],
+              },
+            ],
+          },
+        },
+      },
+      {
+        cond: 'vaelthara_seen',
+        notCond: 'aldric_report_talked',
+        start: 'r1',
+        nodes: {
+          r1: {
+            text: 'Tu cara lo dice todo. La has visto. Dime que no te ha seguido hasta el muelle y te creo.',
+            options: [
+              { text: 'Es enorme, Aldric. Y nos ha visto.', next: 'r2' },
+              { text: 'Custodia las ruinas como algo sagrado.', next: 'r2' },
+            ],
+          },
+          r2: {
+            text: 'Entonces es ella. La guardiana de Vaelthara. Los archivos dicen que los Guardianes le hablaban... y que cuando la Orden se disolvió, se quedó sola con un juramento que nadie más recuerda. No es malvada, muchacho. Pero es leal a un mundo muerto.',
+            options: [
+              { text: '¿Qué hago si se interpone en mi camino?', next: 'r3' },
+              { text: 'Necesito llegar a las cumbres.', next: 'r3' },
+            ],
+          },
+          r3: {
+            text: 'Toma esto de la vieja armería de la Orden: el hacha con que los Guardianes sometían bestias. Pesa, pero un golpe pesado tambalea incluso a un dragón. Y busca a Bram cuando la venzas: con sus escamas forjará algo que te salve la vida.',
+            options: [
+              {
+                text: 'Gracias, Aldric. Por todo.',
+                action: [
+                  { t: 'flag', flag: 'aldric_report_talked' },
+                  { t: 'talk', target: 'aldric_report' },
+                  { t: 'close' },
+                ],
+              },
+            ],
+          },
+        },
+      },
+      {
+        cond: 'vaelthara_dead',
+        notCond: 'skarnvind_hint',
+        start: 'k1',
+        nodes: {
+          k1: {
+            text: 'El Corazón de Marea... Vivió para ver otro Guardián con las manos llenas de escamas. Escucha: al sur, entre la bahía y las Islas de la Bruma, los pescadores ven «una vela con garras». Es Skarnvind, el cazador del mar. Mientras vuele, no habrá paso al sur.',
+            options: [
+              {
+                text: 'Zarparé hacia el sur.',
+                action: [
+                  { t: 'flag', flag: 'skarnvind_hint' },
+                  { t: 'close' },
+                ],
+              },
+              { text: '¿Un wyvern en el mar abierto?', next: 'k2' },
+            ],
+          },
+          k2: {
+            text: 'Caza desde el cielo lo que no puede nadar. Tus bordadas son tu espada allí: apunta cuando se pare frente a la proa, que es cuando carga su fuego. Y reza para que el Colibrí recuerde cómo esquivar truenos.',
+            options: [
+              {
+                text: 'Con viento a favor, Aldric.',
+                action: [
+                  { t: 'flag', flag: 'skarnvind_hint' },
+                  { t: 'close' },
+                ],
+              },
+            ],
+          },
+        },
+      },
+      {
+        cond: 'ancestro_dead',
+        notCond: 'aldric_final_talked',
+        start: 'f1',
+        nodes: {
+          f1: {
+            text: 'El colmillo... Los archivos decían la verdad, entonces. No lo mataste por oro ni por gloria: lo hiciste porque alguien debía sostener la guardia. Tu padre estaría orgulloso. La Orden de la Marea tiene de nuevo un Guardián.',
+            options: [
+              { text: '¿Y ahora qué, Aldric?', next: 'f2' },
+              { text: 'Los dragones no eran lo que decían las canciones.', next: 'f2' },
+            ],
+          },
+          f2: {
+            text: 'Ahora, el mar. Hay más islas al sur del horizonte, más sellos rotos que reparar y más canciones que aún no se atreven a contar la verdad. Bebe, descansa... y cuando el viento cambie, zarpa. Eldoria entera te debe un capítulo más.',
+            options: [
+              {
+                text: 'Por los mares olvidados, Aldric.',
+                action: [
+                  { t: 'flag', flag: 'aldric_final_talked' },
+                  { t: 'close' },
+                ],
+              },
+            ],
+          },
+        },
+      },
+      {
         start: 'd1',
         nodes: {
           d1: {

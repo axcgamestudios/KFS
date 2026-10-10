@@ -14,6 +14,12 @@ const TIPS = [
   'El viento decide la velocidad: mira la rosa de los vientos del timón.',
   'Las bordadas de babor y estribora recargan por separado.',
   'Los cofres de las islas guardan más oro que todas las tabernas juntas.',
+  'Cuando un dragón echa la cabeza hacia atrás, su fuego ya está cargando: corre.',
+  'El hacha golpea despacio pero tambalea a las bestias: mantén pulsado el clic.',
+  'La lanza mantiene la distancia; el arco la elimina. Cambia de arma con 1–4.',
+  'Con un escudo, el bloqueo derecho detiene hasta el aliento de un dragón.',
+  'C esquivar no es huir: los rollos esquivan garras, colas y bocanadas de fuego.',
+  'Los dragones pequeños guardan escamas… y las escamas guardan secretos.',
 ];
 
 /** Deterministic pseudo-random field of rising embers. */
@@ -63,7 +69,7 @@ export default function LoadingScreen() {
           <EpicTitle
             text="FORGOTTEN SEAS"
             delay={1.15}
-            className="kotfs-shine-text"
+            letterClassName="kotfs-letter-shine"
           />
           {/* Breathing glow behind the second line */}
           <span
@@ -73,7 +79,7 @@ export default function LoadingScreen() {
         </h1>
 
         <p className="kotfs-rise mb-8 text-xs italic tracking-[0.3em] text-[color:var(--kotfs-parchment-dim)]" style={{ ['--rise-delay' as string]: '2s' }}>
-          CAPÍTULO II — LOS MARES OLVIDADOS
+          CAPÍTULO III — EL RUMOR DE LAS ALAS
         </p>
 
         {/* Compass ring progress */}
@@ -121,7 +127,7 @@ export default function LoadingScreen() {
         </div>
 
         <p className="kotfs-rise mt-8 text-[0.62rem] tracking-[0.3em] text-[color:var(--kotfs-parchment-dim)] opacity-60" style={{ ['--rise-delay' as string]: '2.8s' }}>
-          FASE 2 — EL OCÉANO Y LOS PIRATAS · v0.2
+          FASE 3 — DRAGONES Y COMBATE · v0.3
         </p>
       </div>
     </div>
