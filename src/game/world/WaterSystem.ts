@@ -5,17 +5,25 @@ import { smoothstep } from '../core/MathUtils';
 /**
  * Gerstner wave parameters — shared by the water shader AND the CPU-side
  * waveHeightAt() used for ship buoyancy. Never change one without the other.
+ * Epic set: a long North-Sea swell + two cross swells; chop and ripples live
+ * in the fragment shader so the mesh stays efficiently tessellated.
  */
 export const WAVES = {
-  amp: [0.42, 0.24, 0.13],
-  len: [26.0, 14.0, 7.0],
-  speed: [1.05, 1.5, 2.1],
+  amp: [1.35, 0.58, 0.32],
+  len: [34.0, 20.0, 13.5],
+  speed: [1.0, 1.45, 1.9],
   dirs: [
-    [1.0 / Math.hypot(1.0, 0.35), 0.35 / Math.hypot(1.0, 0.35)],
-    [-0.7 / Math.hypot(0.7, 1.0), 1.0 / Math.hypot(0.7, 1.0)],
-    [0.45 / Math.hypot(0.45, 1.0), -1.0 / Math.hypot(0.45, 1.0)],
+    [1.0 / Math.hypot(1.0, 0.28), 0.28 / Math.hypot(1.0, 0.28)],
+    [0.82 / Math.hypot(0.82, 0.57), -0.57 / Math.hypot(0.82, 0.57)],
+    [-0.45 / Math.hypot(0.45, 0.89), 0.89 / Math.hypot(0.45, 0.89)],
   ],
 } as const;
+
+/** Slow swell-set modulation (waves arrive in groups — real ocean feel).
+ *  Mirrored EXACTLY by CPU waveHeightAt. */
+function swellSet(t: number): number {
+  return 0.82 + 0.22 * Math.sin(t * 0.11) * Math.sin(t * 0.073 + 1.7);
+}
 
 /**
  * Animated ocean: a large plane that follows the player. Waves are computed
@@ -78,6 +86,7 @@ export class WaterSystem {
         varying vec3 vNormal;
         varying float vShore;
         varying float vCrest;
+        varying float vSteep;
 
         // Sample terrain height (baked) at world XZ
         float terrainH(vec2 p) {
@@ -89,35 +98,49 @@ export class WaterSystem {
         void main() {
           vec3 pos = (modelMatrix * vec4(position, 1.0)).xyz;
           float shore = terrainH(pos.xz);
-          // Reduce wave amplitude in very shallow water
-          float shallowK = smoothstep(-14.0, -1.5, shore);
-          shallowK = clamp(shallowK, 0.15, 1.0);
+          // Ola completa en aguas profundas, amortiguada en bahías y orilla
+          // (profundo ≤ -20 m → 1.0 · muelle/bahía ≥ -3.5 m → 0.12)
+          float shallowK = 1.0 - smoothstep(-20.0, -3.5, shore);
+          shallowK = clamp(shallowK, 0.12, 1.0);
 
           float t = uTime;
-          // Three Gerstner-ish waves
-          float amp1 = 0.42 * shallowK, len1 = 26.0;
-          float amp2 = 0.24 * shallowK, len2 = 14.0;
-          float amp3 = 0.13 * shallowK, len3 = 7.0;
-          vec2 d1 = normalize(vec2(1.0, 0.35));
-          vec2 d2 = normalize(vec2(-0.7, 1.0));
-          vec2 d3 = normalize(vec2(0.45, -1.0));
+          // swell sets: las olas llegan en grupos (mar real)
+          float set = 0.82 + 0.22 * sin(t * 0.11) * sin(t * 0.073 + 1.7);
+
+          // Tres olas Gerstner épicas: el desplazamiento horizontal afila las crestas
+          float amp1 = 1.35 * shallowK * set, len1 = 34.0;
+          float amp2 = 0.58 * shallowK * set, len2 = 20.0;
+          float amp3 = 0.32 * shallowK * set, len3 = 13.5;
+          vec2 d1 = normalize(vec2(1.0, 0.28));
+          vec2 d2 = normalize(vec2(0.82, -0.57));
+          vec2 d3 = normalize(vec2(-0.45, 0.89));
 
           float k1 = 6.28318 / len1, k2 = 6.28318 / len2, k3 = 6.28318 / len3;
-          float f1 = k1 * dot(d1, pos.xz) - t * 1.05;
-          float f2 = k2 * dot(d2, pos.xz) - t * 1.5;
-          float f3 = k3 * dot(d3, pos.xz) - t * 2.1;
+          float f1 = k1 * dot(d1, pos.xz) - t * 1.0;
+          float f2 = k2 * dot(d2, pos.xz) - t * 1.45;
+          float f3 = k3 * dot(d3, pos.xz) - t * 1.9;
+
+          // Q de Gerstner por ola (pendiente empinada sin lazos)
+          float q1 = 0.9 / (k1 * 1.35 * 3.0);
+          float q2 = 0.9 / (k2 * 0.58 * 3.0);
+          float q3 = 0.9 / (k3 * 0.32 * 3.0);
 
           float h = amp1 * sin(f1) + amp2 * sin(f2) + amp3 * sin(f3);
+          vec2 hd = d1 * (q1 * amp1 * cos(f1))
+                  + d2 * (q2 * amp2 * cos(f2))
+                  + d3 * (q3 * amp3 * cos(f3));
+          pos.xz += hd;
           pos.y += h;
 
           // Analytic-ish normal from partial derivatives
           float dhx = amp1 * k1 * cos(f1) * d1.x + amp2 * k2 * cos(f2) * d2.x + amp3 * k3 * cos(f3) * d3.x;
           float dhz = amp1 * k1 * cos(f1) * d1.y + amp2 * k2 * cos(f2) * d2.y + amp3 * k3 * cos(f3) * d3.y;
           vNormal = normalize(vec3(-dhx, 1.0, -dhz));
+          vSteep = clamp(length(vec2(dhx, dhz)) * 0.55, 0.0, 1.5);
 
           vWorldPos = pos;
           vShore = shore;
-          vCrest = h / max(0.001, amp1 + amp2 + amp3);
+          vCrest = h / max(0.001, (amp1 + amp2 + amp3));
           gl_Position = projectionMatrix * viewMatrix * vec4(pos, 1.0);
         }
       `,
@@ -136,6 +159,7 @@ export class WaterSystem {
         varying vec3 vNormal;
         varying float vShore;
         varying float vCrest;
+        varying float vSteep;
 
         float hash(vec2 p) {
           return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
@@ -152,10 +176,12 @@ export class WaterSystem {
           vec3 n = normalize(vNormal);
           // When seen from below, flip the normal so shading still works
           if (!gl_FrontFacing) n = -n;
-          // Small detail ripples
-          float rip = noise(vWorldPos.xz * 1.4 + uTime * 0.35) - 0.5;
-          float rip2 = noise(vWorldPos.xz * 3.1 - uTime * 0.5) - 0.5;
-          n = normalize(n + vec3(rip, 0.0, rip2) * 0.22);
+          // Detail ripples: three drifting directional octaves (chop sin malla)
+          vec2 drift = vec2(uTime * 0.32, uTime * -0.21);
+          float rip = noise(vWorldPos.xz * 1.15 + drift) - 0.5;
+          float rip2 = noise(vWorldPos.xz * 2.7 - drift * 1.7) - 0.5;
+          float rip3 = noise(vWorldPos.xz * 5.6 + drift * 2.6) - 0.5;
+          n = normalize(n + vec3(rip + rip3 * 0.55, 0.0, rip2 + rip3 * 0.4) * 0.42);
 
           float fres = pow(1.0 - max(dot(viewDir, n), 0.0), 3.0);
           fres = clamp(fres, 0.04, 1.0);
@@ -172,18 +198,33 @@ export class WaterSystem {
           vec3 sunDir = normalize(uSunDir);
           vec3 halfV = normalize(viewDir + sunDir);
           float upK = gl_FrontFacing ? 1.0 : 0.0;
-          float spec = pow(max(dot(n, halfV), 0.0), 220.0);
-          col += uSunColor * spec * 1.4 * upK;
-          // Broad glitter path
+          float spec = pow(max(dot(n, halfV), 0.0), 260.0);
+          col += uSunColor * spec * 1.6 * upK;
+          // Broad glitter path with sparkle noise
           float glit = pow(max(dot(n, halfV), 0.0), 24.0);
-          col += uSunColor * glit * 0.12 * upK;
+          float sparkle = noise(vWorldPos.xz * 7.0 + uTime * 1.4);
+          col += uSunColor * glit * (0.12 + 0.22 * sparkle) * upK;
 
-          // Foam: wave crests + shore band with noise
-          float crestFoam = smoothstep(0.62, 0.95, vCrest);
-          float shoreFoam = smoothstep(-1.3, -0.15, vShore) * (1.0 - smoothstep(-0.15, 0.35, vShore));
-          float fnoise = noise(vWorldPos.xz * 1.7 + uTime * 0.5) * 0.6 + noise(vWorldPos.xz * 4.3 - uTime * 0.7) * 0.4;
-          float foam = clamp(crestFoam * fnoise * 1.3 + shoreFoam * smoothstep(0.35, 0.75, fnoise) * 1.1, 0.0, 1.0);
-          col = mix(col, uFoamColor, foam * 0.85);
+          // Subsurface glow: light bleeding through the wave crests
+          float crestK = max(0.0, vCrest);
+          float backK = max(0.0, dot(-sunDir, viewDir)) * 0.5 + 0.5;
+          col += uShallowColor * crestK * crestK * 0.55 * backK * upK;
+
+          // Foam — three layers:
+          float fnoise = noise(vWorldPos.xz * 1.7 + uTime * 0.5) * 0.6
+                       + noise(vWorldPos.xz * 4.3 - uTime * 0.7) * 0.4;
+          // 1) whitecaps rompiendo en las crestas empinadas (por grupos de swell)
+          float field = noise(vWorldPos.xz * 0.16 - uTime * 0.06) * 0.65 + 0.35;
+          float crestFoam = smoothstep(0.42, 0.82, vCrest) * smoothstep(0.16, 0.55, vSteep);
+          crestFoam *= smoothstep(0.24, 0.55, fnoise * field * 1.9);
+          // 2) orilla: banda de espuma con oleaje que lava la playa por pulsos
+          float shoreBand = smoothstep(-1.9, -0.15, vShore) * (1.0 - smoothstep(-0.15, 0.45, vShore));
+          float wash = 0.55 + 0.45 * sin(vShore * 7.0 - uTime * 2.1 + fnoise * 2.4);
+          float shoreFoam = shoreBand * wash * smoothstep(0.3, 0.72, fnoise);
+          float foam = clamp(crestFoam * 1.5 + shoreFoam * 1.25, 0.0, 1.0);
+          // bordes de espuma deshilachados
+          float foamEdge = smoothstep(0.25, 0.5, foam) * (0.75 + 0.25 * fnoise);
+          col = mix(col, uFoamColor, foamEdge * 0.9);
 
           // Night darkening
           col *= mix(1.0, 0.22, uNightFactor);
@@ -201,7 +242,8 @@ export class WaterSystem {
     });
 
     const size = 1900;
-    const geo = new THREE.PlaneGeometry(size, size, 160, 160);
+    // 384×384: suficiente muestreo para la ola corta de 13.5 m (≈3 quads/ola)
+    const geo = new THREE.PlaneGeometry(size, size, 384, 384);
     geo.rotateX(-Math.PI / 2);
     this.mesh = new THREE.Mesh(geo, this.material);
     this.mesh.renderOrder = 5;
@@ -224,13 +266,15 @@ export class WaterSystem {
    */
   waveHeightAt(x: number, z: number): number {
     const shore = this.terrain.height(x, z);
-    let shallowK = smoothstep(-14, -1.5, shore);
-    shallowK = Math.min(1, Math.max(0.15, shallowK));
+    // espejo exacto del shader: profundo → ola completa, bahía/orilla → amortiguada
+    let shallowK = 1 - smoothstep(-20, -3.5, shore);
+    shallowK = Math.min(1, Math.max(0.12, shallowK));
+    const set = swellSet(this.time);
     let h = 0;
     for (let i = 0; i < 3; i++) {
       const k = (Math.PI * 2) / WAVES.len[i];
       const f = k * (WAVES.dirs[i][0] * x + WAVES.dirs[i][1] * z) - this.time * WAVES.speed[i];
-      h += WAVES.amp[i] * shallowK * Math.sin(f);
+      h += WAVES.amp[i] * shallowK * set * Math.sin(f);
     }
     return h;
   }

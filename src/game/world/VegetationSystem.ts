@@ -4,6 +4,7 @@ import type { ChunkScatter } from './TerrainSystem';
 import { TerrainHeight } from './TerrainHeight';
 import { mulberry32, hash2, clamp } from '../core/MathUtils';
 import { distToRoads } from './WorldConfig';
+import { GrassField } from './GrassField';
 
 /** Shared time uniform injected into all wind-swaying materials. */
 export const windTime = { value: 0 };
@@ -263,31 +264,7 @@ function buildRockGeometry(): THREE.BufferGeometry {
   return g;
 }
 
-/** Denser grass blade geometry: 4 crossed fans with curved tips. */
-function buildGrassGeometry(): THREE.BufferGeometry {
-  const parts: THREE.BufferGeometry[] = [];
-  const rand = mulberry32(555);
-  for (let i = 0; i < 4; i++) {
-    const g = new THREE.PlaneGeometry(0.6, 0.62, 1, 3);
-    const pos = g.attributes.position as THREE.BufferAttribute;
-    const colors = new Float32Array(pos.count * 3);
-    const base = new THREE.Color(0x2e4a20);
-    const tip = new THREE.Color(0x86a558);
-    for (let v = 0; v < pos.count; v++) {
-      const t = (pos.getY(v) + 0.31) / 0.62;
-      const c = base.clone().lerp(tip, t * t);
-      colors[v * 3] = c.r * (0.9 + rand() * 0.2);
-      colors[v * 3 + 1] = c.g * (0.9 + rand() * 0.2);
-      colors[v * 3 + 2] = c.b * (0.9 + rand() * 0.2);
-      // Slight outward curve at the tip
-      if (t > 0.8) pos.setX(v, pos.getX(v) * (1 + (t - 0.8) * 1.6));
-    }
-    g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-    g.translate(0, 0.31, 0);
-    parts.push(transformGeo(g, 0, 0, 0, 1, 1, 1, (i / 4) * Math.PI + rand() * 0.4));
-  }
-  return mergeGeometries(parts)!;
-}
+/** Denser grass blade geometry: fine single-blade field handled by GrassField. */
 
 interface TreeInstance { species: number; matrix: THREE.Matrix4; color: THREE.Color }
 interface RockInstance { matrix: THREE.Matrix4; color: THREE.Color }
@@ -295,8 +272,7 @@ interface RockInstance { matrix: THREE.Matrix4; color: THREE.Color }
 interface ChunkVegetation {
   trees: TreeInstance[];
   rocks: RockInstance[];
-  grass?: THREE.InstancedMesh;
-  near?: number; // 0 = none, 1 = full density ring, 2.. = sparse rings
+  near?: number;
 }
 
 /** Vegetation is instanced per CLUSTER (2×2 chunks of 64 m = 128 m cell) so the
@@ -348,6 +324,8 @@ export class VegetationSystem {
   private clusters = new Map<string, ClusterData>();
   private grassDensity: number;
   private sceneRef: THREE.Scene;
+  /** Fase 6 — el prado de briznas finas que envuelve al jugador. */
+  private grassField: GrassField;
 
   private treeColliderSink?: (x: number, z: number, r: number, key: string) => void;
   private treeColliderRemove?: (prefix: string) => void;
@@ -404,6 +382,13 @@ export class VegetationSystem {
     this.treeGeos = built.geos;
     this.mapleTrunkGeo = built.mapleParts[0];
     this.mapleCanopyGeo = built.mapleParts[1];
+
+    // Fase 6 — prado de briznas individuales (sustituye a los matas de planos)
+    this.grassField = new GrassField(terrain, scene, {
+      density: grassDensity,
+      timeUniform: windTime,
+      gustUniform: windGust,
+    });
   }
 
   setColliderSinks(
@@ -417,19 +402,14 @@ export class VegetationSystem {
   setGrassDensity(d: number): void {
     if (Math.abs(d - this.grassDensity) < 0.001) return;
     this.grassDensity = d;
-    for (const data of this.chunkData.values()) {
-      if (data.grass) {
-        this.sceneRef.remove(data.grass);
-        data.grass.geometry.dispose();
-        data.grass.dispose();
-        data.grass = undefined;
-      }
-      if (data.near) data.near = 0;
-    }
-    this.grassDirty = true;
+    this.grassField.setDensity(d);
   }
 
-  private grassDirty = false;
+  /** Fase 6 — el GrassField se autogestiona por frame en update(); esta
+   *  entrada forcea una comprobación inmediata de la ventana de tiles. */
+  refreshGrassNear(px: number, pz: number): void {
+    this.grassField.update(px, pz);
+  }
 
   onChunkScatter(scatter: ChunkScatter): void {
     const trees: TreeInstance[] = [];
@@ -465,11 +445,6 @@ export class VegetationSystem {
   onChunkRemoved(key: string): void {
     const data = this.chunkData.get(key);
     if (!data) return;
-    if (data.grass) {
-      this.sceneRef.remove(data.grass);
-      data.grass.geometry.dispose();
-      data.grass.dispose();
-    }
     this.chunkData.delete(key);
     this.treeColliderRemove?.(`tree:${key}:`);
     this.markClusterDirtyByKey(key);
@@ -621,104 +596,10 @@ export class VegetationSystem {
     cluster.dirty = false;
   }
 
-  // --------------------------------------------------------------- grass
-
-  /** Re-evaluate the grass rings after the player moves. */
-  refreshGrassNear(px: number, pz: number): void {
-    const pcx = Math.floor(px / 64);
-    const pcz = Math.floor(pz / 64);
-    for (const [key, data] of this.chunkData) {
-      const [cx, cz] = key.split(',').map(Number);
-      const ring = Math.max(Math.abs(cx - pcx), Math.abs(cz - pcz));
-      // Ring 0-1: full density · ring 2: 45% · ring 3: sparse
-      const ringLevel = ring <= 1 ? 1 : ring === 2 ? 2 : ring === 3 ? 3 : 0;
-      if (data.near === ringLevel && !(this.grassDirty && ringLevel > 0)) continue;
-      data.near = ringLevel;
-      if (ringLevel > 0 && !data.grass && this.grassDensity > 0.01) {
-        data.grass = this.buildGrassForChunk({ key, cx, cz, trees: [], rocks: [], near: true }, ringLevel);
-        this.sceneRef.add(data.grass);
-      } else if (ringLevel === 0 && data.grass) {
-        this.sceneRef.remove(data.grass);
-        data.grass.geometry.dispose();
-        data.grass.dispose();
-        data.grass = undefined;
-      } else if (data.grass && ringLevel > 0) {
-        // Density of an existing patch only ever refreshes on rebuild
-        // (moving between ring 2↔3 keeps the old patch — cheap and stable).
-      }
-    }
-    this.grassDirty = false;
-  }
-
-  private grassMaterial?: THREE.MeshStandardMaterial;
-
-  private buildGrassForChunk(scatter: ChunkScatter, ringLevel: number): THREE.InstancedMesh {
-    if (!this.grassMaterial) {
-      const mat = new THREE.MeshStandardMaterial({
-        vertexColors: true, roughness: 0.9, metalness: 0, side: THREE.DoubleSide,
-      });
-      patchWind(mat, { strength: 0.15, minHeight: 0.0, maxHeight: 0.42 });
-      this.grassMaterial = mat;
-    }
-    const ringMul = ringLevel === 1 ? 1 : ringLevel === 2 ? 0.45 : 0.22;
-    const count = Math.round(300 * this.grassDensity * ringMul);
-    const geo = buildGrassGeometry();
-    const mesh = new THREE.InstancedMesh(geo, this.grassMaterial, count);
-    const rand = mulberry32(hash2(scatter.cx * 3 + 11, scatter.cz * 7 + 3));
-    const m = new THREE.Matrix4();
-    const q = new THREE.Quaternion();
-    const pos = new THREE.Vector3();
-    const scl = new THREE.Vector3();
-    const col = new THREE.Color();
-    const terrainCol: [number, number, number] = [0, 0, 0];
-    let placed = 0;
-    const ox = scatter.cx * 64;
-    const oz = scatter.cz * 64;
-    for (let i = 0; i < count * 2.2 && placed < count; i++) {
-      const x = ox + rand() * 64;
-      const z = oz + rand() * 64;
-      const h = this.terrain.height(x, z);
-      if (h < 2.2 || h > 56) continue;
-      const slope = this.terrain.slope(x, z, h);
-      if (slope > 0.5) continue;
-      // Fase 4: keep grass off roads and out of buildings/compounds
-      if (distToRoads(x, z) < 2.3) continue;
-      const dv = Math.hypot(x - 20, z - 175);
-      if (dv < 55) continue; // village
-      const dc = Math.hypot(x - 60, z - -55);
-      if (dc < 58) continue; // castle
-      q.setFromEuler(new THREE.Euler(0, rand() * Math.PI * 2, 0));
-      pos.set(x, h - 0.03, z);
-      const s = 0.7 + rand() * 0.75;
-      scl.set(s, s * (0.8 + rand() * 0.55), s);
-      m.compose(pos, q, scl);
-      mesh.setMatrixAt(placed, m);
-      this.terrain.colorAt(x, z, h, slope, terrainCol);
-      const flower = rand() < 0.05;
-      if (flower) {
-        const hues = [0.12, 0.0, 0.65, 0.9];
-        col.setHSL(hues[Math.floor(rand() * 4)], 0.65, 0.6);
-      } else {
-        col.setRGB(
-          clamp(terrainCol[0] * 1.35 + 0.08, 0, 1),
-          clamp(terrainCol[1] * 1.3 + 0.1, 0, 1),
-          clamp(terrainCol[2] * 1.2 + 0.05, 0, 1),
-        );
-      }
-      mesh.setColorAt(placed, col);
-      placed++;
-    }
-    mesh.count = placed;
-    mesh.instanceMatrix.needsUpdate = true;
-    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-    mesh.castShadow = false;
-    mesh.receiveShadow = false;
-    return mesh;
-  }
-
   // -------------------------------------------------------------- update
 
-  /** Rebuild at most 2 dirty clusters per frame + LOD swap by distance. */
+  /** Rebuild at most 2 dirty clusters per frame + LOD swap by distance.
+   *  Fase 6: el prado de briznas se actualiza aquí también (envuelve al jugador). */
   update(px = NaN, pz = NaN): void {
     let budget = 2;
     for (const cluster of this.clusters.values()) {
@@ -740,6 +621,8 @@ export class VegetationSystem {
           meshes.billboards.visible = wantLod === 1 && meshes.billboards.count > 0;
         }
       }
+      // Fase 6 — el prado sigue al jugador (ventana envolvente de tiles)
+      this.grassField.update(px, pz);
     }
   }
 
@@ -759,24 +642,17 @@ export class VegetationSystem {
     (this.billboardMat.map as THREE.Texture)?.dispose();
     this.billboardMat.dispose();
     this.rockMat.dispose();
-    this.grassMaterial?.dispose();
-    for (const data of this.chunkData.values()) {
-      if (data.grass) {
-        data.grass.parent?.remove(data.grass);
-        data.grass.geometry.dispose();
-        data.grass.dispose();
-      }
-    }
+    this.grassField.dispose();
     this.chunkData.clear();
   }
 
-  /** Debug/stats: number of active clusters & meshes. */
-  get stats(): { clusters: number; drawCalls: number } {
+  /** Debug/stats: clusters + el prado de briznas. */
+  get stats(): { clusters: number; drawCalls: number; blades: number } {
     let meshes = 0;
     for (const cluster of this.clusters.values()) {
       if (!cluster.meshes) continue;
       meshes += 2 + cluster.meshes.trees.length;
     }
-    return { clusters: this.clusters.size, drawCalls: meshes };
+    return { clusters: this.clusters.size, drawCalls: meshes, blades: this.grassField.stats.blades };
   }
 }

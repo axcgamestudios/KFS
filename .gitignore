@@ -57,3 +57,6 @@ kfs-assets/
 public/game/
 *.glb
 *.mp3
+
+# User repo clone (binaries - Tailwind scanner must not read)
+kfs_repo/

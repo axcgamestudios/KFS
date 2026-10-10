@@ -516,100 +516,177 @@
 }
 
 /* ==========================================================================
-   Fase 5 — main menu over the repository key art (golden-hour galleon).
-   Weathered-brass buttons that match the artwork: dark walnut base, bronze
-   frame with notched corners, sunset-gold accents. AXCGames Studios.
+   Fase 6 — main menu over the repository key art (Fondo_Menu.JPG: grimdark
+   fortress, stormy seas, knight on the rock). Forged-iron plates with gold
+   trim, chamfered corners, idle light sweeps, hover shine + arrow reveal,
+   primary button with a living gold pulse. AXCGames Studios.
    ========================================================================== */
 .kfs2-btn {
   position: relative;
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
   width: 100%;
-  padding: 0.72rem 1.15rem;
-  font-size: 0.82rem;
+  padding: 0.66rem 0.95rem;
+  font-size: 0.8rem;
   font-weight: 600;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.17em;
   text-transform: uppercase;
-  color: #e8dcc0;
+  color: #d9cdb2;
+  /* placa de hierro martillado con veta fría y barrido de luz idle */
   background:
-    linear-gradient(180deg, rgba(255, 226, 160, 0.06) 0%, rgba(0, 0, 0, 0) 22%),
-    linear-gradient(180deg, #261c11 0%, #17100a 58%, #120c07 100%);
-  border: 1px solid #6e5526;
-  border-radius: 3px;
+    linear-gradient(115deg, transparent 30%, rgba(190, 215, 240, 0.07) 46%, transparent 62%),
+    radial-gradient(130% 170% at 50% -25%, rgba(150, 180, 210, 0.12), transparent 55%),
+    repeating-linear-gradient(97deg, rgba(255, 255, 255, 0.016) 0 2px, transparent 2px 7px),
+    linear-gradient(180deg, #24303e 0%, #18222e 55%, #101822 100%);
+  background-size: 240% 100%, 100% 100%, 100% 100%, 100% 100%;
+  border: 1px solid #3d5064;
+  border-left: 2px solid rgba(201, 162, 58, 0.32);
+  clip-path: polygon(11px 0, 100% 0, 100% calc(100% - 11px), calc(100% - 11px) 100%, 0 100%, 0 11px);
   box-shadow:
-    inset 0 1px 0 rgba(240, 207, 122, 0.14),
-    0 2px 10px rgba(0, 0, 0, 0.45);
+    inset 0 1px 0 rgba(170, 200, 230, 0.10),
+    0 3px 12px rgba(0, 0, 0, 0.5);
   cursor: pointer;
-  transition: border-color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease, color 0.18s ease;
+  overflow: hidden;
+  animation: kfs2-idle-sheen 9s ease-in-out infinite;
+  animation-delay: var(--sheen-delay, 0s);
+  transition:
+    transform 0.3s cubic-bezier(0.2, 0.9, 0.3, 1.25),
+    letter-spacing 0.3s ease,
+    color 0.22s ease,
+    border-color 0.25s ease,
+    box-shadow 0.28s ease;
 }
-.kfs2-btn::before,
+/* marco interior dorado */
+.kfs2-btn::before {
+  content: '';
+  position: absolute;
+  inset: 3px;
+  border: 1px solid rgba(201, 162, 58, 0.22);
+  clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
+  pointer-events: none;
+  transition: border-color 0.25s ease, box-shadow 0.3s ease;
+}
+/* barrido de brillo al pasar el ratón */
 .kfs2-btn::after {
   content: '';
   position: absolute;
-  width: 12px;
-  height: 12px;
+  top: -25%;
+  bottom: -25%;
+  left: -40%;
+  width: 26%;
+  background: linear-gradient(105deg, transparent, rgba(242, 222, 168, 0.14) 42%, rgba(255, 248, 220, 0.24) 50%, rgba(242, 222, 168, 0.14) 58%, transparent);
+  transform: translateX(-180%) skewX(-14deg);
   pointer-events: none;
-  opacity: 0.75;
-  transition: opacity 0.18s ease, width 0.18s ease, height 0.18s ease;
 }
-.kfs2-btn::before {
-  top: -1px;
-  left: -1px;
-  border-top: 2px solid #e2b95c;
-  border-left: 2px solid #e2b95c;
+@keyframes kfs2-idle-sheen {
+  0%, 64% { background-position: 130% 0, 0 0, 0 0, 0 0; }
+  82% { background-position: -30% 0, 0 0, 0 0, 0 0; }
+  100% { background-position: -30% 0, 0 0, 0 0, 0 0; }
 }
-.kfs2-btn::after {
-  bottom: -1px;
-  right: -1px;
-  border-bottom: 2px solid #e2b95c;
-  border-right: 2px solid #e2b95c;
+@keyframes kfs2-shine {
+  from { transform: translateX(-180%) skewX(-14deg); }
+  to { transform: translateX(560%) skewX(-14deg); }
 }
 .kfs2-btn:hover:not(:disabled) {
-  color: #f5ead0;
-  border-color: #e2b95c;
-  transform: translateX(4px);
+  color: #f4ecda;
+  letter-spacing: 0.22em;
+  border-color: #6b83a0;
+  border-left-color: #e2b95c;
+  transform: translateX(7px);
   box-shadow:
-    inset 0 1px 0 rgba(240, 207, 122, 0.25),
-    0 3px 16px rgba(0, 0, 0, 0.55),
-    0 0 14px rgba(226, 185, 92, 0.18);
+    inset 0 1px 0 rgba(190, 215, 240, 0.18),
+    0 5px 18px rgba(0, 0, 0, 0.55),
+    0 0 22px rgba(201, 162, 58, 0.22);
 }
-.kfs2-btn:hover:not(:disabled)::before,
+.kfs2-btn:hover:not(:disabled)::before {
+  border-color: rgba(226, 185, 92, 0.55);
+  box-shadow: inset 0 0 14px rgba(201, 162, 58, 0.10);
+}
 .kfs2-btn:hover:not(:disabled)::after {
-  opacity: 1;
-  width: 20px;
-  height: 20px;
+  animation: kfs2-shine 0.85s cubic-bezier(0.3, 0.6, 0.2, 1) forwards;
 }
 .kfs2-btn:active:not(:disabled) {
-  transform: translateX(6px) scale(0.995);
+  transform: translateX(9px) translateY(1px) scale(0.985);
+  box-shadow:
+    inset 0 2px 8px rgba(0, 0, 0, 0.55),
+    0 1px 6px rgba(0, 0, 0, 0.4);
 }
 .kfs2-btn:disabled {
-  opacity: 0.45;
+  opacity: 0.42;
   cursor: not-allowed;
+  animation: none;
 }
 .kfs2-btn:focus-visible {
   outline: 2px solid #e2b95c;
-  outline-offset: 2px;
+  outline-offset: 3px;
 }
+/* socket del icono — placa biselada encajada */
+.kfs2-socket {
+  display: grid;
+  place-items: center;
+  width: 27px;
+  height: 27px;
+  flex: none;
+  color: #c9a23a;
+  background: linear-gradient(180deg, #0b131c 0%, #16222e 100%);
+  border: 1px solid rgba(120, 148, 175, 0.28);
+  clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
+  transition: color 0.22s ease, border-color 0.22s ease, transform 0.3s cubic-bezier(0.2, 0.9, 0.3, 1.4);
+}
+.kfs2-btn:hover:not(:disabled) .kfs2-socket {
+  color: #f5d98c;
+  border-color: rgba(226, 185, 92, 0.65);
+  transform: scale(1.08) rotate(-3deg);
+}
+.kfs2-label { flex: 1; text-align: left; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45); }
+/* flecha que se revela al hover */
+.kfs2-arrow {
+  display: grid;
+  place-items: center;
+  width: 0;
+  height: 16px;
+  flex: none;
+  overflow: hidden;
+  opacity: 0;
+  color: #e2b95c;
+  transition: width 0.32s cubic-bezier(0.2, 0.9, 0.3, 1.35), opacity 0.26s ease;
+}
+.kfs2-btn:hover:not(:disabled) .kfs2-arrow {
+  width: 17px;
+  opacity: 1;
+}
+/* botón primario — placa dorada con pulso vivo */
 .kfs2-btn-primary {
-  color: #3a2a10;
+  color: #241a07;
+  text-shadow: 0 1px 0 rgba(255, 240, 200, 0.45);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.28) 0%, rgba(255, 255, 255, 0) 34%),
-    linear-gradient(180deg, #f0cf7a 0%, #dcb45a 48%, #c9992d 100%);
+    linear-gradient(115deg, transparent 32%, rgba(255, 255, 255, 0.22) 48%, transparent 64%),
+    radial-gradient(130% 170% at 50% -25%, rgba(255, 255, 255, 0.35), transparent 55%),
+    linear-gradient(180deg, #f2d788 0%, #dcb45a 50%, #c08e2c 100%);
+  background-size: 240% 100%, 100% 100%, 100% 100%;
   border-color: #8a6a2f;
-  text-shadow: 0 1px 0 rgba(255, 240, 200, 0.4);
+  border-left-color: #f5d98c;
+  animation: kfs2-idle-sheen 9s ease-in-out infinite, kfs2-primary-pulse 3s ease-in-out infinite;
+  animation-delay: var(--sheen-delay, 0s), 0s;
 }
-.kfs2-btn-primary::before { border-color: #fff3d0; }
-.kfs2-btn-primary::after { border-color: #fff3d0; }
+@keyframes kfs2-primary-pulse {
+  0%, 100% { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4), 0 3px 14px rgba(0, 0, 0, 0.5), 0 0 16px rgba(201, 153, 45, 0.30); }
+  50% { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4), 0 3px 14px rgba(0, 0, 0, 0.5), 0 0 30px rgba(240, 207, 122, 0.5); }
+}
+.kfs2-btn-primary::before { border-color: rgba(255, 243, 208, 0.45); }
 .kfs2-btn-primary:hover:not(:disabled) {
-  color: #2a1d08;
-  border-color: #f5d98c;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.4),
-    0 4px 18px rgba(201, 153, 45, 0.45),
-    0 0 22px rgba(240, 207, 122, 0.35);
+  color: #1c1305;
+  border-left-color: #fff3d0;
 }
+.kfs2-btn-primary .kfs2-socket {
+  color: #3a2a10;
+  background: linear-gradient(180deg, #f7e3a8 0%, #dfb85e 100%);
+  border-color: rgba(90, 66, 25, 0.5);
+}
+.kfs2-btn-primary:hover:not(:disabled) .kfs2-socket { color: #241a07; }
+.kfs2-btn-primary .kfs2-arrow { color: #5c4110; }
 .kfs2-icon { color: #e2b95c; flex: none; transition: color 0.18s ease; }
-.kfs2-btn:hover:not(:disabled) .kfs2-icon { color: #f5d98c; }
-.kfs2-btn-primary .kfs2-icon, .kfs2-btn-primary:hover:not(:disabled) .kfs2-icon { color: #3a2a10; }
 .kfs2-chevron { color: #e2b95c; flex: none; }
 .kfs2-btn-title {
   font-weight: 700;
@@ -619,11 +696,11 @@
 }
 .kfs2-panel {
   background:
-    linear-gradient(180deg, rgba(38, 28, 17, 0.92) 0%, rgba(18, 13, 9, 0.94) 100%);
-  border: 1px solid #6e5526;
-  border-radius: 4px;
+    linear-gradient(180deg, rgba(22, 30, 40, 0.92) 0%, rgba(12, 17, 24, 0.94) 100%);
+  border: 1px solid #46586c;
+  border-radius: 2px;
   box-shadow:
-    inset 0 1px 0 rgba(240, 207, 122, 0.12),
+    inset 0 1px 0 rgba(170, 200, 230, 0.10),
     0 10px 34px rgba(0, 0, 0, 0.6);
 }
 .kfs2-hr {
@@ -632,11 +709,36 @@
   background: linear-gradient(90deg, rgba(226, 185, 92, 0.7), rgba(226, 185, 92, 0.12), transparent);
 }
 @keyframes kfs2-rise {
-  from { opacity: 0; transform: translateY(14px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; transform: translateY(16px); filter: blur(3px); }
+  to { opacity: 1; transform: translateY(0); filter: blur(0); }
 }
 .kfs2-rise {
   opacity: 0;
-  animation: kfs2-rise 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) forwards;
+  animation: kfs2-rise 0.75s cubic-bezier(0.2, 0.7, 0.2, 1) forwards;
   animation-delay: var(--rise-delay, 0s);
+}
+/* Fondo del menú: zoom cinematográfico lento + niebla a la deriva */
+.kotfs-kenburns {
+  position: absolute;
+  inset: 0;
+  animation: kotfs-kb 52s ease-in-out infinite alternate;
+  will-change: transform;
+}
+@keyframes kotfs-kb {
+  from { transform: scale(1.02) translate(0, 0); }
+  to { transform: scale(1.09) translate(-1.4%, 0.9%); }
+}
+.kotfs-fog {
+  position: absolute;
+  inset: -12%;
+  pointer-events: none;
+  background:
+    radial-gradient(46% 34% at 28% 62%, rgba(158, 178, 200, 0.10), transparent 70%),
+    radial-gradient(38% 28% at 72% 38%, rgba(140, 162, 188, 0.08), transparent 72%),
+    radial-gradient(52% 30% at 50% 88%, rgba(120, 140, 165, 0.10), transparent 75%);
+  animation: kotfs-fogdrift 64s ease-in-out infinite alternate;
+}
+@keyframes kotfs-fogdrift {
+  from { transform: translateX(-4.5%) translateY(0.5%); }
+  to { transform: translateX(4.5%) translateY(-0.6%); }
 }

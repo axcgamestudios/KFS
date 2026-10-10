@@ -1,44 +1,75 @@
 'use client';
 
 import Image from 'next/image';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useGameStore } from '@/store/gameStore';
 import { gameApi } from '@/game/api';
 import { SaveSystem } from '@/game/systems/SaveSystem';
-import { Play, ScrollText, Settings2, Sparkles, ChevronRight, Ship } from 'lucide-react';
+import { Play, ScrollText, Settings2, Sparkles, ChevronRight, Ship, Anchor } from 'lucide-react';
+import { Embers, SeaWaves } from './menuFx';
 
 /**
- * Fase 5 menu — the repository key art (the golden-hour galleon, title baked
- * into the sky) is the whole background: no DOM title, per the game direction.
- * Buttons are styled after the artwork (weathered brass over dark walnut,
- * sunset gold). Studio: AXCGames Studios.
+ * Fase 6 menu — the repository key art (Fondo_Menu.JPG: the grimdark fortress
+ * over the stormy sea, the knight on the rock, title baked into the sky) is
+ * the whole background: no DOM title, per the game direction. The buttons are
+ * forged-iron plates with gold trim: idle light sweeps, hover shine + arrow
+ * reveal + letter-spacing bloom, and a living gold pulse on the primary.
+ * Studio: AXCGames Studios · music: Musica_fondo1 from the repository.
  */
+
+function MenuButton({
+  icon,
+  label,
+  onClick,
+  disabled,
+  title,
+  primary,
+  sheenDelay = '0s',
+}: {
+  icon: React.ReactNode;
+  label: string;
+  onClick?: () => void;
+  disabled?: boolean;
+  title?: string;
+  primary?: boolean;
+  sheenDelay?: string;
+}) {
+  return (
+    <button
+      className={`kfs2-btn${primary ? ' kfs2-btn-primary' : ''}`}
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      style={{ ['--sheen-delay' as string]: sheenDelay }}
+    >
+      <span className="kfs2-socket">{icon}</span>
+      <span className="kfs2-label">{label}</span>
+      <span className="kfs2-arrow"><ChevronRight size={15} /></span>
+    </button>
+  );
+}
 
 function SlotButton({ slot, onPick, onEmpty }: { slot: number; onPick: () => void; onEmpty: () => void }) {
   const meta = SaveSystem.slotMeta(slot);
   return (
     <button
-      className="kfs2-btn w-full text-left"
+      className="kfs2-btn w-full"
       disabled={!meta}
       onClick={meta ? onPick : onEmpty}
+      style={{ ['--sheen-delay' as string]: `${slot * 1.7}s` }}
     >
-      <div className="flex items-center justify-between">
-        <div>
-          <div className="kfs2-btn-title text-sm">
-            Ranura {slot + 1}
-          </div>
-          {meta ? (
-            <div className="text-xs font-normal tracking-normal opacity-70">
-              Nivel {meta.level} · Día {meta.dayCount} · {SaveSystem.formatPlaytime(meta.playtime)}
-            </div>
-          ) : (
-            <div className="text-xs font-normal tracking-normal opacity-40">
-              Vacía
-            </div>
-          )}
-        </div>
-        <ChevronRight size={16} className="kfs2-chevron" />
-      </div>
+      <span className="kfs2-socket"><ScrollText size={14} /></span>
+      <span className="flex-1 text-left">
+        <span className="kfs2-btn-title text-sm">Ranura {slot + 1}</span>
+        {meta ? (
+          <span className="block text-xs font-normal tracking-normal normal-case opacity-70">
+            Nivel {meta.level} · Día {meta.dayCount} · {SaveSystem.formatPlaytime(meta.playtime)}
+          </span>
+        ) : (
+          <span className="block text-xs font-normal tracking-normal normal-case opacity-40">Vacía</span>
+        )}
+      </span>
+      <span className="kfs2-arrow"><ChevronRight size={15} /></span>
     </button>
   );
 }
@@ -47,6 +78,39 @@ export default function MainMenu() {
   const hasSave = useGameStore((s) => s.hasSave);
   const [subMenu, setSubMenu] = useState<null | 'load' | 'credits'>(null);
   const [flash, setFlash] = useState<string | null>(null);
+  const musicRef = useRef<HTMLAudioElement | null>(null);
+
+  // Ambient menu theme from the repository (needs a user gesture to start)
+  useEffect(() => {
+    const audio = new Audio('/game/audio/menu_theme.mp3');
+    audio.loop = true;
+    audio.volume = 0;
+    musicRef.current = audio;
+    let fading = false;
+    const kick = () => {
+      if (fading) return;
+      fading = true;
+      audio.play().then(() => {
+        const t0 = performance.now();
+        const fade = () => {
+          const k = Math.min(1, (performance.now() - t0) / 2400);
+          audio.volume = 0.34 * k;
+          if (k < 1) requestAnimationFrame(fade);
+        };
+        fade();
+      }).catch(() => { fading = false; });
+      window.removeEventListener('pointerdown', kick);
+      window.removeEventListener('keydown', kick);
+    };
+    window.addEventListener('pointerdown', kick);
+    window.addEventListener('keydown', kick);
+    return () => {
+      window.removeEventListener('pointerdown', kick);
+      window.removeEventListener('keydown', kick);
+      audio.pause();
+      musicRef.current = null;
+    };
+  }, []);
 
   const notifyFlash = (msg: string) => {
     setFlash(msg);
@@ -54,33 +118,48 @@ export default function MainMenu() {
   };
 
   return (
-    <div className="absolute inset-0 z-40 flex overflow-hidden bg-[#0a0d16]">
-      {/* The key art: galleon at golden hour with the title baked into the sky */}
-      <Image
-        src="/game/menu/menu_bg.png"
-        alt="Kingdoms of the Forgotten Seas"
-        fill
-        priority
-        className="object-cover object-center"
-        sizes="100vw"
-      />
+    <div className="absolute inset-0 z-40 flex overflow-hidden bg-[#070b12]">
+      {/* The key art: the fortress over the forgotten sea (title baked in the sky) */}
+      <div className="kotfs-kenburns">
+        <Image
+          src="/menu/fondo_menu.jpg"
+          alt="Kingdoms of the Forgotten Seas"
+          fill
+          priority
+          className="object-cover object-center"
+          sizes="100vw"
+        />
+      </div>
 
-      {/* Legibility scrim over the left column (keeps the galleon clear on the right) */}
+      {/* Drifting sea mist over the whole scene */}
+      <div className="kotfs-fog" />
+
+      {/* Legibility scrim over the left column (the fortress silhouette stays
+          readable; the knight on the right rock and the sky title stay clear) */}
       <div
         className="pointer-events-none absolute inset-0"
         style={{
           background:
-            'linear-gradient(100deg, rgba(6,8,14,0.93) 0%, rgba(6,8,14,0.82) 30%, rgba(6,8,14,0.42) 55%, rgba(6,8,14,0.05) 78%, rgba(6,8,14,0) 100%)',
+            'linear-gradient(100deg, rgba(5,8,13,0.94) 0%, rgba(5,8,13,0.84) 28%, rgba(5,8,13,0.46) 52%, rgba(5,8,13,0.06) 76%, rgba(5,8,13,0) 100%)',
         }}
       />
       <div
-        className="pointer-events-none absolute inset-x-0 bottom-0 h-40"
-        style={{ background: 'linear-gradient(180deg, rgba(6,8,14,0) 0%, rgba(6,8,14,0.72) 100%)' }}
+        className="pointer-events-none absolute inset-x-0 bottom-0 h-44"
+        style={{ background: 'linear-gradient(180deg, rgba(5,8,13,0) 0%, rgba(5,8,13,0.78) 100%)' }}
       />
+      {/* soft vignette */}
+      <div
+        className="pointer-events-none absolute inset-0"
+        style={{ background: 'radial-gradient(120% 90% at 50% 42%, transparent 55%, rgba(3,5,9,0.55) 100%)' }}
+      />
+
+      {/* Rising embers + drifting sea silhouettes */}
+      <Embers count={20} seed={11} />
+      <SeaWaves />
 
       {/* Left: studio mark, menu, version */}
       <div className="relative z-10 flex h-full w-full max-w-2xl flex-col justify-center px-8 md:px-16">
-        <div className="kfs2-rise" style={{ ['--rise-delay' as string]: '0.2s' }}>
+        <div className="kfs2-rise" style={{ ['--rise-delay' as string]: '0.25s' }}>
           <p className="mb-4 flex items-center gap-3 text-[0.68rem] font-semibold tracking-[0.5em] text-[#e2b95c] md:text-xs">
             <span className="inline-block h-[1px] w-8 bg-[#e2b95c]/70" />
             AXCGAMES STUDIOS PRESENTA
@@ -88,18 +167,17 @@ export default function MainMenu() {
         </div>
 
         {subMenu === null && (
-          <div className="kfs2-rise flex w-[19rem] flex-col gap-3 md:w-80" style={{ ['--rise-delay' as string]: '0.45s' }}>
-            <button
-              className="kfs2-btn kfs2-btn-primary text-left"
+          <div className="kfs2-rise flex w-[20rem] flex-col gap-3 md:w-[21rem]" style={{ ['--rise-delay' as string]: '0.5s' }}>
+            <MenuButton
+              primary
+              icon={<Sparkles size={15} />}
+              label="Nueva partida"
               onClick={() => gameApi.startNewGame()}
-            >
-              <span className="flex items-center gap-3">
-                <Sparkles size={16} className="text-[#3a2a10]" />
-                Nueva partida
-              </span>
-            </button>
-            <button
-              className="kfs2-btn text-left"
+              sheenDelay="0.4s"
+            />
+            <MenuButton
+              icon={<Play size={15} />}
+              label="Continuar"
               disabled={!hasSave}
               title={hasSave ? undefined : 'No hay partidas guardadas'}
               onClick={() => {
@@ -107,30 +185,20 @@ export default function MainMenu() {
                   notifyFlash('No se encontró ninguna partida que cargar.');
                 }
               }}
-            >
-              <span className="flex items-center gap-3">
-                <Play size={16} className="kfs2-icon" />
-                Continuar
-              </span>
-            </button>
-            <button
-              className="kfs2-btn text-left"
+              sheenDelay="1.9s"
+            />
+            <MenuButton
+              icon={<ScrollText size={15} />}
+              label="Cargar partida"
               onClick={() => setSubMenu('load')}
-            >
-              <span className="flex items-center gap-3">
-                <ScrollText size={16} className="kfs2-icon" />
-                Cargar partida
-              </span>
-            </button>
-            <button
-              className="kfs2-btn text-left"
+              sheenDelay="3.4s"
+            />
+            <MenuButton
+              icon={<Settings2 size={15} />}
+              label="Ajustes"
               onClick={() => useGameStore.getState().openOverlay('settings')}
-            >
-              <span className="flex items-center gap-3">
-                <Settings2 size={16} className="kfs2-icon" />
-                Ajustes
-              </span>
-            </button>
+              sheenDelay="4.9s"
+            />
           </div>
         )}
 
@@ -153,16 +221,16 @@ export default function MainMenu() {
                 />
               ))}
             </div>
-            <button className="kfs2-btn mt-4 w-full" onClick={() => setSubMenu(null)}>
-              Volver
-            </button>
+            <div className="mt-4">
+              <MenuButton icon={<ChevronRight size={15} />} label="Volver" onClick={() => setSubMenu(null)} />
+            </div>
           </div>
         )}
 
         {subMenu === 'credits' && (
           <div className="kfs2-rise kfs2-panel max-w-md p-6" style={{ ['--rise-delay' as string]: '0.1s' }}>
             <h3 className="kfs2-btn-title mb-4 text-sm">Créditos</h3>
-            <div className="space-y-3 text-sm leading-relaxed text-[#cfc3a4]">
+            <div className="space-y-3 text-sm leading-relaxed text-[#c6bda8]">
               <p>
                 <span className="kfs2-btn-title text-[#f0e6cd]">
                   Kingdoms of the Forgotten Seas
@@ -182,9 +250,9 @@ export default function MainMenu() {
                 «Donde cae una escama, pronto cae su dueño.» — Bram el Herrero
               </p>
             </div>
-            <button className="kfs2-btn mt-5 w-full" onClick={() => setSubMenu(null)}>
-              Volver
-            </button>
+            <div className="mt-5">
+              <MenuButton icon={<ChevronRight size={15} />} label="Volver" onClick={() => setSubMenu(null)} />
+            </div>
           </div>
         )}
 
@@ -194,21 +262,22 @@ export default function MainMenu() {
           </p>
         )}
 
-        <div className="kfs2-rise mt-10 flex items-center gap-2 text-xs tracking-widest text-[#b9ac8e] opacity-80" style={{ ['--rise-delay' as string]: '0.8s' }}>
-          <Ship size={13} className="text-[#e2b95c]" />
-          FASE 5 — EL CABALLERO Y LOS KITS · v0.5
+        <div className="kfs2-rise mt-10 flex items-center gap-2 text-xs tracking-widest text-[#a9b4c2] opacity-80" style={{ ['--rise-delay' as string]: '0.9s' }}>
+          <Anchor size={13} className="text-[#e2b95c]" />
+          FASE 6 — LA ISLA VIVA · v0.6
         </div>
       </div>
 
-      {/* Right side: the galleon sails free */}
+      {/* Right side: the knight keeps his watch on the rock */}
       <div className="pointer-events-none flex-1" />
 
       {/* Bottom-right studio mark */}
       {subMenu === null && (
         <button
-          className="absolute bottom-6 right-8 z-10 text-[0.68rem] font-semibold tracking-[0.34em] text-[#b9ac8e] opacity-80 transition hover:text-[#e2b95c] hover:opacity-100"
+          className="absolute bottom-6 right-8 z-10 flex items-center gap-2 text-[0.68rem] font-semibold tracking-[0.34em] text-[#a9b4c2] opacity-80 transition hover:text-[#e2b95c] hover:opacity-100"
           onClick={() => setSubMenu('credits')}
         >
+          <Ship size={13} />
           UN JUEGO DE AXCGAMES STUDIOS
         </button>
       )}

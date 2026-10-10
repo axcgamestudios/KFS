@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { clone as skeletonClone } from 'three/examples/jsm/utils/SkeletonUtils.js';
 
 /**
  * Fase 4 — Asset system.
@@ -216,8 +217,13 @@ export class AssetSystem {
   }
 
   private cloneModel(key: string, root: THREE.Object3D): THREE.Object3D {
-    // Skinned meshes must share the skeleton — clone(true) keeps references.
-    const clone = root.clone(true);
+    // Skinned meshes MUST own their skeleton. Object3D.clone(true) shares the
+    // original skeleton (three r170 SkinnedMesh.copy assigns the reference),
+    // so the clone's mesh would be skinned by the CACHED, detached original
+    // bones: animations written to the cloned bones never reach the mesh and
+    // stale world matrices distort it. SkeletonUtils.clone rebuilds the
+    // skeleton around the cloned bones and rebinds every SkinnedMesh.
+    const clone = skeletonClone(root);
     clone.name = `${key}_instance`;
     return clone;
   }

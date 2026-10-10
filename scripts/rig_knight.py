@@ -662,7 +662,10 @@ def write_glb(path):
     ibm = []
     for name, parent, p in BONES:
         M = np.eye(4); M[:3, 3] = bone_game[name]
-        ibm.append(np.linalg.inv(M))
+        # glTF MAT4 accessors are COLUMN-MAJOR; numpy tobytes() is row-major
+        # (C order) — transpose each matrix or the skinner reads it transposed
+        # and the homogeneous w gets contaminated → vertical stretch bug.
+        ibm.append(np.linalg.inv(M).T)
     a_ibm = add_accessor(add_view(np.array(ibm), '<f4'), len(ibm), 5126, 'MAT4')
     skins = [{'joints': [BONE_INDEX[n] for n, _, _ in BONES], 'inverseBindMatrices': a_ibm, 'name': 'knightSkin'}]
 
