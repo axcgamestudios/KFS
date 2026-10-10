@@ -37,9 +37,16 @@ export class TerrainSystem {
   private scatterSink?: (s: ChunkScatter) => void;
   private onChunkRemoved?: (key: string) => void;
 
+  /** Fase 5 — true when the repository ground textures are wired into the shader. */
+  groundTextured = false;
+
+  /** Repository photo textures for the ground (optional — plain colour when absent). */
+  private tex: { grass?: THREE.Texture; dirt?: THREE.Texture; stone?: THREE.Texture } = {};
+
   constructor(
     private terrain: TerrainHeight,
     quality: QualityLevel = 'high',
+    groundTextures?: { grass?: THREE.Texture; dirt?: THREE.Texture; stone?: THREE.Texture },
   ) {
     this.radius = QUALITY_PRESETS[quality].viewChunkRadius;
     this.res = quality === 'low' ? 20 : quality === 'medium' ? 24 : 32;
@@ -49,6 +56,85 @@ export class TerrainSystem {
       metalness: 0.0,
       flatShading: false,
     });
+    if (groundTextures) {
+      this.tex = groundTextures;
+      this.wireSplatShader();
+    }
+  }
+
+  /**
+   * Fase 5 — repository ground textures (Pasto on all green terrain, Tierra
+   * on the road network, Piedra on rock, sand = Tierra re-scaled) blended by
+   * per-vertex splat weights, on top of the biome vertex tint.
+   */
+  private wireSplatShader(): void {
+    const make = (t: THREE.Texture) => {
+      const c = t.clone();
+      c.wrapS = THREE.RepeatWrapping;
+      c.wrapT = THREE.RepeatWrapping;
+      c.anisotropy = 8;
+      c.needsUpdate = true;
+      return c;
+    };
+    const tGrass = this.tex.grass ? make(this.tex.grass) : null;
+    const tDirt = this.tex.dirt ? make(this.tex.dirt) : null;
+    const tStone = this.tex.stone ? make(this.tex.stone) : null;
+    if (!tGrass || !tDirt || !tStone) return;
+    this.groundTextured = true;
+    const uni = {
+      tGrass: { value: tGrass },
+      tDirt: { value: tDirt },
+      tStone: { value: tStone },
+    };
+    this.material.onBeforeCompile = (shader) => {
+      shader.uniforms.tGrass = uni.tGrass;
+      shader.uniforms.tDirt = uni.tDirt;
+      shader.uniforms.tStone = uni.tStone;
+      shader.vertexShader = shader.vertexShader
+        .replace(
+          '#include <common>',
+          `#include <common>
+attribute vec4 aSplat;
+varying vec4 vSplat;
+varying vec2 vWorldUV;`)
+        .replace(
+          '#include <begin_vertex>',
+          `#include <begin_vertex>
+vSplat = aSplat;
+vWorldUV = vec2(position.x, position.z);`);
+      shader.fragmentShader = shader.fragmentShader
+        .replace(
+          '#include <common>',
+          `#include <common>
+uniform sampler2D tGrass;
+uniform sampler2D tDirt;
+uniform sampler2D tStone;
+varying vec4 vSplat;
+varying vec2 vWorldUV;
+vec3 terrainTex(sampler2D t, vec2 uv, float s1, float s2) {
+  // two sampling scales kill the repeating-grid look
+  return texture2D(t, uv * s1).rgb * 0.62 + texture2D(t, uv * s2).rgb * 0.38;
+}`)
+        .replace(
+          '#include <map_fragment>',
+          `{
+    vec2 uv = vWorldUV;
+    vec3 gG = terrainTex(tGrass, uv, 0.32, 0.083);
+    vec3 gD = terrainTex(tDirt,  uv, 0.42, 0.11);
+    vec3 gR = terrainTex(tStone, uv, 0.24, 0.062);
+    // sand: dirt photo at a much larger scale, warmed — reads as beach sand
+    vec3 gS = texture2D(tDirt, uv * 0.16).rgb * vec3(1.07, 0.98, 0.80) + texture2D(tDirt, uv * 0.05).rgb * vec3(0.9, 0.85, 0.7) * 0.35;
+    gS *= 0.7;
+    vec3 ground = gG * vSplat.x + gD * vSplat.y + gS * vSplat.z + gR * vSplat.w;
+    diffuseColor.rgb = ground;
+  }`)
+        .replace(
+          '#include <color_fragment>',
+          `#include <color_fragment>
+    // biome tint modulates the photo ground (keeps meadow greens, road browns,
+    // snow whites) without double-darkening
+    diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vColor.rgb * 1.85, 0.74);`);
+    };
   }
 
   setScatterSink(fn: (s: ChunkScatter) => void, onRemoved: (key: string) => void): void {
@@ -160,6 +246,8 @@ export class TerrainSystem {
     const indices: number[] = [];
 
     const col: [number, number, number] = [0, 0, 0];
+    const splat = new Float32Array(vertCount * 4);
+    const sp: [number, number, number, number] = [1, 0, 0, 0];
     for (let j = 0; j <= res; j++) {
       for (let i = 0; i <= res; i++) {
         const x = ox + i * step;
@@ -174,6 +262,11 @@ export class TerrainSystem {
         colors[idx * 3] = col[0];
         colors[idx * 3 + 1] = col[1];
         colors[idx * 3 + 2] = col[2];
+        this.terrain.splatAt(x, z, h, slope, sp);
+        splat[idx * 4] = sp[0];
+        splat[idx * 4 + 1] = sp[1];
+        splat[idx * 4 + 2] = sp[2];
+        splat[idx * 4 + 3] = sp[3];
       }
     }
     for (let j = 0; j < res; j++) {
@@ -189,6 +282,7 @@ export class TerrainSystem {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    geo.setAttribute('aSplat', new THREE.BufferAttribute(splat, 4));
     geo.setIndex(indices);
     geo.computeVertexNormals();
 

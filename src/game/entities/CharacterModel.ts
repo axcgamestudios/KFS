@@ -48,6 +48,23 @@ function box(w: number, h: number, d: number, color: number, rough = 0.85): THRE
   return m;
 }
 
+/**
+ * Common visual surface every character body implements (procedural
+ * CharacterModel, GLB-skinned KnightModelGLB, ...). Lets Player / NPCs /
+ * crews swap bodies without touching gameplay code.
+ */
+export interface CharacterVisual {
+  readonly root: THREE.Group;
+  update(p: AnimParams): void;
+  flash(): void;
+  setWeapon(kind: WeaponKind): void;
+  setShield(visible: boolean): void;
+  setEquippedState(equipped: boolean): void;
+  faceYaw?(yaw: number): void;
+  setSwordEquipped?(equipped: boolean): void;
+  dispose(): void;
+}
+
 /** Weapon visual categories (mapped from item ids by the game). */
 export type WeaponKind = 'none' | 'sword' | 'axe' | 'spear' | 'bow';
 
@@ -75,18 +92,18 @@ export interface AnimParams {
 
 export class CharacterModel {
   readonly root = new THREE.Group();
-  private hips = new THREE.Group();
-  private chest = new THREE.Group();
-  private head = new THREE.Group();
-  private legL = new THREE.Group();
-  private legR = new THREE.Group();
-  private kneeL = new THREE.Group();
-  private kneeR = new THREE.Group();
-  private armL = new THREE.Group();
-  private armR = new THREE.Group();
-  private elbowL = new THREE.Group();
-  private elbowR = new THREE.Group();
-  private cape: THREE.Mesh | null = null;
+  protected hips = new THREE.Group();
+  protected chest = new THREE.Group();
+  protected head = new THREE.Group();
+  protected legL = new THREE.Group();
+  protected legR = new THREE.Group();
+  protected kneeL = new THREE.Group();
+  protected kneeR = new THREE.Group();
+  protected armL = new THREE.Group();
+  protected armR = new THREE.Group();
+  protected elbowL = new THREE.Group();
+  protected elbowR = new THREE.Group();
+  protected cape: THREE.Mesh | null = null;
   private hipSlots: Partial<Record<WeaponKind, THREE.Group>> = {};
   private handSlots: Partial<Record<WeaponKind, THREE.Group>> = {};
   private shieldGroup = new THREE.Group();
@@ -756,5 +773,124 @@ export class CharacterModel {
         (m.material as THREE.Material).dispose();
       }
     });
+  }
+}
+
+/**
+ * Fase 5 — VillagerModel.
+ * The NPCs of Puerto Cuervo as proper ALDEANOS: seeded per-NPC variety with
+ * hoods, head scarves, aprons, rope belts with pouches, hair (braids, bald
+ * elders), beards, rolled sleeves and body builds (slim / burly). Animates
+ * through the regular CharacterModel layer (walk / pause / talk).
+ */
+export class VillagerModel extends CharacterModel {
+  constructor(palette: CharacterPalette, seed: number, role?: string) {
+    super(palette);
+    const r = (k: number) => {
+      // deterministic per-NPC variety
+      const x = Math.sin(seed * 37.71 + k * 91.13) * 43758.5453;
+      return x - Math.floor(x);
+    };
+    const mkMat = (c: number, rough = 0.9) =>
+      new THREE.MeshStandardMaterial({ color: c, roughness: rough, metalness: 0.02 });
+
+    // --- build variety: slim <0.5, burly >0.5 ---
+    const build = r(1);
+    if (build < 0.42) this.chest.scale.set(0.92, 1.03, 0.94);
+    else if (build > 0.62) { this.chest.scale.set(1.1, 1, 1.08); this.hips.scale.setScalar(1.06); }
+
+    // --- head wear: hood / scarf / bald + beard ---
+    const headWear = r(2);
+    if (headWear < 0.3) {
+      // hood: open cone framing the face
+      const hood = new THREE.Mesh(new THREE.ConeGeometry(0.21, 0.3, 8, 1, true), mkMat(palette.tunic, 0.95));
+      hood.position.y = 0.24;
+      hood.rotation.x = -0.16;
+      hood.castShadow = true;
+      this.head.add(hood);
+      const rim = new THREE.Mesh(
+        new THREE.TorusGeometry(0.16, 0.028, 6, 12),
+        mkMat(palette.boots),
+      );
+      rim.rotation.x = Math.PI / 2;
+      rim.position.y = 0.13;
+      this.head.add(rim);
+    } else if (headWear < 0.55) {
+      // head scarf over the hair
+      const scarf = new THREE.Mesh(
+        new THREE.SphereGeometry(0.155, 10, 8, 0, Math.PI * 2, 0, Math.PI * 0.55),
+        mkMat(palette.sleeves, 0.95),
+      );
+      scarf.position.y = 0.16;
+      scarf.scale.set(1.06, 1, 1.1);
+      scarf.castShadow = true;
+      this.head.add(scarf);
+    } else if (headWear > 0.88) {
+      // bald elder with a beard
+      // (bald look: the hair cap stays but is recoloured to skin)
+      const hairCap = this.head.children.find((c) => (c as THREE.Mesh).isMesh && Math.abs(c.position.y - 0.245) < 0.02) as THREE.Mesh | undefined;
+      if (hairCap) (hairCap.material as THREE.MeshStandardMaterial).color.setHex(palette.skin);
+      const beard = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.14, 0.1), mkMat(palette.hair, 0.95));
+      beard.position.set(0, 0.02, 0.09);
+      this.head.add(beard);
+      const brow = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.03, 0.06), mkMat(palette.hair));
+      brow.position.set(0, 0.045, 0.1);
+      this.head.add(brow);
+    } else if (r(3) < 0.5) {
+      // long hair down the back
+      const hair = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.3, 0.07), mkMat(palette.hair, 0.95));
+      hair.position.set(0, 0.08, -0.135);
+      hair.castShadow = true;
+      this.head.add(hair);
+    }
+
+    // --- working clothes: apron + rope belt with pouch ---
+    if (r(4) < 0.62 || role === 'smith' || role === 'merchant') {
+      const apron = new THREE.Mesh(
+        new THREE.BoxGeometry(0.3, 0.34, 0.015),
+        mkMat(role === 'smith' ? 0x3f2f22 : 0x9a8f7c, 0.95),
+      );
+      apron.position.set(0, 0.16, 0.155);
+      apron.castShadow = true;
+      this.chest.add(apron);
+    }
+    const belt = this.chest.getObjectByName('belt_0') as THREE.Mesh | undefined ?? this.chest.children.find((c) => (c as THREE.Mesh).isMesh && Math.abs((c as THREE.Mesh).position.y - 0.06) < 0.02) as THREE.Mesh | undefined;
+    void belt;
+    // rope belt over the tunic + a worn pouch on the hip
+    const rope = new THREE.Mesh(
+      new THREE.TorusGeometry(0.235, 0.02, 6, 14),
+      mkMat(0x6e5a3e, 1),
+    );
+    rope.rotation.x = Math.PI / 2;
+    rope.position.y = 0.075;
+    rope.scale.set(1.02, 1, 0.95);
+    this.chest.add(rope);
+    const pouch = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.11, 0.06), mkMat(0x5a4630, 1));
+    pouch.position.set(0.19, 0.02, 0.03);
+    this.chest.add(pouch);
+
+    // --- shoulders: patched sleeves for the elders of the port ---
+    if (r(5) < 0.4) {
+      const patch = new THREE.Mesh(
+        new THREE.BoxGeometry(0.1, 0.09, 0.13),
+        mkMat(0x8a7a5c, 0.98),
+      );
+      patch.position.set(0.2, 0.5, 0);
+      this.chest.add(patch);
+    }
+
+    // --- work tool on the belt (smith/merchant flavour) ---
+    if (role === 'smith') {
+      const hammer = new THREE.Group();
+      const haft = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.02, 0.34, 6), mkMat(0x5a4028, 0.9));
+      haft.position.y = 0.17;
+      hammer.add(haft);
+      const headM = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.06, 0.05), new THREE.MeshStandardMaterial({ color: 0x767c82, roughness: 0.45, metalness: 0.75 }));
+      headM.position.y = 0.34;
+      hammer.add(headM);
+      hammer.position.set(0.23, 0.02, -0.02);
+      hammer.rotation.z = 0.35;
+      this.chest.add(hammer);
+    }
   }
 }

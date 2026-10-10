@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CharacterModel, villagerPalette } from './CharacterModel';
+import { CharacterModel, VillagerModel, villagerPalette, type CharacterVisual } from './CharacterModel';
 import type { TerrainHeight } from '../world/TerrainHeight';
 import type { ColliderRegistry } from '../systems/ColliderRegistry';
 import { dampAngle } from '../core/MathUtils';
@@ -10,6 +10,8 @@ export interface NPCDef {
   paletteIndex: number;
   cape?: boolean;
   dialogueId: string;
+  /** Optional flavour used by the villager visual (smith, merchant…). */
+  role?: string;
   /** Day schedule: positions by time. */
   home: THREE.Vector3;
   work: THREE.Vector3;
@@ -108,7 +110,7 @@ export class WildlifeSystem {
 }
 
 export class NPC {
-  readonly model: CharacterModel;
+  readonly model: CharacterVisual;
   readonly group = new THREE.Group();
   readonly def: NPCDef;
   private target = new THREE.Vector3();
@@ -127,7 +129,7 @@ export class NPC {
     this.def = def;
     const palette = { ...villagerPalette(def.paletteIndex) };
     if (def.cape) palette.cape = 0x5a1f1f;
-    this.model = new CharacterModel(palette);
+    this.model = new VillagerModel(palette, def.paletteIndex * 13.7 + def.name.length, def.role);
     this.group.add(this.model.root);
     this.group.position.copy(def.work);
     scene.add(this.group);

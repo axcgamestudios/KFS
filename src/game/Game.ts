@@ -8,6 +8,8 @@ import { DialogueSystem } from './systems/DialogueSystem';
 import { AudioSystem } from './systems/AudioSystem';
 import { SaveSystem, type SaveData, type Settings } from './systems/SaveSystem';
 import { Player } from './entities/Player';
+import { KnightModelGLB } from './entities/KnightModelGLB';
+import { KitSystem } from './world/KitSystem';
 import { CameraRig } from './entities/CameraRig';
 import { NPC } from './entities/NPC';
 import { NavalSystem, type SailingHud } from './naval/NavalSystem';
@@ -177,8 +179,24 @@ export class Game {
     this.musicEl.loop = true;
     this.musicEl.volume = 0;
 
-    store.setProgress(0.85, 'Despertando al explorador…');
-    this.player = new Player(this.engine.scene);
+    store.setProgress(0.82, 'Despertando al explorador…');
+    // --- Fase 5: the repository knight becomes the player's body ---
+    // The kits were already exploded during buildWorld (world.dressing);
+    // here we only load the rigged knight and wire the same kit instance.
+    const kits = world.kits;
+    let playerVisual;
+    try {
+      const knightScene = await world.assets.loadModel('knight_rigged.glb');
+      playerVisual = new KnightModelGLB({
+        scene: knightScene,
+        weaponFactory: (kind) => kits.weapon(kind),
+        shieldFactory: () => kits.create('shield_02'),
+      });
+      playerVisual.root.scale.setScalar(1.0);
+    } catch {
+      playerVisual = undefined; // procedural fallback body
+    }
+    this.player = new Player(this.engine.scene, playerVisual);
     this.player.onFootstep = (surface) => this.audio.playFootstep(surface);
     // Fase 4 — the waving surface is the single swimming reference, and
     // entering/leaving the water splashes

@@ -59,7 +59,7 @@ export default function LoadingScreen() {
 
       <div className="relative z-10 flex w-full max-w-xl flex-col items-center px-8">
         <p className="kotfs-rise mb-2 text-[0.65rem] tracking-[0.55em] text-[color:var(--kotfs-gold)] opacity-80" style={{ ['--rise-delay' as string]: '0.1s' }}>
-          EL ESTUDIO MAREA PRESENTA
+          AXCGAMES STUDIOS PRESENTA
         </p>
 
         {/* Epic letter-by-letter title */}
@@ -127,7 +127,7 @@ export default function LoadingScreen() {
         </div>
 
         <p className="kotfs-rise mt-8 text-[0.62rem] tracking-[0.3em] text-[color:var(--kotfs-parchment-dim)] opacity-60" style={{ ['--rise-delay' as string]: '2.8s' }}>
-          FASE 4 — HISTORIA, BOSQUES Y MONTURAS · v0.4
+          FASE 5 — EL CABALLERO Y LOS KITS · v0.5
         </p>
       </div>
     </div>

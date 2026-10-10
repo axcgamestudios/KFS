@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CharacterModel, PLAYER_PALETTE, type WeaponKind } from './CharacterModel';
+import { CharacterModel, PLAYER_PALETTE, type CharacterVisual, type WeaponKind } from './CharacterModel';
 import type { Input } from '../core/Input';
 import type { TerrainHeight } from '../world/TerrainHeight';
 import type { ColliderRegistry } from '../systems/ColliderRegistry';
@@ -16,7 +16,7 @@ export interface PlayerStats {
 }
 
 export class Player {
-  readonly model: CharacterModel;
+  readonly model: CharacterVisual;
   readonly group = new THREE.Group(); // world transform (position = feet)
   readonly velocity = new THREE.Vector3();
   yaw = 0; // facing
@@ -80,8 +80,8 @@ export class Player {
    *  When absent, sea level (y=0) is assumed. */
   waterHeightAt?: (x: number, z: number) => number;
 
-  constructor(scene: THREE.Scene) {
-    this.model = new CharacterModel(PLAYER_PALETTE);
+  constructor(scene: THREE.Scene, visual?: CharacterVisual) {
+    this.model = visual ?? new CharacterModel(PLAYER_PALETTE);
     this.group.add(this.model.root);
     scene.add(this.group);
 
@@ -293,7 +293,10 @@ export class Player {
       this.onWaterEvent?.('exit', 0.7);
     }
 
-    if (!dialogueActive && this.grounded && !this.swimming && this.stamina > 10 && !this.wading) {
+    // Jump — only when the jump key is actually pressed this frame.
+    // (Regression fix: this used to fire whenever grounded, making the
+    // player hop endlessly without any input.)
+    if (!dialogueActive && input.pressed('jump') && this.grounded && !this.swimming && this.stamina > 10 && !this.wading) {
       this.verticalVel = 7.4;
       this.grounded = false;
       this.stamina -= 10;

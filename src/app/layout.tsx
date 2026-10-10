@@ -9,7 +9,7 @@ export const metadata: Metadata = {
     "videojuego 3D", "mundo abierto", "medieval", "Three.js", "aventura", "dragones",
     "Kingdoms of the Forgotten Seas", "Eldoria",
   ],
-  authors: [{ name: "Estudio Marea" }],
+  authors: [{ name: "AXCGames Studios" }],
 };
 
 export const viewport: Viewport = {

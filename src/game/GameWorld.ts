@@ -6,6 +6,8 @@ import { SkySystem } from './world/SkySystem';
 import { VegetationSystem, windTime } from './world/VegetationSystem';
 import { StructureStreamer } from './world/StructureStreamer';
 import { AssetSystem } from './world/AssetSystem';
+import { KitSystem } from './world/KitSystem';
+import { dressWithKits } from './world/Dressing';
 import { WeatherSystem } from './world/WeatherSystem';
 import { buildCastle } from './structures/Castle';
 import { buildVillage, type VillageLayout } from './structures/Village';
@@ -59,6 +61,8 @@ export interface WorldRefs {
   assets: AssetSystem;
   weather: WeatherSystem;
   fase4: Fase4Refs;
+  /** Fase 5 — exploded repository kits (weapons, shields, furniture, props). */
+  kits: KitSystem;
 }
 
 /** Pre-render the top-down world map (colors + hillshade) for the map UI. */
@@ -131,7 +135,11 @@ export async function buildWorld(
 
   prog(0.06, 'Esculpiendo montañas y valles…');
   const terrainHeight = new TerrainHeight();
-  const terrain = new TerrainSystem(terrainHeight, quality);
+  const terrain = new TerrainSystem(terrainHeight, quality, {
+    grass: assets.pbr.grass?.map,
+    dirt: assets.pbr.dirt?.map,
+    stone: assets.pbr.stone_wall?.map,
+  });
 
   const water = new WaterSystem(terrainHeight);
   const sky = new SkySystem();
@@ -176,6 +184,17 @@ export async function buildWorld(
   const village = buildVillage(scene, terrainHeight, colliders);
   streamer.register(village.mainGroup, 20, 175, 110);
   streamer.register(village.staticShip, village.shipPos.x, village.shipPos.z, 30);
+
+  // --- Fase 5: the repository kits dress the world where they belong ---
+  prog(0.34, 'Desplegando los kits del estudio…');
+  const kits = new KitSystem(assets);
+  await kits.load();
+  const dressed = dressWithKits(scene, terrainHeight, colliders, kits, {
+    tavernDoor: village.tavernDoor,
+    squareCenter: village.squareCenter,
+    castleGate: castle.gatePos,
+  });
+  streamer.register(dressed, 20, 200, 150);
 
   prog(0.45, 'Sembrando ruinas y misterios…');
   const ruinsB = new StaticBuilder(colliders, 'ruins');
@@ -418,6 +437,7 @@ export async function buildWorld(
     assets,
     weather,
     fase4,
+    kits,
   };
 }
 

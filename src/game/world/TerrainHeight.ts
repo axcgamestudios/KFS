@@ -274,6 +274,43 @@ export class TerrainHeight {
     }
   }
 
+  /**
+   * Fase 5 — terrain texture splat weights, mirroring colorAt's biomes:
+   * out = [grass, dirt (roads), sand, stone]. The renderer blends the
+   * repository photo textures (Pasto / Tierra / Piedra) with these weights.
+   */
+  splatAt(x: number, z: number, h: number, slope: number, out: [number, number, number, number]): void {
+    out[0] = 1; out[1] = 0; out[2] = 0; out[3] = 0;
+    const isl = this.islandAt(x, z);
+    if (isl) {
+      if (isl.biome === 'volcanic') {
+        out[0] = 0; out[3] = 1;
+        if (h < 1.6 && slope < 0.4) { out[2] = 0.6; out[3] = 0.4; }
+        return;
+      }
+      if (h < 4.5 && slope < 0.45) { out[0] = 0; out[2] = 1; return; }
+      out[0] = 0.7; out[3] = 0.3;
+      if (slope > 0.6) { out[0] = 0.2; out[3] = 0.8; }
+      return;
+    }
+    if (h < 1.9 && slope < 0.4) { out[0] = 0; out[2] = 1; return; }        // beach sand
+    const macro = this.nTint.fbm(x * 0.013, z * 0.013, 3);
+    if (h > 74 + macro * 10) { out[0] = 0; out[3] = 1; return; }           // snow (white vertex tint over stone)
+    if (slope > 0.62 || h > 58 + macro * 12) { out[0] = 0; out[3] = 1; return; } // rock
+    if (h < 3.2 && slope < 0.35) { out[0] = 0.25; out[2] = 0.75; return; } // wet dune sand
+    const rockPatch = smoothstep(0.35, 0.65, slope);
+    out[3] = rockPatch;
+    out[0] = 1 - rockPatch;
+    // dirt roads cut through everything below the snow line
+    const roadDist = distToRoads(x, z);
+    if (roadDist < 3.6) {
+      const k = 1 - smoothstep(1.5, 3.6, roadDist);
+      out[1] = k;
+      const inv = 1 - k;
+      out[0] *= inv; out[2] *= inv; out[3] *= inv;
+    }
+  }
+
   /** True if a tree may be placed here. */
   canPlaceTree(x: number, z: number, h: number, slope: number): boolean {
     if (h < 2.6 || h > 62) return false;

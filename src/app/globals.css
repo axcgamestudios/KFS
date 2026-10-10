@@ -514,3 +514,129 @@
 .kotfs-ring {
   animation: kotfs-ring 2.6s ease-out infinite;
 }
+
+/* ==========================================================================
+   Fase 5 — main menu over the repository key art (golden-hour galleon).
+   Weathered-brass buttons that match the artwork: dark walnut base, bronze
+   frame with notched corners, sunset-gold accents. AXCGames Studios.
+   ========================================================================== */
+.kfs2-btn {
+  position: relative;
+  display: block;
+  width: 100%;
+  padding: 0.72rem 1.15rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #e8dcc0;
+  background:
+    linear-gradient(180deg, rgba(255, 226, 160, 0.06) 0%, rgba(0, 0, 0, 0) 22%),
+    linear-gradient(180deg, #261c11 0%, #17100a 58%, #120c07 100%);
+  border: 1px solid #6e5526;
+  border-radius: 3px;
+  box-shadow:
+    inset 0 1px 0 rgba(240, 207, 122, 0.14),
+    0 2px 10px rgba(0, 0, 0, 0.45);
+  cursor: pointer;
+  transition: border-color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease, color 0.18s ease;
+}
+.kfs2-btn::before,
+.kfs2-btn::after {
+  content: '';
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  pointer-events: none;
+  opacity: 0.75;
+  transition: opacity 0.18s ease, width 0.18s ease, height 0.18s ease;
+}
+.kfs2-btn::before {
+  top: -1px;
+  left: -1px;
+  border-top: 2px solid #e2b95c;
+  border-left: 2px solid #e2b95c;
+}
+.kfs2-btn::after {
+  bottom: -1px;
+  right: -1px;
+  border-bottom: 2px solid #e2b95c;
+  border-right: 2px solid #e2b95c;
+}
+.kfs2-btn:hover:not(:disabled) {
+  color: #f5ead0;
+  border-color: #e2b95c;
+  transform: translateX(4px);
+  box-shadow:
+    inset 0 1px 0 rgba(240, 207, 122, 0.25),
+    0 3px 16px rgba(0, 0, 0, 0.55),
+    0 0 14px rgba(226, 185, 92, 0.18);
+}
+.kfs2-btn:hover:not(:disabled)::before,
+.kfs2-btn:hover:not(:disabled)::after {
+  opacity: 1;
+  width: 20px;
+  height: 20px;
+}
+.kfs2-btn:active:not(:disabled) {
+  transform: translateX(6px) scale(0.995);
+}
+.kfs2-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.kfs2-btn:focus-visible {
+  outline: 2px solid #e2b95c;
+  outline-offset: 2px;
+}
+.kfs2-btn-primary {
+  color: #3a2a10;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.28) 0%, rgba(255, 255, 255, 0) 34%),
+    linear-gradient(180deg, #f0cf7a 0%, #dcb45a 48%, #c9992d 100%);
+  border-color: #8a6a2f;
+  text-shadow: 0 1px 0 rgba(255, 240, 200, 0.4);
+}
+.kfs2-btn-primary::before { border-color: #fff3d0; }
+.kfs2-btn-primary::after { border-color: #fff3d0; }
+.kfs2-btn-primary:hover:not(:disabled) {
+  color: #2a1d08;
+  border-color: #f5d98c;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.4),
+    0 4px 18px rgba(201, 153, 45, 0.45),
+    0 0 22px rgba(240, 207, 122, 0.35);
+}
+.kfs2-icon { color: #e2b95c; flex: none; transition: color 0.18s ease; }
+.kfs2-btn:hover:not(:disabled) .kfs2-icon { color: #f5d98c; }
+.kfs2-btn-primary .kfs2-icon, .kfs2-btn-primary:hover:not(:disabled) .kfs2-icon { color: #3a2a10; }
+.kfs2-chevron { color: #e2b95c; flex: none; }
+.kfs2-btn-title {
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: #e2b95c;
+}
+.kfs2-panel {
+  background:
+    linear-gradient(180deg, rgba(38, 28, 17, 0.92) 0%, rgba(18, 13, 9, 0.94) 100%);
+  border: 1px solid #6e5526;
+  border-radius: 4px;
+  box-shadow:
+    inset 0 1px 0 rgba(240, 207, 122, 0.12),
+    0 10px 34px rgba(0, 0, 0, 0.6);
+}
+.kfs2-hr {
+  border: 0;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(226, 185, 92, 0.7), rgba(226, 185, 92, 0.12), transparent);
+}
+@keyframes kfs2-rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.kfs2-rise {
+  opacity: 0;
+  animation: kfs2-rise 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) forwards;
+  animation-delay: var(--rise-delay, 0s);
+}
