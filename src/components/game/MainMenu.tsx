@@ -4,7 +4,8 @@ import { useState } from 'react';
 import { useGameStore } from '@/store/gameStore';
 import { gameApi } from '@/game/api';
 import { SaveSystem } from '@/game/systems/SaveSystem';
-import { Play, ScrollText, Settings2, Sparkles, ChevronRight } from 'lucide-react';
+import { Play, ScrollText, Settings2, Sparkles, ChevronRight, Ship } from 'lucide-react';
+import { Embers, EpicTitle, SeaWaves } from './menuFx';
 
 function SlotButton({ slot, onPick, onEmpty }: { slot: number; onPick: () => void; onEmpty: () => void }) {
   const meta = SaveSystem.slotMeta(slot);
@@ -35,6 +36,9 @@ function SlotButton({ slot, onPick, onEmpty }: { slot: number; onPick: () => voi
   );
 }
 
+/** Deterministic pseudo-random field of rising embers. */
+// (ember FX, title reveal & waves live in ./menuFx)
+
 export default function MainMenu() {
   const hasSave = useGameStore((s) => s.hasSave);
   const [subMenu, setSubMenu] = useState<null | 'load' | 'credits'>(null);
@@ -46,29 +50,46 @@ export default function MainMenu() {
   };
 
   return (
-    <div className="absolute inset-0 z-40 flex">
+    <div className="absolute inset-0 z-40 flex overflow-hidden">
+      {/* Atmosphere over the 3D golden-hour bay */}
+      <div
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background:
+            'linear-gradient(90deg, rgba(5,7,10,0.88) 0%, rgba(5,7,10,0.55) 34%, rgba(5,7,10,0.08) 62%, rgba(5,7,10,0.25) 100%)',
+        }}
+      />
+      <Embers count={20} seed={5} />
+      <SeaWaves />
+
       {/* Left: title & menu */}
       <div className="relative z-10 flex h-full w-full max-w-2xl flex-col justify-center px-8 md:px-16">
-        <div className="kotfs-fade-in-slow">
-          <p className="kotfs-title mb-3 text-[0.65rem] tracking-[0.55em] text-[color:var(--kotfs-gold)] opacity-90 md:text-xs">
+        <div>
+          <p className="kotfs-rise mb-3 text-[0.65rem] tracking-[0.55em] text-[color:var(--kotfs-gold)] opacity-90 md:text-xs" style={{ ['--rise-delay' as string]: '0.15s' }}>
             EL ESTUDIO MAREA PRESENTA
           </p>
-          <h1
-            className="kotfs-title mb-1 text-4xl leading-[1.05] text-[color:var(--kotfs-parchment)] md:text-6xl"
-            style={{ textShadow: '0 0 40px rgba(201,162,39,0.3), 0 4px 12px rgba(0,0,0,0.9)' }}
-          >
-            KINGDOMS OF THE
+
+          <h1 className="kotfs-title relative mb-1 text-4xl leading-[1.05] text-[color:var(--kotfs-parchment)] md:text-6xl">
+            <EpicTitle text="KINGDOMS OF THE" delay={0.4} />
             <br />
-            <span className="kotfs-gold-text">FORGOTTEN SEAS</span>
+            <EpicTitle text="FORGOTTEN SEAS" delay={1.2} className="kotfs-shine-text" />
+            <span
+              className="kotfs-title-glow pointer-events-none absolute left-1/2 top-[64%] -z-10 h-20 w-[125%] -translate-x-1/2 -translate-y-1/2 rounded-full"
+              style={{ background: 'radial-gradient(ellipse, rgba(201,162,39,0.3), transparent 70%)' }}
+            />
           </h1>
-          <p className="mb-10 text-sm italic tracking-wide text-[color:var(--kotfs-parchment-dim)] md:text-base">
-            Capítulo I — El Legado de Eirik · La isla de Aldmor
+
+          <p className="kotfs-rise mb-1 mt-2 flex items-center gap-2 text-sm italic tracking-wide text-[color:var(--kotfs-parchment-dim)] md:text-base" style={{ ['--rise-delay' as string]: '2.1s' }}>
+            <Ship size={14} className="text-[color:var(--kotfs-gold)]" />
+            Capítulo II — Los Mares Olvidados · El océano y los piratas
           </p>
+          <div className="kotfs-rise mb-10 mt-4 h-[1px] w-64 bg-gradient-to-r from-[color:var(--kotfs-gold)] via-[rgba(201,162,39,0.35)] to-transparent" style={{ ['--rise-delay' as string]: '2.3s' }} />
 
           {subMenu === null && (
             <div className="flex w-72 flex-col gap-3">
               <button
-                className="kotfs-btn kotfs-btn-primary text-left"
+                className="kotfs-btn kotfs-btn-primary kotfs-rise text-left"
+                style={{ ['--rise-delay' as string]: '2.4s' }}
                 onClick={() => gameApi.startNewGame()}
               >
                 <span className="flex items-center gap-3">
@@ -77,7 +98,8 @@ export default function MainMenu() {
                 </span>
               </button>
               <button
-                className="kotfs-btn text-left"
+                className="kotfs-btn kotfs-rise text-left"
+                style={{ ['--rise-delay' as string]: '2.55s' }}
                 disabled={!hasSave}
                 title={hasSave ? undefined : 'No hay partidas guardadas'}
                 onClick={() => {
@@ -91,14 +113,19 @@ export default function MainMenu() {
                   Continuar
                 </span>
               </button>
-              <button className="kotfs-btn text-left" onClick={() => setSubMenu('load')}>
+              <button
+                className="kotfs-btn kotfs-rise text-left"
+                style={{ ['--rise-delay' as string]: '2.7s' }}
+                onClick={() => setSubMenu('load')}
+              >
                 <span className="flex items-center gap-3">
                   <ScrollText size={16} className="text-[color:var(--kotfs-gold)]" />
                   Cargar partida
                 </span>
               </button>
               <button
-                className="kotfs-btn text-left"
+                className="kotfs-btn kotfs-rise text-left"
+                style={{ ['--rise-delay' as string]: '2.85s' }}
                 onClick={() => useGameStore.getState().openOverlay('settings')}
               >
                 <span className="flex items-center gap-3">
@@ -110,7 +137,7 @@ export default function MainMenu() {
           )}
 
           {subMenu === 'load' && (
-            <div className="kotfs-panel kotfs-panel-corner w-80 p-5">
+            <div className="kotfs-panel kotfs-panel-corner kotfs-fade-in w-80 p-5">
               <h3 className="kotfs-title mb-4 text-sm text-[color:var(--kotfs-gold)]">
                 CARGAR PARTIDA
               </h3>
@@ -135,7 +162,7 @@ export default function MainMenu() {
           )}
 
           {subMenu === 'credits' && (
-            <div className="kotfs-panel kotfs-panel-corner max-w-md p-6">
+            <div className="kotfs-panel kotfs-panel-corner kotfs-fade-in max-w-md p-6">
               <h3 className="kotfs-title mb-4 text-sm text-[color:var(--kotfs-gold)]">CRÉDITOS</h3>
               <div className="space-y-3 text-sm leading-relaxed text-[color:var(--kotfs-parchment-dim)]">
                 <p>
@@ -166,8 +193,8 @@ export default function MainMenu() {
           )}
 
           {subMenu === null && (
-            <p className="mt-10 text-xs tracking-widest text-[color:var(--kotfs-parchment-dim)] opacity-60">
-              FASE 1 — EL MUNDO Y LA EXPLORACIÓN · v0.1
+            <p className="kotfs-rise mt-10 text-xs tracking-widest text-[color:var(--kotfs-parchment-dim)] opacity-60" style={{ ['--rise-delay' as string]: '3s' }}>
+              FASE 2 — EL OCÉANO Y LOS PIRATAS · v0.2
             </p>
           )}
         </div>

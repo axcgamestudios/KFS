@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { TerrainHeight } from './TerrainHeight';
 import { QUALITY_PRESETS, type QualityLevel } from '../core/Engine';
 import { hash2, mulberry32 } from '../core/MathUtils';
+import { ISLANDS } from './WorldConfig';
 
 export const CHUNK_SIZE = 64;
 
@@ -207,7 +208,7 @@ export class TerrainSystem {
       oz + size / 2,
     );
 
-    if (worldDistFromCenter < 560) {
+    if (worldDistFromCenter < 560 || ISLANDS.some((i) => Math.hypot(ox + size / 2 - i.x, oz + size / 2 - i.z) < i.radius * 1.25)) {
       const attempts = 34;
       for (let a = 0; a < attempts; a++) {
         const x = ox + rand() * size;

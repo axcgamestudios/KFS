@@ -340,3 +340,139 @@
 .kotfs-rarity-legendary { color: #e2b13c; }
 .kotfs-rarity-rare { color: #7fb8c9; }
 .kotfs-rarity-common { color: #c9bb9c; }
+
+/* ============================================================
+   FASE 2 — Epic menu & loading animations
+   ============================================================ */
+
+/* Floating embers rising from the sea */
+@keyframes kotfs-ember {
+  0% { transform: translate3d(0, 0, 0) scale(1); opacity: 0; }
+  8% { opacity: var(--ember-opacity, 0.7); }
+  60% { opacity: var(--ember-opacity, 0.7); }
+  100% { transform: translate3d(var(--ember-drift, 30px), -110vh, 0) scale(0.3); opacity: 0; }
+}
+.kotfs-ember {
+  position: absolute;
+  bottom: -2vh;
+  width: var(--ember-size, 3px);
+  height: var(--ember-size, 3px);
+  border-radius: 50%;
+  background: radial-gradient(circle, #ffd98a 0%, #c9a227 45%, rgba(201, 162, 39, 0) 75%);
+  animation: kotfs-ember var(--ember-dur, 14s) linear infinite;
+  animation-delay: var(--ember-delay, 0s);
+  pointer-events: none;
+}
+
+/* Slow ocean swell silhouettes drifting at the bottom */
+@keyframes kotfs-wave-drift {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+.kotfs-wave {
+  position: absolute;
+  left: 0;
+  width: 200%;
+  height: 100%;
+  animation: kotfs-wave-drift var(--wave-dur, 16s) linear infinite;
+  pointer-events: none;
+}
+
+/* Letter-by-letter epic title reveal */
+@keyframes kotfs-letter {
+  0% { opacity: 0; transform: translateY(18px) scale(1.4); filter: blur(6px); }
+  60% { opacity: 1; filter: blur(0); }
+  100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+}
+.kotfs-letter {
+  display: inline-block;
+  opacity: 0;
+  animation: kotfs-letter 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation-delay: var(--letter-delay, 0s);
+  white-space: pre;
+}
+
+/* Gold shimmer sweeping across a line of text */
+@keyframes kotfs-shine {
+  0% { background-position: -220% center; }
+  55%, 100% { background-position: 220% center; }
+}
+.kotfs-shine-text {
+  background: linear-gradient(
+    100deg,
+    var(--kotfs-gold) 20%,
+    #ffe9a8 38%,
+    #fff8dc 50%,
+    #ffe9a8 62%,
+    var(--kotfs-gold) 80%
+  );
+  background-size: 220% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: kotfs-shine 4.5s ease-in-out infinite;
+}
+
+/* Breathing glow behind the main title */
+@keyframes kotfs-title-glow {
+  0%, 100% { opacity: 0.35; transform: scale(1); }
+  50% { opacity: 0.7; transform: scale(1.06); }
+}
+.kotfs-title-glow {
+  animation: kotfs-title-glow 5s ease-in-out infinite;
+}
+
+/* Staggered menu entrance */
+@keyframes kotfs-rise {
+  from { opacity: 0; transform: translateY(22px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.kotfs-rise {
+  opacity: 0;
+  animation: kotfs-rise 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation-delay: var(--rise-delay, 0s);
+}
+
+/* Slow compass rotation for the loading ring */
+@keyframes kotfs-compass-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.kotfs-compass-spin {
+  animation: kotfs-compass-spin 24s linear infinite;
+}
+.kotfs-compass-spin-rev {
+  animation: kotfs-compass-spin 38s linear infinite reverse;
+}
+
+/* Sheen running along the loading bar */
+@keyframes kotfs-bar-sheen {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(320%); }
+}
+.kotfs-bar-sheen {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 34%;
+  background: linear-gradient(100deg, transparent, rgba(255, 244, 200, 0.75), transparent);
+  animation: kotfs-bar-sheen 1.6s ease-in-out infinite;
+}
+
+/* Horizon glow line */
+@keyframes kotfs-horizon {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.9; }
+}
+.kotfs-horizon {
+  animation: kotfs-horizon 6s ease-in-out infinite;
+}
+
+/* Expanding ring pulse (loading milestones) */
+@keyframes kotfs-ring {
+  0% { transform: scale(0.6); opacity: 0.8; }
+  100% { transform: scale(1.8); opacity: 0; }
+}
+.kotfs-ring {
+  animation: kotfs-ring 2.6s ease-out infinite;
+}

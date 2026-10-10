@@ -4,17 +4,20 @@ import { TerrainSystem, CHUNK_SIZE } from './world/TerrainSystem';
 import { WaterSystem } from './world/WaterSystem';
 import { SkySystem } from './world/SkySystem';
 import { VegetationSystem, windTime } from './world/VegetationSystem';
+import { StructureStreamer } from './world/StructureStreamer';
 import { buildCastle } from './structures/Castle';
 import { buildVillage, type VillageLayout } from './structures/Village';
 import {
   buildRuins, buildStoneCircle, buildWatchtower, buildShipwreck, buildGrotto, buildWaterfall,
 } from './structures/POIs';
+import { buildPirateFort, buildFaroRuins, buildBrumaCamp } from './structures/Islands';
 import { createChest, createHerb, type ChestHandles } from './structures/Props';
 import { StaticBuilder } from './structures/Materials';
 import { WildlifeSystem, type NPCDef } from './entities/NPC';
 import type { ColliderRegistry } from './systems/ColliderRegistry';
 import type { GameState } from './systems/GameState';
 import { mulberry32 } from './core/MathUtils';
+import { WORLD } from './world/WorldConfig';
 
 export interface Interactable {
   id: string;
@@ -46,6 +49,9 @@ export interface WorldRefs {
   waterfallFoam: THREE.Mesh;
   waterfallBasin: THREE.Vector3;
   mapCanvas: HTMLCanvasElement;
+  streamer: StructureStreamer;
+  /** Dock point where the repaired Colibrí spawns / respawns. */
+  dockSpawn: { x: number; z: number; heading: number };
 }
 
 /** Pre-render the top-down world map (colors + hillshade) for the map UI. */
@@ -120,11 +126,19 @@ export function buildWorld(
 
   prog(0.10, 'Plantando los bosques antiguos…');
   const vegetation = new VegetationSystem(terrainHeight, quality === 'low' ? 0 : quality === 'medium' ? 0.4 : quality === 'high' ? 0.75 : 1, scene);
+  // Trees are solid trunks: register/unregister colliders with the streaming
+  vegetation.setColliderSinks(
+    (x, z, r, key) => colliders.add(key, { kind: 'cylinder', x, z, r, minY: -50, maxY: 60 }),
+    (prefix) => colliders.removePrefix(prefix),
+  );
   terrain.setScatterSink(
     (s) => vegetation.onChunkScatter(s),
     (key) => vegetation.onChunkRemoved(key),
   );
   terrain.attachTo(scene);
+
+  // Distance streaming for structures (culls far draw calls while sailing)
+  const streamer = new StructureStreamer();
 
   prog(0.18, 'Alzando el Castillo de Aldmor…');
   const castleB = new StaticBuilder(colliders, 'castle');
@@ -132,9 +146,12 @@ export function buildWorld(
   const castleGroup = new THREE.Group();
   castleB.build(castleGroup, { shadows: true });
   scene.add(castleGroup);
+  streamer.register(castleGroup, WORLD.castlePos.x, WORLD.castlePos.z, 60);
 
   prog(0.3, 'Construyendo Puerto Cuervo…');
   const village = buildVillage(scene, terrainHeight, colliders);
+  streamer.register(village.mainGroup, 20, 175, 110);
+  streamer.register(village.staticShip, village.shipPos.x, village.shipPos.z, 30);
 
   prog(0.45, 'Sembrando ruinas y misterios…');
   const ruinsB = new StaticBuilder(colliders, 'ruins');
@@ -149,13 +166,38 @@ export function buildWorld(
   const grotto = buildGrotto(grottoB, terrainHeight);
   const fallsB = new StaticBuilder(colliders, 'falls');
   const falls = buildWaterfall(fallsB, terrainHeight);
-  for (const [b] of [[ruinsB], [stonesB], [towerB], [wreckB], [grottoB], [fallsB]] as Array<[StaticBuilder]>) {
+  for (const [b, pos] of [[ruinsB, { x: -240, z: -140 }], [stonesB, { x: -140, z: -260 }], [towerB, { x: 300, z: 64 }], [wreckB, { x: -334, z: 186 }], [grottoB, { x: 200, z: -180 }], [fallsB, { x: -95, z: -195 }]] as Array<[StaticBuilder, { x: number; z: number }]>) {
     const grp = new THREE.Group();
     b.build(grp, { shadows: true });
     scene.add(grp);
+    streamer.register(grp, pos.x, pos.z, 40);
   }
   scene.add(falls.sheet);
   scene.add(falls.foam);
+
+  prog(0.52, 'Alzando la Fortaleza del Cuervo…');
+  const fortB = new StaticBuilder(colliders, 'fort');
+  const fort = buildPirateFort(fortB, terrainHeight);
+  const fortGroup = new THREE.Group();
+  fortB.build(fortGroup, { shadows: true });
+  scene.add(fortGroup);
+  streamer.register(fortGroup, -570, -515, 70);
+
+  prog(0.56, 'Excavando el Farallón del Faro…');
+  const faroB = new StaticBuilder(colliders, 'faro');
+  const faro = buildFaroRuins(faroB, terrainHeight);
+  const faroGroup = new THREE.Group();
+  faroB.build(faroGroup, { shadows: true });
+  scene.add(faroGroup);
+  streamer.register(faroGroup, 652, 128, 45);
+
+  prog(0.58, 'Tendiendo el campamento de la Bruma…');
+  const brumaB = new StaticBuilder(colliders, 'bruma');
+  const bruma = buildBrumaCamp(brumaB, terrainHeight);
+  const brumaGroup = new THREE.Group();
+  brumaB.build(brumaGroup, { shadows: true });
+  scene.add(brumaGroup);
+  streamer.register(brumaGroup, -80, 748, 30);
 
   prog(0.62, 'Escondiendo tesoros entre las rocas…');
   const chests: ChestRef[] = [];
@@ -171,6 +213,25 @@ export function buildWorld(
   addChest('chest_grotto', -183 + 3.2, -180 - 5.5 + 0.2, 2.4); // grotto interior
   addChest('chest_wreck', -334, 186, 0.9);
   addChest('chest_falls', -101, -199, -0.6);
+  addChest('chest_crow', fort.chestPos.x, fort.chestPos.z, 0.8);
+  addChest('chest_faro', faro.chestPos.x, faro.chestPos.z, 1.2);
+  addChest('chest_bruma', bruma.chestPos.x, bruma.chestPos.z, -0.5);
+
+  // Shipwright material crates (oak for the Colibrí refit)
+  const crateB = new StaticBuilder(colliders, 'crates');
+  const woodCrates: Array<[string, number, number]> = [
+    ['crate_madera_a', 17.5, 231.5],   // by the home pier
+    ['crate_madera_b', -326, 183],     // west wreck coast
+    ['crate_madera_c', -100, -188],    // falls trail
+  ];
+  for (const [, x, z] of woodCrates) {
+    const y = terrainHeight.height(x, z);
+    crateB.solidBox('woodDark', 1.05, 1.05, 1.05, x, y + 0.5, z, 0.3);
+    crateB.box('gold', 1.12, 0.1, 0.14, x, y + 0.72, z, 0.3);
+  }
+  const crateGroup = new THREE.Group();
+  crateB.build(crateGroup, { shadows: true });
+  scene.add(crateGroup);
 
   // Herb spots (pétalos de marfil)
   const herbSpots: Array<[string, number, number]> = [
@@ -275,6 +336,14 @@ export function buildWorld(
 
   prog(0.97, 'Listo para zarpar…');
 
+  // Dock spawn for the Colibrí: scan outward from the pier end into deep water
+  let dockX = 20, dockZ = 258;
+  for (let i = 0; i < 30; i++) {
+    const zx = 20 + i * 2;
+    if (terrainHeight.height(zx, dockZ) < -2.4) { dockX = zx + 2; break; }
+  }
+  const dockSpawn = { x: dockX, z: dockZ, heading: 0 };
+
   return {
     terrain, terrainHeight, water, sky, vegetation,
     village,
@@ -289,6 +358,8 @@ export function buildWorld(
     waterfallFoam: falls.foam,
     waterfallBasin: falls.basin,
     mapCanvas,
+    streamer,
+    dockSpawn,
   };
 }
 

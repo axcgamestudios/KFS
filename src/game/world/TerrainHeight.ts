@@ -1,11 +1,23 @@
 import { Noise } from '../core/Noise';
-import { WORLD, WORLD_SEED, ROADS, distToRoads, gauss } from './WorldConfig';
+import { WORLD, WORLD_SEED, ROADS, ISLANDS, FLATS, distToRoads, gauss } from './WorldConfig';
 import { clamp, smoothstep, lerp } from '../core/MathUtils';
 
+/** Per-island precomputed bounds for fast rejection in height(). */
+interface IslandBounds {
+  id: string;
+  x: number; z: number;
+  radius: number;
+  height: number;
+  biome: 'volcanic' | 'sandy' | 'meadow';
+  /** Beyond this distance the island contributes nothing. */
+  maxDist: number;
+}
+
 /**
- * Analytic terrain of the island of Aldmor. The same height() function is
- * used to generate chunk meshes, place vegetation, clamp the player and NPCs,
- * and pre-render the world map — guaranteeing perfect consistency.
+ * Analytic terrain of the island of Aldmor plus the outer isles of the
+ * Forgotten Seas. The same height() function is used to generate chunk
+ * meshes, place vegetation, clamp the player and NPCs, float the ships and
+ * pre-render the world map — guaranteeing perfect consistency.
  */
 export class TerrainHeight {
   readonly noise: Noise;
@@ -14,6 +26,7 @@ export class TerrainHeight {
   private nDetail: Noise;
   private nMountain: Noise;
   private nTint: Noise;
+  private islandBounds: IslandBounds[];
 
   constructor(seed = WORLD_SEED) {
     this.noise = new Noise(seed);
@@ -22,6 +35,10 @@ export class TerrainHeight {
     this.nDetail = new Noise(seed + 37);
     this.nMountain = new Noise(seed + 53);
     this.nTint = new Noise(seed + 71);
+    this.islandBounds = ISLANDS.map((i) => ({
+      id: i.id, x: i.x, z: i.z, radius: i.radius, height: i.height, biome: i.biome,
+      maxDist: i.radius * 1.35 + 24,
+    }));
   }
 
   /** Terrain height in meters at world (x, z). Sea level = 0. */
@@ -81,8 +98,47 @@ export class TerrainHeight {
     // --- Ocean floor blend ---
     const shelf = this.nDetail.fbm(x * 0.008, z * 0.008, 3) * 5;
     const oceanFloor = -15 + shelf + smoothstep(500, 900, distI) * -12;
+    let height = lerp(oceanFloor, land, islandMask);
 
-    return lerp(oceanFloor, land, islandMask);
+    // --- Outer isles: applied AFTER the main-island blend so the open-sea
+    // mask never erases them. Each isle brings its own mass + shallow shelf. ---
+    for (const isl of this.islandBounds) {
+      const dx = x - isl.x;
+      const dz = z - isl.z;
+      const d2 = dx * dx + dz * dz;
+      if (d2 > isl.maxDist * isl.maxDist) continue;
+      const dist = Math.sqrt(d2);
+      const wob = this.nCoast.noise2(x * 0.012 + isl.x * 0.1, z * 0.012 - isl.z * 0.1) * 0.16;
+      const edge = isl.radius * (1 + wob);
+      const mask = 1 - smoothstep(edge - 26, edge + 16, dist);
+      if (mask <= 0.01) continue;
+      const relief = this.nHills.fbm(x * 0.02 + isl.z, z * 0.02 - isl.x, 4) * 0.5 + 0.5;
+      const peak = Math.pow(mask, 1.25);
+      const islandH = isl.height * peak * (0.5 + relief * 0.75) - (1 - mask) * 9;
+      if (islandH > height) height = islandH;
+    }
+
+    // --- Flattened build sites on the isles (fort, lighthouse, camp) ---
+    for (const flat of FLATS) {
+      const dx = x - flat.x;
+      const dz = z - flat.z;
+      if (dx * dx + dz * dz > flat.r * flat.r * 2.4) continue;
+      const m = gauss(dx, dz, flat.r);
+      if (m <= 0.02) continue;
+      const top = flat.h + this.nDetail.fbm(x * 0.06, z * 0.06, 2) * 0.7;
+      height = lerp(height, top, clamp(m * 1.45, 0, 1));
+    }
+
+    return height;
+  }
+
+  /** The island whose region contains this point (null = main island/ocean). */
+  islandAt(x: number, z: number): IslandBounds | null {
+    for (const isl of this.islandBounds) {
+      const d = Math.hypot(x - isl.x, z - isl.z);
+      if (d < isl.radius * 1.05) return isl;
+    }
+    return null;
   }
 
   /** Terrain slope as 0..1 (approx via finite differences). */
@@ -102,13 +158,60 @@ export class TerrainHeight {
     const dz = z - WORLD.forestCenter.z;
     const base = gauss(dx, dz, WORLD.forestRadius);
     const patches = this.noise.fbm(x * 0.012 + 100, z * 0.012, 3) * 0.5 + 0.5;
-    return clamp(base * (0.45 + 0.75 * patches), 0, 1);
+    let density = clamp(base * (0.45 + 0.75 * patches), 0, 1);
+    // Sparse groves on the outer isles (pines on volcanic rock)
+    const isl = this.islandAt(x, z);
+    if (isl && isl.biome === 'volcanic') {
+      const grove = clamp(this.noise.fbm(x * 0.02 - 300, z * 0.02 + 300, 3) * 0.5 + 0.5, 0, 1);
+      density = Math.max(density, grove * 0.55);
+    }
+    return density;
   }
 
   /** Terrain albedo color at a point (vertex color). Returns [r,g,b]. */
   colorAt(x: number, z: number, h: number, slope: number, out: [number, number, number]): void {
     const tint = this.nTint.noise2(x * 0.05, z * 0.05);
     const macro = this.nTint.fbm(x * 0.013, z * 0.013, 3);
+
+    // --- Outer isle biomes ---
+    const isl = this.islandAt(x, z);
+    if (isl) {
+      if (isl.biome === 'volcanic') {
+        // Black basalt with ash meadows and pale lichen
+        if (h < 1.6 && slope < 0.4) {
+          out[0] = 0.42 + tint * 0.05; out[1] = 0.38 + tint * 0.05; out[2] = 0.34;
+        } else if (h > isl.height * 0.66) {
+          const g = 0.28 + tint * 0.05;
+          out[0] = g * 1.1; out[1] = g; out[2] = g * 1.02;
+        } else {
+          const g = 0.3 + tint * 0.06;
+          out[0] = g * 1.08; out[1] = g * 1.04; out[2] = g * 0.98;
+          const ashK = clamp(0.35 + macro * 0.5, 0, 1) * (1 - smoothstep(0.5, 0.75, slope));
+          out[0] = lerp(out[0], 0.34, ashK);
+          out[1] = lerp(out[1], 0.4, ashK);
+          out[2] = lerp(out[2], 0.26, ashK);
+        }
+        if (slope > 0.66) {
+          const g = 0.2 + tint * 0.04;
+          out[0] = g; out[1] = g; out[2] = g * 1.05;
+        }
+        return;
+      }
+      // sandy isles: white sand + dune grass + palm greenery pockets
+      if (h < 4.5 && slope < 0.45) {
+        out[0] = 0.88 + tint * 0.04; out[1] = 0.83 + tint * 0.04; out[2] = 0.68 + tint * 0.03;
+        return;
+      }
+      const palm = clamp(this.noise.fbm(x * 0.03 + 400, z * 0.03, 3) * 0.5 + 0.55, 0, 1);
+      out[0] = lerp(0.55, 0.32, palm);
+      out[1] = lerp(0.58, 0.5, palm);
+      out[2] = lerp(0.38, 0.3, palm);
+      if (slope > 0.6) {
+        const g = 0.5 + tint * 0.05;
+        out[0] = g; out[1] = g * 0.96; out[2] = g * 0.86;
+      }
+      return;
+    }
 
     if (h < 1.9 && slope < 0.4) {
       // Beach sand
@@ -176,6 +279,17 @@ export class TerrainHeight {
     if (h < 2.6 || h > 62) return false;
     if (slope > 0.52) return false;
     if (distToRoads(x, z) < 3.5) return false;
+    // Keep the isle build sites clear
+    for (const flat of FLATS) {
+      if (Math.hypot(x - flat.x, z - flat.z) < flat.r * 0.95) return false;
+    }
+    // Outer isles: allow trees anywhere sensible (no roads there)
+    const isl = this.islandAt(x, z);
+    if (isl) {
+      if (isl.biome === 'sandy' && h > 3 && slope < 0.4) return true;
+      if (isl.biome === 'volcanic' && h > 3.5 && h < isl.height * 0.8 && slope < 0.5) return true;
+      return false;
+    }
     const dv = Math.hypot(x - WORLD.villageCenter.x, z - WORLD.villageCenter.z);
     if (dv < 82) return false;
     const dc = Math.hypot(x - WORLD.castlePos.x, z - WORLD.castlePos.z);

@@ -16,6 +16,8 @@ export class Input {
   invertY = false;
   leftDown = false;
   leftPressed = false;
+  rightDown = false;
+  rightPressed = false;
 
   private onKeydown = (e: KeyboardEvent) => {
     if (e.repeat) return;
@@ -49,10 +51,15 @@ export class Input {
       this.leftDown = true;
       this.leftPressed = true;
     }
+    if (e.button === 2 && this.pointerLocked) {
+      this.rightDown = true;
+      this.rightPressed = true;
+    }
   };
 
   private onMouseUp = (e: MouseEvent) => {
     if (e.button === 0) this.leftDown = false;
+    if (e.button === 2) this.rightDown = false;
   };
 
   constructor(private canvas: HTMLCanvasElement) {
@@ -123,6 +130,7 @@ export class Input {
     this.mouseDY = 0;
     this.wheelDelta = 0;
     this.leftPressed = false;
+    this.rightPressed = false;
   }
 
   clearAll(): void {

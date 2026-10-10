@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import type { ChunkScatter, TerrainSystem } from './TerrainSystem';
+import type { ChunkScatter } from './TerrainSystem';
 import { TerrainHeight } from './TerrainHeight';
 import { mulberry32, hash2, clamp } from '../core/MathUtils';
 
@@ -165,23 +165,41 @@ interface ChunkVegetation {
   near?: boolean;
 }
 
-/**
- * Global instanced vegetation. Tree/rock matrices are rebuilt whenever the
- * streamed chunk set changes; grass lives on per-chunk meshes near the player.
- */
+/** Vegetation is instanced per CLUSTER (2×2 chunks of 64 m = 128 m cell) so the
+ *  renderer can frustum-cull distant geometry — the old global instanced meshes
+ *  drew every streamed tree every frame (major GPU cost when sailing). */
+const CLUSTER_CHUNKS = 2;
+const CLUSTER_SIZE = 64 * CLUSTER_CHUNKS;
+
+interface ClusterMeshes {
+  trees: THREE.InstancedMesh[];
+  rock: THREE.InstancedMesh;
+}
+
+interface ClusterData {
+  key: string;
+  ccx: number;
+  ccz: number;
+  chunks: Set<string>;
+  meshes: ClusterMeshes | null;
+  dirty: boolean;
+}
+
 export class VegetationSystem {
-  private speciesMeshes: THREE.InstancedMesh[] = [];
-  private speciesCapacity = [1600, 1200, 900];
-  private rockMesh: THREE.InstancedMesh;
-  private rockCapacity = 1400;
+  private treeGeos: THREE.BufferGeometry[];
+  private treeMat: THREE.MeshStandardMaterial;
+  private rockGeo: THREE.BufferGeometry;
+  private rockMat: THREE.MeshStandardMaterial;
+  private speciesCapacity = 170; // 4 chunks × ~34 attempts headroom
+  private rockCapacity = 44;
 
   private chunkData = new Map<string, ChunkVegetation>();
-  private dirty = true;
+  private clusters = new Map<string, ClusterData>();
   private grassDensity: number;
   private sceneRef: THREE.Scene;
 
   private treeColliderSink?: (x: number, z: number, r: number, key: string) => void;
-  private treeColliderRemove?: (key: string) => void;
+  private treeColliderRemove?: (prefix: string) => void;
 
   constructor(
     private terrain: TerrainHeight,
@@ -190,39 +208,41 @@ export class VegetationSystem {
   ) {
     this.grassDensity = grassDensity;
     this.sceneRef = scene;
-    const treeMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, metalness: 0 });
-    patchWind(treeMat, { strength: 0.10, minHeight: 2.0, maxHeight: 6.0 });
-    const geos = buildTreeGeometries();
-    geos.forEach((geo, i) => {
-      const mesh = new THREE.InstancedMesh(geo, treeMat, this.speciesCapacity[i]);
-      mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-      mesh.castShadow = true;
-      mesh.receiveShadow = false;
-      mesh.count = 0;
-      mesh.frustumCulled = false; // spans the whole island; culling by chunk is lost
-      scene.add(mesh);
-      this.speciesMeshes.push(mesh);
-    });
+    this.treeMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, metalness: 0 });
+    patchWind(this.treeMat, { strength: 0.10, minHeight: 2.0, maxHeight: 6.0 });
+    this.treeGeos = buildTreeGeometries();
 
-    const rockMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0.02 });
-    const rockGeo = buildRockGeometry();
-    this.rockMesh = new THREE.InstancedMesh(rockGeo, rockMat, this.rockCapacity);
-    this.rockMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    this.rockMesh.castShadow = true;
-    this.rockMesh.receiveShadow = true;
-    this.rockMesh.count = 0;
-    this.rockMesh.frustumCulled = false;
-    scene.add(this.rockMesh);
+    this.rockMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0.02 });
+    this.rockGeo = buildRockGeometry();
   }
 
-  setColliderSinks(add: (x: number, z: number, r: number, key: string) => void, remove: (key: string) => void): void {
+  setColliderSinks(
+    add: (x: number, z: number, r: number, key: string) => void,
+    removePrefix: (prefix: string) => void,
+  ): void {
     this.treeColliderSink = add;
-    this.treeColliderRemove = remove;
+    this.treeColliderRemove = removePrefix;
   }
 
   setGrassDensity(d: number): void {
+    if (Math.abs(d - this.grassDensity) < 0.001) return;
     this.grassDensity = d;
+    // Rebuild existing grass right away so the change is visible: drop all
+    // current patches and re-flag them so refreshGrassNear() recreates the
+    // near ring at the new density this same frame.
+    for (const data of this.chunkData.values()) {
+      if (data.grass) {
+        this.sceneRef.remove(data.grass);
+        data.grass.geometry.dispose();
+        data.grass.dispose();
+        data.grass = undefined;
+      }
+      if (data.near) data.near = false;
+    }
+    this.grassDirty = true;
   }
+
+  private grassDirty = false;
 
   onChunkScatter(scatter: ChunkScatter): void {
     const trees: TreeInstance[] = [];
@@ -252,7 +272,7 @@ export class VegetationSystem {
       rocks.push({ matrix: m.clone(), color: new THREE.Color().setHSL(0.08, 0.05, 0.42 + ((r.x * 3.1) % 1) * 0.12) });
     }
     this.chunkData.set(scatter.key, { trees, rocks });
-    this.dirty = true;
+    this.markClusterDirty(scatter.cx, scatter.cz, scatter.key);
   }
 
   onChunkRemoved(key: string): void {
@@ -264,17 +284,121 @@ export class VegetationSystem {
       data.grass.dispose();
     }
     this.chunkData.delete(key);
-    this.dirty = true;
+    this.treeColliderRemove?.(`tree:${key}:`);
+    this.markClusterDirtyByKey(key);
   }
 
-  /** Toggle grass meshes for chunks entering/leaving the near ring around the player. */
+  // ------------------------------------------------------------- clusters
+
+  private clusterKey(ccx: number, ccz: number): string {
+    return `${ccx},${ccz}`;
+  }
+
+  private markClusterDirty(cx: number, cz: number, chunkKey: string): void {
+    const ccx = Math.floor(cx / CLUSTER_CHUNKS);
+    const ccz = Math.floor(cz / CLUSTER_CHUNKS);
+    const key = this.clusterKey(ccx, ccz);
+    let cluster = this.clusters.get(key);
+    if (!cluster) {
+      cluster = { key, ccx, ccz, chunks: new Set(), meshes: null, dirty: true };
+      this.clusters.set(key, cluster);
+    }
+    cluster.chunks.add(chunkKey);
+    cluster.dirty = true;
+  }
+
+  private markClusterDirtyByKey(chunkKey: string): void {
+    const [cx, cz] = chunkKey.split(',').map(Number);
+    const ccx = Math.floor(cx / CLUSTER_CHUNKS);
+    const ccz = Math.floor(cz / CLUSTER_CHUNKS);
+    const key = this.clusterKey(ccx, ccz);
+    const cluster = this.clusters.get(key);
+    if (!cluster) return;
+    cluster.chunks.delete(chunkKey);
+    cluster.dirty = true;
+    if (cluster.chunks.size === 0 && cluster.meshes) {
+      this.disposeClusterMeshes(cluster.meshes);
+      cluster.meshes = null;
+      this.clusters.delete(key);
+    }
+  }
+
+  private disposeClusterMeshes(meshes: ClusterMeshes): void {
+    for (const mesh of meshes.trees) {
+      this.sceneRef.remove(mesh);
+      mesh.dispose();
+    }
+    this.sceneRef.remove(meshes.rock);
+    meshes.rock.dispose();
+  }
+
+  /** (Re)build the instanced meshes of one cluster from its member chunks. */
+  private buildCluster(cluster: ClusterData): void {
+    if (!cluster.meshes) {
+      const trees: THREE.InstancedMesh[] = [];
+      for (let s = 0; s < 3; s++) {
+        const mesh = new THREE.InstancedMesh(this.treeGeos[s], this.treeMat, this.speciesCapacity);
+        mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        mesh.castShadow = true;
+        mesh.receiveShadow = false;
+        mesh.count = 0;
+        mesh.frustumCulled = true; // per-cluster bounding sphere → real culling
+        this.sceneRef.add(mesh);
+        trees.push(mesh);
+      }
+      const rock = new THREE.InstancedMesh(this.rockGeo, this.rockMat, this.rockCapacity);
+      rock.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      rock.castShadow = true;
+      rock.receiveShadow = true;
+      rock.count = 0;
+      rock.frustumCulled = true;
+      this.sceneRef.add(rock);
+      cluster.meshes = { trees, rock };
+    }
+    const meshes = cluster.meshes!;
+    const speciesCount = [0, 0, 0];
+    let rockCount = 0;
+    for (const chunkKey of cluster.chunks) {
+      const data = this.chunkData.get(chunkKey);
+      if (!data) continue;
+      for (const t of data.trees) {
+        if (speciesCount[t.species] >= this.speciesCapacity) continue;
+        meshes.trees[t.species].setMatrixAt(speciesCount[t.species], t.matrix);
+        meshes.trees[t.species].setColorAt(speciesCount[t.species], t.color);
+        speciesCount[t.species]++;
+      }
+      for (const r of data.rocks) {
+        if (rockCount >= this.rockCapacity) continue;
+        meshes.rock.setMatrixAt(rockCount, r.matrix);
+        meshes.rock.setColorAt(rockCount, r.color);
+        rockCount++;
+      }
+    }
+    meshes.trees.forEach((mesh, i) => {
+      mesh.count = speciesCount[i];
+      mesh.visible = mesh.count > 0;
+      mesh.instanceMatrix.needsUpdate = true;
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+      if (mesh.count > 0) mesh.computeBoundingSphere();
+    });
+    meshes.rock.count = rockCount;
+    meshes.rock.visible = rockCount > 0;
+    meshes.rock.instanceMatrix.needsUpdate = true;
+    if (meshes.rock.instanceColor) meshes.rock.instanceColor.needsUpdate = true;
+    if (rockCount > 0) meshes.rock.computeBoundingSphere();
+    cluster.dirty = false;
+  }
+
+  // --------------------------------------------------------------- grass
+
+  /** Re-evaluate which chunks are 'near' (grass ring) after player moves. */
   refreshGrassNear(px: number, pz: number, nearRadius = 2): void {
     const pcx = Math.floor(px / 64);
     const pcz = Math.floor(pz / 64);
     for (const [key, data] of this.chunkData) {
       const [cx, cz] = key.split(',').map(Number);
       const isNear = Math.abs(cx - pcx) <= nearRadius && Math.abs(cz - pcz) <= nearRadius;
-      if (data.near === isNear) continue;
+      if (data.near === isNear && !(this.grassDirty && isNear)) continue;
       data.near = isNear;
       if (isNear && !data.grass && this.grassDensity > 0.01) {
         data.grass = this.buildGrassForChunk({ key, cx, cz, trees: [], rocks: [], near: true });
@@ -286,22 +410,7 @@ export class VegetationSystem {
         data.grass = undefined;
       }
     }
-  }
-
-  /** Legacy helper kept for compatibility. */
-  setChunkNear(scatter: ChunkScatter, near: boolean): void {
-    const data = this.chunkData.get(scatter.key);
-    if (!data) return;
-    data.near = near;
-    if (near && !data.grass && this.grassDensity > 0.01) {
-      data.grass = this.buildGrassForChunk(scatter);
-      this.sceneRef.add(data.grass);
-    } else if (!near && data.grass) {
-      this.sceneRef.remove(data.grass);
-      data.grass.geometry.dispose();
-      data.grass.dispose();
-      data.grass = undefined;
-    }
+    this.grassDirty = false;
   }
 
   private grassMaterial?: THREE.MeshStandardMaterial;
@@ -364,52 +473,29 @@ export class VegetationSystem {
     return mesh;
   }
 
-  /** Rebuild global instance buffers if the chunk set changed. */
-  update(): void {
-    if (!this.dirty) return;
-    this.dirty = false;
-    const speciesCount = [0, 0, 0];
-    let rockCount = 0;
-    const color = new THREE.Color();
+  // -------------------------------------------------------------- update
 
-    for (const data of this.chunkData.values()) {
-      for (const t of data.trees) {
-        if (speciesCount[t.species] >= this.speciesCapacity[t.species]) continue;
-        this.speciesMeshes[t.species].setMatrixAt(speciesCount[t.species], t.matrix);
-        this.speciesMeshes[t.species].setColorAt(speciesCount[t.species], t.color);
-        speciesCount[t.species]++;
-      }
-      for (const r of data.rocks) {
-        if (rockCount >= this.rockCapacity) continue;
-        this.rockMesh.setMatrixAt(rockCount, r.matrix);
-        this.rockMesh.setColorAt(rockCount, r.color);
-        rockCount++;
-      }
+  /** Rebuild at most 2 dirty clusters per frame (avoids hitches while streaming). */
+  update(): void {
+    let budget = 2;
+    for (const cluster of this.clusters.values()) {
+      if (!cluster.dirty) continue;
+      this.buildCluster(cluster);
+      budget--;
+      if (budget <= 0) break;
     }
-    this.speciesMeshes.forEach((mesh, i) => {
-      mesh.count = speciesCount[i];
-      mesh.instanceMatrix.needsUpdate = true;
-      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-      mesh.computeBoundingSphere();
-    });
-    this.rockMesh.count = rockCount;
-    this.rockMesh.instanceMatrix.needsUpdate = true;
-    if (this.rockMesh.instanceColor) this.rockMesh.instanceColor.needsUpdate = true;
-    this.rockMesh.computeBoundingSphere();
-    void color;
   }
 
   dispose(): void {
-    this.speciesMeshes.forEach((m) => {
-      m.parent?.remove(m);
-      m.geometry.dispose();
-      (m.material as THREE.Material).dispose();
-      m.dispose();
-    });
-    this.rockMesh.parent?.remove(this.rockMesh);
-    this.rockMesh.geometry.dispose();
-    (this.rockMesh.material as THREE.Material).dispose();
-    this.rockMesh.dispose();
+    for (const cluster of this.clusters.values()) {
+      if (cluster.meshes) this.disposeClusterMeshes(cluster.meshes);
+    }
+    this.clusters.clear();
+    this.treeGeos.forEach((g) => g.dispose());
+    this.rockGeo.dispose();
+    this.treeMat.dispose();
+    this.rockMat.dispose();
+    this.grassMaterial?.dispose();
     for (const data of this.chunkData.values()) {
       if (data.grass) {
         data.grass.parent?.remove(data.grass);
@@ -418,5 +504,15 @@ export class VegetationSystem {
       }
     }
     this.chunkData.clear();
+  }
+
+  /** Debug/stats: number of active clusters & meshes. */
+  get stats(): { clusters: number; drawCalls: number } {
+    let meshes = 0;
+    for (const cluster of this.clusters.values()) {
+      if (!cluster.meshes) continue;
+      meshes += 1 + cluster.meshes.trees.length;
+    }
+    return { clusters: this.clusters.size, drawCalls: meshes };
   }
 }

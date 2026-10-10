@@ -69,17 +69,41 @@ export class Engine {
   }
 
   applyQuality(level: QualityLevel): void {
+    const prevShadows = this.quality.shadowsEnabled;
+    const prevShadowSize = this.quality.shadowMapSize;
     this.quality = { ...QUALITY_PRESETS[level] };
     const pr = Math.min(window.devicePixelRatio, this.quality.pixelRatioCap);
     this.renderer.setPixelRatio(pr);
     this.renderer.shadowMap.enabled = this.quality.shadowsEnabled;
+    const shadowsToggled = prevShadows !== this.quality.shadowsEnabled;
+    const shadowSizeChanged = prevShadowSize !== this.quality.shadowMapSize;
+
     this.scene.traverse((obj) => {
+      // Shadow-casting lights: apply the new shadow map size.
+      const light = obj as THREE.DirectionalLight;
+      if ((light as THREE.DirectionalLight).isDirectionalLight && light.shadow) {
+        if (this.quality.shadowMapSize > 0) {
+          if (light.shadow.mapSize.x !== this.quality.shadowMapSize) {
+            light.shadow.mapSize.set(this.quality.shadowMapSize, this.quality.shadowMapSize);
+            // Dispose the old map so three.js regenerates it at the new size
+            light.shadow.map?.dispose();
+            light.shadow.map = null;
+          }
+          light.castShadow = true;
+        } else {
+          light.castShadow = false;
+        }
+      }
       if ((obj as THREE.Mesh).isMesh) {
         const mesh = obj as THREE.Mesh;
         const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
         mats.forEach((m) => {
           const std = m as THREE.MeshStandardMaterial;
           if (std.map) std.map.anisotropy = this.quality.anisotropy;
+          // Shadow on/off & shadow map size require shader recompilation
+          if ((shadowsToggled || shadowSizeChanged) && m.type !== 'ShaderMaterial') {
+            std.needsUpdate = true;
+          }
         });
       }
     });

@@ -155,19 +155,22 @@ export class AudioSystem {
       shoreDist: number;     // meters (clamped 0..200, negative = in water)
       dayFactor: number;     // 0 night … 1 day
       waterfallDist: number; // meters to falls (Infinity if far)
+      sailSpeed?: number;    // m/s of the player's ship (0 when ashore)
     },
   ): void {
     if (!this.started || !this.ctx) return;
+    const sailing = ctx.sailSpeed ?? 0;
 
-    // Wind grows with altitude
+    // Wind grows with altitude (and rushes while sailing fast)
     if (this.windGain) {
       const alt = clamp(ctx.altitude / 90, 0, 1);
-      this.windGain.gain.value = 0.03 + alt * 0.10;
+      this.windGain.gain.value = 0.03 + alt * 0.10 + clamp(sailing / 9, 0, 1) * 0.11;
     }
-    // Waves fade with distance to shore
+    // Waves: strong when at sea
     if (this.wavesGain) {
       const k = 1 - clamp(ctx.shoreDist / 160, 0, 1);
-      this.wavesGain.gain.value = 0.028 * k * k + (ctx.shoreDist < 0 ? 0.02 : 0);
+      const atSea = sailing > 0.5 ? 0.06 : 0;
+      this.wavesGain.gain.value = 0.028 * k * k + (ctx.shoreDist < 0 ? 0.02 : 0) + atSea;
     }
     // Waterfall proximity
     if (this.waterfallGain) {
@@ -372,7 +375,7 @@ export class AudioSystem {
     else this.tone(420, 0.1, 0.04, 'triangle', 300);
   }
 
-  playEvent(kind: 'discovery' | 'quest' | 'levelup' | 'chest' | 'pickup' | 'swing' | 'damage' | 'splash' | 'unlock'): void {
+  playEvent(kind: 'discovery' | 'quest' | 'levelup' | 'chest' | 'pickup' | 'swing' | 'damage' | 'splash' | 'unlock' | 'cannon' | 'hit_hull' | 'anchor' | 'sail' | 'grapple' | 'creak' | 'sink'): void {
     switch (kind) {
       case 'discovery':
         this.tone(587.33, 0.5, 0.06, 'sine');
@@ -409,6 +412,34 @@ export class AudioSystem {
       case 'unlock':
         this.tone(1200, 0.1, 0.05, 'square', 800);
         this.tone(700, 0.2, 0.05, 'triangle', undefined, 0.1);
+        break;
+      case 'cannon':
+        // Deep boom: pitch drop + air blast
+        this.tone(120, 0.5, 0.22, 'sine', 38);
+        this.tone(70, 0.7, 0.16, 'triangle', 30);
+        this.noiseBurst({ freq: 500, q: 0.5, type: 'lowpass', dur: 0.55, gain: 0.2 });
+        break;
+      case 'hit_hull':
+        this.noiseBurst({ freq: 240, q: 0.7, type: 'lowpass', dur: 0.28, gain: 0.16 });
+        this.tone(95, 0.22, 0.1, 'sawtooth', 45);
+        break;
+      case 'anchor':
+        this.tone(210, 0.55, 0.07, 'sawtooth', 80);
+        this.noiseBurst({ freq: 900, q: 2.2, dur: 0.5, gain: 0.07 });
+        break;
+      case 'sail':
+        this.noiseBurst({ freq: 1400, q: 0.5, type: 'bandpass', dur: 0.7, gain: 0.09 });
+        break;
+      case 'grapple':
+        this.tone(90, 0.3, 0.12, 'square', 60);
+        this.noiseBurst({ freq: 300, q: 1.2, type: 'bandpass', dur: 0.4, gain: 0.12 });
+        break;
+      case 'creak':
+        this.tone(140 + Math.random() * 90, 0.6, 0.035, 'sawtooth', 90);
+        break;
+      case 'sink':
+        this.tone(160, 1.6, 0.12, 'sine', 40);
+        this.noiseBurst({ freq: 400, q: 0.4, type: 'lowpass', dur: 1.8, gain: 0.18 });
         break;
     }
   }

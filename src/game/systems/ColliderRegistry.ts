@@ -61,6 +61,15 @@ export class ColliderRegistry {
     for (const bucket of this.grid.values()) bucket.delete(id);
   }
 
+  /** Remove every collider whose id starts with the prefix (chunk unloading). */
+  removePrefix(prefix: string): void {
+    for (const bucket of this.grid.values()) {
+      for (const id of bucket.keys()) {
+        if (id.startsWith(prefix)) bucket.delete(id);
+      }
+    }
+  }
+
   /** Query colliders near a point (radius pad in meters). */
   query(x: number, z: number, pad = 2.5): Collider[] {
     const out: Collider[] = [];

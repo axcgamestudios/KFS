@@ -43,6 +43,10 @@ export class Player {
   onAttackSwing?: () => void;
   onDamaged?: (amount: number, reason: string) => void;
 
+  /** Optional ship-deck ground probe (set while walking a ship's deck).
+   *  Returns the deck height at a world XZ or null when off-deck. */
+  platformProbe?: (x: number, z: number) => number | null;
+
   constructor(scene: THREE.Scene) {
     this.model = new CharacterModel(PLAYER_PALETTE);
     this.group.add(this.model.root);
@@ -103,10 +107,12 @@ export class Player {
       ix /= inputLen;
       iz /= inputLen;
       // Camera-relative: forward = camera yaw direction (on XZ)
+      // CameraRig looks along +(sin yaw, cos yaw); right is forward rotated -90°
+      // around Y: right = (-cos yaw, sin yaw).
       const fx = Math.sin(cameraYaw);
       const fz = Math.cos(cameraYaw);
-      const rx = Math.cos(cameraYaw);
-      const rz = -Math.sin(cameraYaw);
+      const rx = -Math.cos(cameraYaw);
+      const rz = Math.sin(cameraYaw);
       moveX = fx * iz + rx * ix;
       moveZ = fz * iz + rz * ix;
     }
@@ -141,6 +147,11 @@ export class Player {
           groundH = Math.max(groundH, c.maxY);
         }
       }
+    }
+    // Ship deck (oriented platform, evaluated exactly in ship-local space)
+    if (this.platformProbe) {
+      const deck = this.platformProbe(this.position.x, this.position.z);
+      if (deck !== null && deck > groundH) groundH = deck;
     }
     // Swimming only when actually in the water (not standing on a pier)
     this.swimming = terrainH < -1.2 && this.position.y < 0.35;

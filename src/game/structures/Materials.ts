@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import type { ColliderRegistry } from '../systems/ColliderRegistry';
+import type { ColliderRegistry, Collider } from '../systems/ColliderRegistry';
 
 /**
  * Shared material library for all structures. A limited, coherent palette
@@ -24,6 +24,10 @@ export const MAT = {
   clothRed: new THREE.MeshStandardMaterial({ color: 0x7a1f1f, roughness: 0.9, metalness: 0, side: THREE.DoubleSide }),
   clothGold: new THREE.MeshStandardMaterial({ color: 0xb08a2e, roughness: 0.9, metalness: 0, side: THREE.DoubleSide }),
   sail: new THREE.MeshStandardMaterial({ color: 0xd8cdb4, roughness: 0.9, metalness: 0, side: THREE.DoubleSide }),
+  sailDark: new THREE.MeshStandardMaterial({ color: 0x3a3a40, roughness: 0.92, metalness: 0, side: THREE.DoubleSide }),
+  clothRaven: new THREE.MeshStandardMaterial({ color: 0x1c1c22, roughness: 0.9, metalness: 0, side: THREE.DoubleSide }),
+  woodShip: new THREE.MeshStandardMaterial({ color: 0x5c3f26, roughness: 0.88, metalness: 0 }),
+  woodPirate: new THREE.MeshStandardMaterial({ color: 0x33241a, roughness: 0.92, metalness: 0 }),
   leaf: new THREE.MeshStandardMaterial({ color: 0x4a6a30, roughness: 0.9, metalness: 0 }),
   glow: new THREE.MeshStandardMaterial({
     color: 0x2a1f14,
@@ -51,6 +55,8 @@ export class StaticBuilder {
   private quat = new THREE.Quaternion();
   private euler = new THREE.Euler();
   private colliderSeq = 0;
+  /** All colliders created by this builder (allows re-registering them). */
+  private created: Array<[string, Collider]> = [];
 
   constructor(
     private colliders: ColliderRegistry,
@@ -100,12 +106,15 @@ export class StaticBuilder {
     const sin = Math.abs(Math.sin(rotY));
     const ex = (w * cos + d * sin) / 2;
     const ez = (w * sin + d * cos) / 2;
-    this.colliders.add(`${this.idPrefix}:b${this.colliderSeq++}`, {
+    const id = `${this.idPrefix}:b${this.colliderSeq++}`;
+    const collider: Collider = {
       kind: 'box',
       minX: cx - ex, maxX: cx + ex,
       minY: cy - h / 2, maxY: cy + h / 2,
       minZ: cz - ez, maxZ: cz + ez,
-    });
+    };
+    this.colliders.add(id, collider);
+    this.created.push([id, collider]);
   }
 
   cylinder(key: MatKey, rTop: number, rBottom: number, h: number, seg: number, x: number, y: number, z: number, collide = false): this {
@@ -113,9 +122,20 @@ export class StaticBuilder {
   }
 
   addCylinderCollider(x: number, z: number, r: number, minY: number, maxY: number): void {
-    this.colliders.add(`${this.idPrefix}:c${this.colliderSeq++}`, {
-      kind: 'cylinder', x, z, r, minY, maxY,
-    });
+    const id = `${this.idPrefix}:c${this.colliderSeq++}`;
+    const collider: Collider = { kind: 'cylinder', x, z, r, minY, maxY };
+    this.colliders.add(id, collider);
+    this.created.push([id, collider]);
+  }
+
+  /** Re-register every collider this builder created (after a prefix wipe). */
+  reRegisterColliders(): void {
+    for (const [id, collider] of this.created) this.colliders.add(id, collider);
+  }
+
+  /** Remove every collider this builder created. */
+  removeAllColliders(): void {
+    this.colliders.removePrefix(`${this.idPrefix}:`);
   }
 
   /** Merge everything into meshes attached to a group. */

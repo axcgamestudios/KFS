@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useGameStore, type Notification } from '@/store/gameStore';
-import { Compass, Heart, Mountain, Wind } from 'lucide-react';
+import { useGameStore, type Notification, type SailingHud } from '@/store/gameStore';
+import { Compass, Heart, Mountain, Wind, Anchor, Ship } from 'lucide-react';
 
 /** Compass strip with cardinal points sliding by camera yaw. */
 function CompassStrip() {
@@ -81,6 +81,108 @@ function NotifCard({ n }: { n: Notification }) {
   );
 }
 
+/** Naval panel: hull, speed, sails, wind & broadside readiness. */
+function SailingPanel({ s }: { s: SailingHud }) {
+  const sailLabel = ['RECOGIDAS', 'MEDIA VELA', 'VELA PLENA'][s.sailState];
+  const windDeg = (s.windRel * 180) / Math.PI;
+  const hullPct = Math.max(0, (s.hull / s.hullMax) * 100);
+  return (
+    <div className="kotfs-panel kotfs-panel-corner absolute bottom-20 right-5 w-64 px-4 py-3">
+      <div className="mb-1.5 flex items-center justify-between">
+        <span className="kotfs-title flex items-center gap-1.5 text-[0.62rem] tracking-[0.2em] text-[color:var(--kotfs-parchment-dim)]">
+          <Ship size={11} className="text-[color:var(--kotfs-gold)]" /> {s.shipName.toUpperCase()}
+        </span>
+        {s.anchored && (
+          <span className="flex items-center gap-1 text-[0.6rem] tracking-widest text-[color:var(--kotfs-gold)]">
+            <Anchor size={10} /> FONDEADO
+          </span>
+        )}
+      </div>
+      {/* Hull */}
+      <div className="mb-1 flex items-center justify-between">
+        <span className="kotfs-title text-[0.58rem] tracking-[0.2em] text-[color:var(--kotfs-parchment-dim)]">CASCO</span>
+        <span className="text-[0.58rem] text-[color:var(--kotfs-parchment-dim)]">{Math.round(s.hull)}/{s.hullMax}</span>
+      </div>
+      <div className="kotfs-bar">
+        <div
+          className="kotfs-bar-fill"
+          style={{
+            width: `${hullPct}%`,
+            background: hullPct > 50
+              ? 'linear-gradient(90deg,#4a6d3a,#7fa050)'
+              : hullPct > 25
+                ? 'linear-gradient(90deg,#8a6a1e,#c9a227)'
+                : 'linear-gradient(90deg,#7a1f1f,#c05656)',
+          }}
+        />
+      </div>
+      {/* Speed · sails · wind */}
+      <div className="mt-2.5 flex items-center justify-between">
+        <div>
+          <p className="kotfs-title text-[0.58rem] tracking-[0.2em] text-[color:var(--kotfs-parchment-dim)]">VELOCIDAD</p>
+          <p className="kotfs-title text-lg leading-none text-[color:var(--kotfs-parchment)]">
+            {s.knots.toFixed(1)}<span className="ml-1 text-[0.6rem] opacity-60">NUDOS</span>
+          </p>
+        </div>
+        <div className="text-center">
+          <p className="kotfs-title text-[0.58rem] tracking-[0.2em] text-[color:var(--kotfs-parchment-dim)]">VELAS</p>
+          <p className="kotfs-title text-[0.72rem] leading-tight text-[color:var(--kotfs-gold)]">{sailLabel}</p>
+        </div>
+        <div className="flex flex-col items-center">
+          <p className="kotfs-title text-[0.58rem] tracking-[0.2em] text-[color:var(--kotfs-parchment-dim)]">VIENTO</p>
+          <div className="relative mt-0.5 h-7 w-7 rounded-full border border-[color:rgba(201,162,39,0.4)]">
+            {/* Arrow shows where the wind pushes relative to the bow */}
+            <div
+              className="absolute left-1/2 top-1/2 h-0 w-0"
+              style={{
+                transform: `translate(-50%,-50%) rotate(${windDeg}deg)`,
+              }}
+            >
+              <div className="absolute -translate-x-1/2 -translate-y-1/2" style={{ transform: `rotate(${windDeg}deg)` }}>
+                <Wind size={13} className="text-[color:#9cc168]" />
+              </div>
+            </div>
+            <span className="absolute left-1/2 top-[1px] h-1 w-[2px] -translate-x-1/2 bg-[color:var(--kotfs-gold)]" />
+          </div>
+        </div>
+      </div>
+      {/* Broadside readiness */}
+      <div className="mt-2.5 flex items-center gap-2">
+        <span className="kotfs-title text-[0.55rem] tracking-[0.15em] text-[color:var(--kotfs-parchment-dim)]">BORDADAS</span>
+        <div className="flex flex-1 items-center gap-1.5">
+          <div className="flex-1">
+            <p className="text-center text-[0.5rem] tracking-widest text-[color:var(--kotfs-parchment-dim)]">BABOR · CLIC IZQ.</p>
+            <div className="kotfs-bar mt-0.5 h-[4px]">
+              <div className="kotfs-bar-fill" style={{ width: `${s.cdPort * 100}%`, background: s.cdPort >= 1 ? '#c9a227' : '#6b5416' }} />
+            </div>
+          </div>
+          <div className="flex-1">
+            <p className="text-center text-[0.5rem] tracking-widest text-[color:var(--kotfs-parchment-dim)]">ESTRIBOR · CLIC DER.</p>
+            <div className="kotfs-bar mt-0.5 h-[4px]">
+              <div className="kotfs-bar-fill" style={{ width: `${s.cdStar * 100}%`, background: s.cdStar >= 1 ? '#c9a227' : '#6b5416' }} />
+            </div>
+          </div>
+        </div>
+      </div>
+      {/* Enemy contact */}
+      {s.enemy && (
+        <div className="mt-2 border-t border-[color:rgba(201,162,39,0.25)] pt-2">
+          <div className="flex items-center justify-between">
+            <span className="kotfs-title text-[0.6rem] tracking-[0.15em] text-[color:#c05656]">⚓ {s.enemy.name}</span>
+            <span className="text-[0.58rem] text-[color:var(--kotfs-parchment-dim)]">{Math.round(s.enemy.dist)} m</span>
+          </div>
+          <div className="kotfs-bar mt-1 h-[4px]">
+            <div className="kotfs-bar-fill kotfs-bar-hp" style={{ width: `${s.enemy.hullFrac * 100}%` }} />
+          </div>
+          {s.enemy.hullFrac < 0.36 && (
+            <p className="mt-1 text-center text-[0.58rem] italic text-[color:var(--kotfs-gold)]">¡Tocada! Acércate y ABORDA (E)</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function HUD() {
   const health = useGameStore((s) => s.health);
   const maxHealth = useGameStore((s) => s.maxHealth);
@@ -97,6 +199,7 @@ export default function HUD() {
   const xpToNext = useGameStore((s) => s.xpToNext);
   const overlay = useGameStore((s) => s.overlay);
   const dialogue = useGameStore((s) => s.dialogue);
+  const sailing = useGameStore((s) => s.sailing);
 
   const hidden = overlay !== null || dialogue !== null;
   if (hidden) return null;
@@ -187,10 +290,22 @@ export default function HUD() {
         </div>
       )}
 
+      {/* --- Bottom right: naval panel (when aboard) --- */}
+      {sailing && <SailingPanel s={sailing} />}
+
       {/* --- Bottom right: keymap hint --- */}
       <div className="absolute bottom-5 right-5 text-right text-[0.6rem] leading-relaxed tracking-wider text-[color:var(--kotfs-parchment-dim)] opacity-50">
-        <p>TAB INVENTARIO · M MAPA · J DIARIO · K HABILIDADES</p>
-        <p>WASD MOVER · MAYÚS CORRER · ESPACIO SALTAR · E INTERACTUAR · F FAROL</p>
+        {sailing ? (
+          <>
+            <p>W/S VELAS · A/D TIMÓN · ESPACIO FONDEAR</p>
+            <p>CLIC IZQ./DER. BORDADAS · RUEDA ZOOM · E DESEMBARCAR/ABORDAR</p>
+          </>
+        ) : (
+          <>
+            <p>TAB INVENTARIO · M MAPA · J DIARIO · K HABILIDADES</p>
+            <p>WASD MOVER · MAYÚS CORRER · ESPACIO SALTAR · E INTERACTUAR · F FAROL</p>
+          </>
+        )}
       </div>
 
       {/* --- Top left: notifications --- */}

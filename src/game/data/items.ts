@@ -73,4 +73,47 @@ export const ITEMS: Record<string, ItemDef> = {
     desc: 'Un colmillo antiguo tallado con espirales de agua. Quizá valga algo… o quizá sea algo más.',
     icon: 'Gem', stackable: false, rarity: 'rare',
   },
+  madera: {
+    id: 'madera', name: 'Madera de roble', kind: 'material',
+    desc: 'Roble curado de los almacenes de Puerto Cuervo. Bram lo necesita para el casco del Colibrí.',
+    icon: 'TreePine', stackable: true,
+  },
+  lona: {
+    id: 'lona', name: 'Lona de vela', kind: 'material',
+    desc: 'Tela encerada y resistente a la sal. Rosa la tiñe con un baño de pétalo que además laconsolida las fibras.',
+    icon: 'Layers', stackable: true,
+  },
+  cuerda: {
+    id: 'cuerda', name: 'Cuerda de cáñamo', kind: 'material',
+    desc: 'Cáñamo trenzado al estilo de los pescadores de Aldmor. Aguanta un mástil o un puerto entero.',
+    icon: 'Cable', stackable: true,
+  },
+  sello: {
+    id: 'sello', name: 'Sello de la Orden de la Marea', kind: 'key',
+    desc: 'Un sello de bronce con el círculo de mareas y la llama de los Guardianes. Morwen lo arrebató a un navío de la Orden. Ahora vuelve a manos de un Guardián.',
+    icon: 'Award', stackable: false, rarity: 'legendary', lore: [
+      'El sello pesa más de lo que promete su tamaño, como si el metal recordara el peso de los juramentos.',
+      'En el reverso, una inscripción casi borrada: «Donde la marea duerme, la guardia despierta.»',
+      'La carta de tu padre mencionaba la Isla del Cuervo Viejo... pero el sello dibuja otra cosa: un archipiélago de dragones dormidos al que ningún mapa vivo señala.',
+    ],
+  },
+  botin: {
+    id: 'botin', name: 'Botín del Cuervo', kind: 'treasure',
+    desc: 'Un cofre pequeño con el botín de la Fortaleza del Cuervo: monedas de media docena de reinos y gemas sin tallar.',
+    icon: 'Coins', stackable: false, rarity: 'rare',
+  },
+  espejo: {
+    id: 'espejo', name: 'Espejo de latón del faro', kind: 'treasure',
+    desc: 'El espejo que una vez multiplicó la llama del faro de la Orden. Nubes de sal lo han vuelto lechoso, pero el latón reluce como el primer día.',
+    icon: 'Disc', stackable: false, rarity: 'rare',
+  },
+  escama: {
+    id: 'escama', name: 'Escama de dragón', kind: 'treasure',
+    desc: 'Ni fría ni caliente. Al sostenerla, late muy despacio... como si durmiera. Los dragones duermen — algo los está despertando.',
+    icon: 'Shell', stackable: false, rarity: 'legendary', lore: [
+      'La escama es tan grande como tu palma y cambia de color según la luz: azul abismo, verde marea, gris tormenta.',
+      'Al acercarla al oído, juras oír respirar. Muy hondo. Muy despacio.',
+      'Alguien la dejó en este cofro a propósito: espirales de agua rodean el hueco donde descansaba, idénticas a las de las ruinas de Vaelthara.',
+    ],
+  },
 };

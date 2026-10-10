@@ -10,6 +10,8 @@ import { SaveSystem, type SaveData, type Settings } from './systems/SaveSystem';
 import { Player } from './entities/Player';
 import { CameraRig } from './entities/CameraRig';
 import { NPC } from './entities/NPC';
+import { NavalSystem, type SailingHud } from './naval/NavalSystem';
+import type { Ship } from './naval/Ship';
 import { windTime } from './world/VegetationSystem';
 import { POIS } from './world/WorldConfig';
 import { ITEMS } from './data/items';
@@ -64,6 +66,7 @@ export class Game {
   private player?: Player;
   private rig?: CameraRig;
   private npcs: NPC[] = [];
+  private naval?: NavalSystem;
   private settings: Settings;
 
   private hudTimer = 0;
@@ -155,6 +158,57 @@ export class Game {
     this.rig.sensitivity = this.settings.sensitivity;
     this.rig.invertY = this.settings.invertY;
 
+    // Naval layer (Fase 2): the player's caravel + the pirate fleets
+    this.naval = new NavalSystem(
+      this.engine.scene, world.terrainHeight, world.water, this.state,
+      {
+        notify: (kind, title, body) => useGameStore.getState().notify(kind, title, body),
+        sound: (kind) => this.audio.playEvent(kind),
+        music: (intensity) => {
+          this.musicIntensityTarget = intensity;
+        },
+        setFlag: (flag) => this.state.setFlag(flag),
+        lore: (title, paragraphs) => this.dialogue.startLore(title, paragraphs),
+        closeDialogue: () => this.dialogue.close(),
+        playerDamage: (amount, source) => {
+          const p = this.player!;
+          p.health = Math.max(0, p.health - amount);
+          this.audio.playEvent('damage');
+          void source;
+        },
+        returnPlayerToShip: () => this.takeHelm(),
+      },
+    );
+    this.naval.dockSpawn = world.dockSpawn;
+    this.naval.onDisembark = (spot) => {
+      const p = this.player!;
+      const g = world.terrainHeight.height(spot.x, spot.z);
+      p.teleport(spot.x, Math.max(g, 1.2), spot.z);
+      p.platformProbe = undefined;
+      this.rig!.setShipMode(null);
+    };
+    this.naval.onShipRespawned = () => {
+      const p = this.player!;
+      const sp = world.village.spawnPoint;
+      p.teleport(sp.x, Math.max(world.terrainHeight.height(sp.x, sp.z), 1.5), sp.z);
+      p.platformProbe = undefined;
+      this.rig!.setShipMode(null);
+    };
+    this.naval.onBoardingStarted = (enemy) => {
+      const p = this.player!;
+      const deck = enemy.toWorld(0, 0, 3.4);
+      p.teleport(deck.x, enemy.deckHeightAt(0, 3.4) ?? 1, deck.z);
+      p.yaw = enemy.heading + Math.PI;
+      p.velocity.set(0, 0, 0);
+      p.platformProbe = (x, z) => {
+        const local = enemy.toLocal(x, z);
+        return enemy.deckHeightAt(local.x, local.y);
+      };
+      this.rig!.setShipMode(null);
+      this.state.setFlag('boarding_fought');
+    };
+    this.naval.spawnEnemies();
+
     for (const def of world.npcDefs) {
       this.npcs.push(new NPC(def, this.engine.scene));
     }
@@ -241,6 +295,19 @@ export class Game {
             state.addItem('coin', 20);
             state.addItem('petalo', 1);
             store.getState().notify('item', 'Tesoro encontrado', '20 monedas de oro y un pétalo de marfil.');
+          } else if (chest.id === 'chest_crow') {
+            state.addItem('botin', 1);
+            state.addItem('coin', 60);
+            store.getState().notify('item', 'El botín del Cuervo', 'Botín del Cuervo y 60 monedas de oro, arrancados a la guarida pirata.');
+          } else if (chest.id === 'chest_faro') {
+            state.addItem('espejo', 1);
+            state.addItem('coin', 30);
+            store.getState().notify('item', 'El espejo del faro', 'El viejo espejo de latón de los Guardianes y 30 monedas.');
+          } else if (chest.id === 'chest_bruma') {
+            state.addItem('escama', 1);
+            state.addItem('petalo', 2);
+            state.addItem('coin', 35);
+            store.getState().notify('item', 'Algo late en el cofre', 'Una escama que duerme, dos pétalos de marfil y 35 monedas. Léela desde el inventario (Tab).');
           }
         },
       });
@@ -287,6 +354,65 @@ export class Game {
       },
     });
 
+    // --- Oak crates for the Colibrí refit (Fase 2) ---
+    const oakCrates: Array<[string, number, number]> = [
+      ['crate_madera_a', 17.5, 231.5],
+      ['crate_madera_b', -326, 183],
+      ['crate_madera_c', -100, -188],
+    ];
+    for (const [id, x, z] of oakCrates) {
+      w.interactables.push({
+        id,
+        pos: new THREE.Vector3(x, terrainH(x, z), z),
+        radius: 2.2,
+        prompt: 'Recoger madera de roble (×2)',
+        available: () => !state.hasFlag(`oak_${id}`),
+        run: () => {
+          state.setFlag(`oak_${id}`);
+          state.addItem('madera', 2);
+          audio.playEvent('pickup');
+          state.giveXp(6);
+          store.getState().notify('item', 'Madera de roble ×2', 'Roble curado con el sello de Bram. Perfecto para el casco del Colibrí.');
+        },
+      });
+    }
+
+    // --- The refit delivery point: the Colibrí itself ---
+    w.interactables.push({
+      id: 'colibri_refit',
+      pos: new THREE.Vector3(w.village.shipPos.x, 0, w.village.shipPos.z),
+      radius: 9,
+      get prompt(): string {
+        if (state.hasFlag('ship_repaired')) return '';
+        const ready = state.hasItem('madera', 4) && state.hasItem('lona', 3) && state.hasItem('cuerda', 2);
+        return ready
+          ? 'Entregar los materiales para la reparación'
+          : 'Examinar el Colibrí de Mar';
+      },
+      available: () => !state.hasFlag('ship_repaired'),
+      run: () => {
+        const ready = state.hasItem('madera', 4) && state.hasItem('lona', 3) && state.hasItem('cuerda', 2);
+        if (!ready) {
+          const missing: string[] = [];
+          if (!state.hasItem('madera', 4)) missing.push(`madera (${Math.min(4, state.countItem('madera'))}/4)`);
+          if (!state.hasItem('lona', 3)) missing.push(`lona (${Math.min(3, state.countItem('lona'))}/3)`);
+          if (!state.hasItem('cuerda', 2)) missing.push(`cuerda (${Math.min(2, state.countItem('cuerda'))}/2)`);
+          this.dialogue.startLore('El Colibrí de Mar', [
+            'El casco aguarda entre andamios. Bram revisa la lista garabateada en carbón sobre la cubierta.',
+            `«Todavía falta: ${missing.join(', ')}. El roble está en cajas con mi sello — muelle, costa del naufragio y sendero de la cascada. La lona la prepara Rosa y la cuerda la tiene Tom.»`,
+          ]);
+          return;
+        }
+        state.removeItem('madera', 4);
+        state.removeItem('lona', 3);
+        state.removeItem('cuerda', 2);
+        state.setFlag('ship_repaired');
+        state.interactMilestone('colibri_refit');
+        audio.playEvent('unlock');
+        this.launchShip();
+      },
+    });
+
     // --- Lore tablets ---
     const addLore = (id: string, x: number, z: number, prompt: string) => {
       w.interactables.push({
@@ -310,6 +436,53 @@ export class Game {
     addLore('ship_colibri', w.village.shipDeck.x, w.village.shipDeck.z, 'Contemplar el Colibrí de Mar');
   }
 
+  // -------------------------------------------------------- helm helpers
+
+  /** Attach the player to the wheel of their ship (sailing mode). */
+  private takeHelm(): void {
+    const naval = this.naval;
+    const ship = naval?.playerShip;
+    if (!naval || !ship || ship.sunk || ship.sinking > 0) return;
+    naval.playerBoardsHelm();
+    this.attachPlayerToWheel();
+    this.rig!.setShipMode(ship);
+    if (!this.state.hasFlag('tut_sailing')) {
+      this.state.setFlag('tut_sailing');
+      useGameStore.getState().notify(
+        'info',
+        'Al timón del Colibrí',
+        'W/S velas · A/D timón · Espacio fondear · Clic izq./der. bordadas · E desembarcar o abordar',
+      );
+    }
+  }
+
+  private attachPlayerToWheel(): void {
+    const ship = this.naval!.playerShip!;
+    const wheel = ship.wheelWorld;
+    this.player!.teleport(wheel.x, wheel.y, wheel.z);
+    this.player!.yaw = ship.heading;
+    this.player!.velocity.set(0, 0, 0);
+  }
+
+  /** The refit is complete: swap the static hull for the real ship. */
+  private launchShip(): void {
+    const w = this.world!;
+    w.village.setStaticShip(false);
+    // Stop the streamer from re-showing the retired static hull
+    w.streamer.unregister(w.village.staticShip);
+    const dock = w.dockSpawn;
+    this.naval!.spawnPlayerShip(dock.x, dock.z, dock.heading);
+    this.naval!.applyPerks();
+    this.audio.playEvent('quest');
+    this.musicIntensityTarget = 0.8;
+    useGameStore.getState().notify(
+      'quest',
+      '¡El Colibrí de Mar flota de nuevo!',
+      'La carena está lista. Acércate al costado del barco, junto al muelle, para zarpar. Las habilidades de navegación (K) se han desbloqueado.',
+    );
+    this.autosave();
+  }
+
   // ---------------------------------------------------------------- phases
 
   private startNewGameCore(): void {
@@ -319,6 +492,12 @@ export class Game {
     w.sky.dayFraction = 0.295;
     w.sky.dayCount = 1;
     this.dead = false;
+    // Fresh naval layer: the Colibrí is still under repair on land
+    this.naval?.resetAll();
+    w.village.setStaticShip(true);
+    w.streamer.register(w.village.staticShip, w.village.shipPos.x, w.village.shipPos.z, 30);
+    this.player!.platformProbe = undefined;
+    this.rig?.setShipMode(null);
     const sp = w.village.spawnPoint;
     const groundY = w.terrainHeight.height(sp.x, sp.z);
     this.player!.teleport(sp.x, Math.max(groundY, 1.5), sp.z);
@@ -388,11 +567,12 @@ export class Game {
 
   buildSaveData(): SaveData {
     return {
-      version: 1,
+      version: 2,
       timestamp: Date.now(),
       player: this.player!.serialize(),
       time: this.world!.sky.serialize(),
       gameState: this.state.serialize(),
+      naval: this.naval?.serialize(),
     };
   }
 
@@ -415,11 +595,39 @@ export class Game {
 
   loadFromSlot(slot: number): boolean {
     const data = SaveSystem.load(slot);
-    if (!data || !this.world || !this.player) return false;
+    if (!data || !this.world || !this.player || !this.naval) return false;
     this.state.deserialize(data.gameState);
     this.player.deserialize(data.player);
     this.world.sky.deserialize(data.time);
     this.dead = false;
+
+    // Naval restoration: only when the Colibrí was already repaired
+    if (this.state.hasFlag('ship_repaired')) {
+      this.world.village.setStaticShip(false);
+      if (data.naval) {
+        this.naval.deserialize(data.naval, true);
+      } else {
+        // v1 save that somehow has the flag — spawn at dock
+        const dock = this.world.dockSpawn;
+        this.naval.spawnPlayerShip(dock.x, dock.z, dock.heading);
+      }
+      this.naval.applyPerks();
+    } else {
+      this.world.village.setStaticShip(true);
+      this.world.streamer.register(this.world.village.staticShip, this.world.village.shipPos.x, this.world.village.shipPos.z, 30);
+      this.naval.resetAll();
+      if (data.naval) this.naval.deserialize(data.naval, false);
+    }
+
+    // Sailing state after load: resume at the helm or on foot
+    this.player.platformProbe = undefined;
+    this.rig!.setShipMode(null);
+    if (this.naval.playerSailing && this.naval.playerShip) {
+      this.naval.playerBoardsHelm();
+      this.attachPlayerToWheel();
+      this.rig!.setShipMode(this.naval.playerShip);
+    }
+
     this.restoreWorldFromState();
     this.applyStats();
     this.syncProgression();
@@ -594,11 +802,21 @@ export class Game {
     const w = this.world!;
     const p = this.player!;
     const rig = this.rig!;
+    const naval = this.naval!;
     const dialogueActive = !!store.dialogue;
+    const sailing = naval.playerSailing && !!naval.playerShip;
+
+    // --- Naval layer: wind, fleets, cannonballs, boarding, effects ---
+    const sailingHud: SailingHud | null = naval.update(dt, p.position);
 
     // --- Death / respawn ---
     if (p.health <= 0 && !this.dead) {
       this.dead = true;
+      if (naval.boardingActive) {
+        naval.abortBoarding();
+        p.platformProbe = undefined;
+        rig.setShipMode(null);
+      }
       const sp = w.village.spawnPoint;
       p.teleport(sp.x, 1.5, sp.z);
       p.health = Math.floor(p.stats.maxHealth * 0.5);
@@ -612,46 +830,120 @@ export class Game {
       store.notify('info', `Día ${w.sky.dayCount} en Aldmor`, formatClock(w.sky.dayFraction));
     }
 
-    // --- Camera input & player ---
-    rig.handleInput(this.input, dt);
-    p.update(dt, this.input, rig.yawForward, w.terrainHeight, this.colliders, dialogueActive || this.dead);
-
-    // --- Attack (LMB) ---
-    if (!dialogueActive && this.input.leftPressed && p.attackT === 0 && this.state.equippedWeapon) {
-      p.attackT = 0.001;
-      p.onAttackSwing?.();
-      this.lastSwingHit = false;
-    }
-    if (p.attackT > 0 && !this.lastSwingHit && p.attackT >= 0.45) {
-      this.lastSwingHit = true;
-      // Training dummy hit check
-      const d = w.dummyPos;
-      const dx = d.x - p.position.x;
-      const dz = d.z - p.position.z;
-      const dist = Math.hypot(dx, dz);
-      if (dist < 2.3) {
-        const facing = Math.sin(p.yaw) * dx + Math.cos(p.yaw) * dz;
-        if (facing > 0) {
-          this.audio.playEvent('damage');
-          this.state.giveXp(2);
+    if (sailing && !naval.boardingActive) {
+      // ================= SAILING MODE — the player holds the wheel =================
+      const ship = naval.playerShip!;
+      rig.handleInput(this.input, dt);
+      if (!dialogueActive) {
+        // Sails: W raises, S furls
+        if (this.input.anyPressed('KeyW')) {
+          naval.setSailState(Math.min(2, ship.sailState + 1) as 0 | 1 | 2);
         }
+        if (this.input.anyPressed('KeyS')) {
+          naval.setSailState(Math.max(0, ship.sailState - 1) as 0 | 1 | 2);
+        }
+        // Rudder: A = turn to port, D = turn to starboard
+        ship.rudderInput = (this.input.isDown('left') ? 1 : 0) + (this.input.isDown('right') ? -1 : 0);
+        // Anchor
+        if (this.input.pressed('jump')) naval.toggleAnchor();
+        // Broadside cannons
+        if (this.input.leftPressed) naval.firePlayer('port');
+        if (this.input.rightPressed) naval.firePlayer('starboard');
+      } else {
+        ship.rudderInput = 0;
+      }
+      // Keep the player glued to the helm (no free physics while sailing)
+      this.attachPlayerToWheel();
+      p.stamina = Math.min(p.stats.maxStamina, p.stamina + dt * 12);
+      p.model.update({ dt, speed: 0, moving: false, grounded: true, swimming: false, attackT: 0 });
+
+      // Chapter II milestone: reaching the Crow Isle waters
+      if (this.state.isQuestActive('q5_raven') && !this.state.hasFlag('reached_crow')) {
+        if (Math.hypot(ship.pos.x + 620, ship.pos.z + 520) < 300) {
+          this.state.setFlag('reached_crow');
+          this.musicIntensityTarget = 0.7;
+          store.notify('quest', 'Aguas del Cuervo Viejo', 'Acantilados negros al noroeste. La Gaviota Sangrienta patrulla esta cala.');
+        }
+      }
+    } else {
+      // ================= FOOT MODE — normal third-person play =================
+      // Camera input & player physics
+      rig.handleInput(this.input, dt);
+      p.update(dt, this.input, rig.yawForward, w.terrainHeight, this.colliders, dialogueActive || this.dead);
+
+      // While fighting on a ship deck: the grappled hulls keep you aboard —
+      // recover the player if they slip off, and clamp inside the rails.
+      if (naval.boardingActive && naval.boardingShip) {
+        const enemy = naval.boardingShip;
+        const local = enemy.toLocal(p.position.x, p.position.z);
+        const deck = enemy.deckHeightAt(local.x, local.y);
+        if (deck === null) {
+          // Fell between the hulls / pushed off — the boarding lines pull you back
+          const back = enemy.toWorld(0, 0, 2.5);
+          p.teleport(back.x, (enemy.deckHeightAt(0, 2.5) ?? 1) + 0.05, back.z);
+          p.velocity.set(0, 0, 0);
+        } else if (Math.abs(local.x) > 1.5) {
+          const clampedX = Math.sign(local.x) * 1.5;
+          const fixed = enemy.toWorld(clampedX, 0, local.y);
+          p.position.x = fixed.x;
+          p.position.z = fixed.z;
+          p.velocity.x = 0;
+          p.velocity.z = 0;
+        }
+      }
+
+      // --- Attack (LMB) ---
+      if (!dialogueActive && this.input.leftPressed && p.attackT === 0 && this.state.equippedWeapon) {
+        p.attackT = 0.001;
+        p.onAttackSwing?.();
+        this.lastSwingHit = false;
+      }
+      if (p.attackT > 0 && !this.lastSwingHit && p.attackT >= 0.45) {
+        this.lastSwingHit = true;
+        if (naval.boardingActive) {
+          // Boarding combat: strike the pirate crew
+          const dmg = this.state.equippedWeapon === 'espada_eirik' ? 34 : 16;
+          if (naval.crewHitCheck(p.position, p.yaw, dmg)) {
+            this.audio.playEvent('damage');
+            this.state.giveXp(5);
+          }
+        } else {
+          // Training dummy hit check
+          const d = w.dummyPos;
+          const dx = d.x - p.position.x;
+          const dz = d.z - p.position.z;
+          const dist = Math.hypot(dx, dz);
+          if (dist < 2.3) {
+            const facing = Math.sin(p.yaw) * dx + Math.cos(p.yaw) * dz;
+            if (facing > 0) {
+              this.audio.playEvent('damage');
+              this.state.giveXp(2);
+            }
+          }
+        }
+      }
+
+      // --- Lantern ---
+      if (!dialogueActive && this.input.pressed('lantern')) {
+        p.toggleLantern();
+        this.audio.playEvent('pickup');
       }
     }
 
-    // --- Lantern ---
-    if (!dialogueActive && this.input.pressed('lantern')) {
-      p.toggleLantern();
-      this.audio.playEvent('pickup');
-    }
+    // --- Camera ---
+    const sprinting = this.input.isDown('sprint') && !dialogueActive;
+    rig.update(dt, p.position, sprinting, w.terrainHeight, this.colliders);
 
     // --- World systems ---
-    rig.update(dt, p.position, this.input.isDown('sprint') && !dialogueActive, w.terrainHeight, this.colliders);
     w.sky.update(this.engine.camera, p.position, this.engine.quality.shadowsEnabled);
     w.water.update(dt, this.engine.camera);
     w.water.setSky(w.sky.sunDir, w.sky.sunColor, w.sky.zenithColor, w.sky.horizonColor, w.sky.nightFactor);
-    w.terrain.update(p.position.x, p.position.z);
+    const focusX = sailing ? naval.playerShip!.pos.x : p.position.x;
+    const focusZ = sailing ? naval.playerShip!.pos.z : p.position.z;
+    w.terrain.update(focusX, focusZ);
     w.vegetation.update();
-    this.refreshGrass(p.position.x, p.position.z);
+    this.refreshGrass(focusX, focusZ);
+    w.streamer.update(dt, focusX, focusZ);
     w.gulls.update(dt);
     w.village.torches.update(dt, w.sky.nightFactor, p.position);
     updateChests(dt, w.chests.map((c) => c.handles));
@@ -687,12 +979,16 @@ export class Game {
     }
 
     // --- Audio ambience ---
-    const terrainHNow = w.terrainHeight.height(p.position.x, p.position.z);
+    const terrainHNow = w.terrainHeight.height(
+      sailing ? naval.playerShip!.pos.x : p.position.x,
+      sailing ? naval.playerShip!.pos.z : p.position.z,
+    );
     this.audio.update(dt, {
       altitude: Math.max(0, p.position.y),
       shoreDist: clamp(terrainHNow, 0, 160),
       dayFactor: w.sky.dayFactor,
       waterfallDist: p.position.distanceTo(w.waterfallBasin),
+      sailSpeed: sailingHud ? sailingHud.knots / 1.944 : 0,
     });
 
     // --- Heart of Oak slow regeneration ---
@@ -727,6 +1023,7 @@ export class Game {
         questTracker: tracker,
         fps: this.engine.fps,
         prompt: clickHint ?? store.prompt,
+        sailing: sailingHud,
       });
       this.pollQuestEvents();
     }
@@ -777,31 +1074,38 @@ export class Game {
     let bestDist = Infinity;
 
     if (!dialogueActive) {
-      for (const it of w.interactables) {
-        if (it.available && !it.available()) continue;
-        const d = it.pos.distanceTo(p.position);
-        if (d < it.radius && d < bestDist) {
-          const prompt = typeof it.prompt === 'string' ? it.prompt : it.prompt;
-          if (!prompt) continue;
-          bestDist = d;
-          best = { prompt, run: it.run };
+      // Naval prompts have priority while aboard / at sea
+      const navalPrompt = this.naval?.currentPrompt(p.position) ?? null;
+      if (navalPrompt) {
+        best = { prompt: navalPrompt.prompt, run: navalPrompt.run };
+        bestDist = 0;
+      } else if (!this.naval?.playerSailing) {
+        for (const it of w.interactables) {
+          if (it.available && !it.available()) continue;
+          const d = it.pos.distanceTo(p.position);
+          if (d < it.radius && d < bestDist) {
+            const prompt = typeof it.prompt === 'string' ? it.prompt : it.prompt;
+            if (!prompt) continue;
+            bestDist = d;
+            best = { prompt, run: it.run };
+          }
         }
-      }
-      // NPCs
-      for (const npc of this.npcs) {
-        const d = npc.position.distanceTo(p.position);
-        if (d < 2.6 && d < bestDist) {
-          bestDist = d;
-          best = {
-            prompt: `Hablar con ${npc.name}`,
-            run: () => {
-              npc.talkTo(p.position);
-              if (!this.dialogue.start(npc.def.dialogueId)) {
-                this.dialogue.startLore(npc.name, ['…']);
-              }
-              this.audio.playUi('click');
-            },
-          };
+        // NPCs
+        for (const npc of this.npcs) {
+          const d = npc.position.distanceTo(p.position);
+          if (d < 2.6 && d < bestDist) {
+            bestDist = d;
+            best = {
+              prompt: `Hablar con ${npc.name}`,
+              run: () => {
+                npc.talkTo(p.position);
+                if (!this.dialogue.start(npc.def.dialogueId)) {
+                  this.dialogue.startLore(npc.name, ['…']);
+                }
+                this.audio.playUi('click');
+              },
+            };
+          }
         }
       }
     }
@@ -957,6 +1261,7 @@ export class Game {
     gameApi.learnSkill = (id) => {
       if (st().learnSkill(id)) {
         this.applyStats();
+        this.naval?.applyPerks(); // navigation skills change the ship
         this.audio.playEvent('levelup');
         useGameStore.getState().notify('item', 'Habilidad aprendida', SKILLS.find((s) => s.id === id)?.name ?? id);
       }
@@ -974,6 +1279,13 @@ export class Game {
       yaw: this.player!.yaw,
       discovered: [...st().discoveredPOIs],
       explored: st().exploredMap,
+      ship: this.naval?.playerShip && !this.naval.playerShip.sunk
+        ? {
+          x: this.naval.playerShip.pos.x,
+          z: this.naval.playerShip.pos.z,
+          heading: this.naval.playerShip.heading,
+        }
+        : undefined,
     });
     gameApi.settings = () => ({ ...this.settings });
     gameApi.applySettings = (s) => {
@@ -984,6 +1296,10 @@ export class Game {
       this.world?.vegetation.setGrassDensity(
         s.quality === 'low' ? 0 : s.quality === 'medium' ? 0.4 : s.quality === 'high' ? 0.75 : 1,
       );
+      // Rebuild the grass ring at the new density right away
+      if (this.player) {
+        this.world?.vegetation.refreshGrassNear(this.player.position.x, this.player.position.z, 2);
+      }
       this.input.sensitivity = s.sensitivity;
       this.rig!.sensitivity = s.sensitivity;
       this.rig!.invertY = s.invertY;

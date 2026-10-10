@@ -1,5 +1,21 @@
 import * as THREE from 'three';
 import { TerrainHeight } from './TerrainHeight';
+import { smoothstep } from '../core/MathUtils';
+
+/**
+ * Gerstner wave parameters — shared by the water shader AND the CPU-side
+ * waveHeightAt() used for ship buoyancy. Never change one without the other.
+ */
+export const WAVES = {
+  amp: [0.42, 0.24, 0.13],
+  len: [26.0, 14.0, 7.0],
+  speed: [1.05, 1.5, 2.1],
+  dirs: [
+    [1.0 / Math.hypot(1.0, 0.35), 0.35 / Math.hypot(1.0, 0.35)],
+    [-0.7 / Math.hypot(0.7, 1.0), 1.0 / Math.hypot(0.7, 1.0)],
+    [0.45 / Math.hypot(0.45, 1.0), -1.0 / Math.hypot(0.45, 1.0)],
+  ],
+} as const;
 
 /**
  * Animated ocean: a large plane that follows the player. Waves are computed
@@ -11,8 +27,10 @@ export class WaterSystem {
   readonly mesh: THREE.Mesh;
   private material: THREE.ShaderMaterial;
   private time = 0;
+  private terrain: TerrainHeight;
 
   constructor(terrain: TerrainHeight, worldHalf = 1024) {
+    this.terrain = terrain;
     // --- Pre-bake a low-res terrain height texture for shore effects ---
     const texRes = 256;
     const data = new Float32Array(texRes * texRes);
@@ -186,6 +204,24 @@ export class WaterSystem {
     this.mesh.position.x = camera.position.x;
     this.mesh.position.z = camera.position.z;
     this.material.uniforms.uCameraPos.value.copy(camera.position);
+  }
+
+  /**
+   * CPU wave height at a world point — mirrors the vertex shader exactly
+   * (same waves, same shallow-water damping) so ships ride the same sea
+   * the player sees. Used for buoyancy and wake placement.
+   */
+  waveHeightAt(x: number, z: number): number {
+    const shore = this.terrain.height(x, z);
+    let shallowK = smoothstep(-14, -1.5, shore);
+    shallowK = Math.min(1, Math.max(0.15, shallowK));
+    let h = 0;
+    for (let i = 0; i < 3; i++) {
+      const k = (Math.PI * 2) / WAVES.len[i];
+      const f = k * (WAVES.dirs[i][0] * x + WAVES.dirs[i][1] * z) - this.time * WAVES.speed[i];
+      h += WAVES.amp[i] * shallowK * Math.sin(f);
+    }
+    return h;
   }
 
   /** Called by the sky system every frame. */

@@ -17,6 +17,19 @@ export interface SaveData {
   player: { x: number; y: number; z: number; yaw: number; health: number; stamina: number };
   time: { dayFraction: number; dayCount: number };
   gameState: ReturnType<GameState['serialize']>;
+  /** Fase 2 naval state (version 2 saves; absent in version 1). */
+  naval?: {
+    player: {
+      x: number; z: number; heading: number; hullHp: number;
+      sailState: 0 | 1 | 2; anchored: boolean; sunk: boolean; sinking: number;
+    } | null;
+    sailing: boolean;
+    enemies: Array<{
+      x: number; z: number; heading: number; hullHp: number;
+      sailState: 0 | 1 | 2; anchored: boolean; sunk: boolean; sinking: number;
+      questBoarded?: boolean;
+    }>;
+  };
 }
 
 export interface Settings {
@@ -66,7 +79,7 @@ export class SaveSystem {
       const raw = localStorage.getItem(`${SAVE_PREFIX}${slot}`);
       if (!raw) return null;
       const data = JSON.parse(raw) as SaveData;
-      if (data.version !== 1) return null;
+      if (data.version !== 1 && data.version !== 2) return null;
       return data;
     } catch {
       return null;
@@ -84,13 +97,16 @@ export class SaveSystem {
   static slotMeta(slot: number): SaveMeta | null {
     const data = SaveSystem.load(slot);
     if (!data) return null;
+    const chapter = data.gameState.flags?.includes('ship_repaired')
+      ? 'Capítulo II — Los Mares Olvidados'
+      : 'Capítulo I — El Legado de Eirik';
     return {
       slot,
       timestamp: data.timestamp,
       level: data.gameState.level,
       dayCount: data.time.dayCount,
       playtime: data.gameState.playtimeSeconds,
-      chapter: 'Capítulo I — El Legado de Eirik',
+      chapter,
     };
   }
 

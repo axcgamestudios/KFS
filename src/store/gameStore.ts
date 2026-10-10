@@ -3,6 +3,21 @@ import { create } from 'zustand';
 export type GamePhase = 'boot' | 'menu' | 'loading' | 'intro' | 'playing' | 'paused';
 export type OverlayKind = 'inventory' | 'map' | 'journal' | 'skills' | 'settings' | 'saves' | 'credits' | null;
 
+/** Naval HUD snapshot (null when away from the ship). */
+export interface SailingHud {
+  hull: number;
+  hullMax: number;
+  knots: number;
+  sailState: 0 | 1 | 2;
+  windRel: number;
+  cdPort: number;
+  cdStar: number;
+  anchored: boolean;
+  shipName: string;
+  enemy: { name: string; hullFrac: number; dist: number } | null;
+  boarding: boolean;
+}
+
 export interface Notification {
   id: number;
   kind: 'info' | 'quest' | 'discovery' | 'item' | 'levelup' | 'save';
@@ -38,6 +53,7 @@ interface GameStore {
   discovery: { title: string; sub: string } | null;
   notifications: Notification[];
   dialogue: DialogueState | null;
+  sailing: SailingHud | null;
   // Progression
   level: number;
   xp: number;
@@ -60,7 +76,7 @@ interface GameStore {
   setPhase: (p: GamePhase) => void;
   openOverlay: (o: OverlayKind) => void;
   closeOverlay: () => void;
-  setHud: (h: Partial<Pick<GameStore, 'health' | 'maxHealth' | 'stamina' | 'maxStamina' | 'clock' | 'dayCount' | 'prompt' | 'questTracker' | 'fps'>>) => void;
+  setHud: (h: Partial<Pick<GameStore, 'health' | 'maxHealth' | 'stamina' | 'maxStamina' | 'clock' | 'dayCount' | 'prompt' | 'questTracker' | 'fps' | 'sailing'>>) => void;
   setDialogue: (d: DialogueState | null) => void;
   setDiscovery: (d: { title: string; sub: string } | null) => void;
   notify: (kind: Notification['kind'], title: string, body?: string) => void;
@@ -89,6 +105,7 @@ export const useGameStore = create<GameStore>((set) => ({
   discovery: null,
   notifications: [],
   dialogue: null,
+  sailing: null,
   level: 1,
   xp: 0,
   xpToNext: 120,

@@ -37,7 +37,10 @@ export interface GameApi {
   levelInfo(): { level: number; xp: number; xpToNext: number };
   // Map
   mapCanvas(): HTMLCanvasElement | null;
-  playerMap(): { x: number; z: number; yaw: number; discovered: string[]; explored: boolean[] };
+  playerMap(): {
+    x: number; z: number; yaw: number; discovered: string[]; explored: boolean[];
+    ship?: { x: number; z: number; heading: number };
+  };
   // Settings
   settings(): Settings;
   applySettings(s: Settings): void;

@@ -3,6 +3,7 @@ import type { Input } from '../core/Input';
 import type { TerrainHeight } from '../world/TerrainHeight';
 import { clamp, damp, dampAngle } from '../core/MathUtils';
 import type { ColliderRegistry } from '../systems/ColliderRegistry';
+import type { Ship } from '../naval/Ship';
 
 /**
  * Third-person orbit camera: mouse look with pointer lock, scroll zoom,
@@ -19,6 +20,9 @@ export class CameraRig {
   private currentPos = new THREE.Vector3(0, 30, 60);
   private lookAt = new THREE.Vector3();
   private fov = 62;
+  /** While sailing the rig orbits the ship instead of the player. */
+  shipTarget: Ship | null = null;
+  private savedDistance = 4.6;
 
   constructor(private camera: THREE.PerspectiveCamera) {}
 
@@ -27,9 +31,16 @@ export class CameraRig {
     const sens = 0.0023 * this.sensitivity;
     this.yaw -= input.mouseDX * sens;
     this.pitch += (this.invertY ? input.mouseDY : -input.mouseDY) * sens;
-    this.pitch = clamp(this.pitch, -0.55, 1.25);
-    if (input.wheelDelta !== 0) {
-      this.targetDistance = clamp(this.targetDistance + input.wheelDelta * 0.6, 2.2, 8.5);
+    if (this.shipTarget) {
+      this.pitch = clamp(this.pitch, 0.04, 1.15);
+      if (input.wheelDelta !== 0) {
+        this.targetDistance = clamp(this.targetDistance + input.wheelDelta * 1.6, 7, 42);
+      }
+    } else {
+      this.pitch = clamp(this.pitch, -0.55, 1.25);
+      if (input.wheelDelta !== 0) {
+        this.targetDistance = clamp(this.targetDistance + input.wheelDelta * 0.6, 2.2, 8.5);
+      }
     }
     void dt;
   }
@@ -40,6 +51,10 @@ export class CameraRig {
   }
 
   update(dt: number, playerPos: THREE.Vector3, sprinting: boolean, terrain: TerrainHeight, colliders: ColliderRegistry): void {
+    if (this.shipTarget) {
+      this.updateShip(dt, this.shipTarget, terrain);
+      return;
+    }
     this.distance = damp(this.distance, this.targetDistance, 8, dt);
 
     // Desired pivot: player head
@@ -125,6 +140,71 @@ export class CameraRig {
     );
     this.camera.position.copy(this.currentPos);
     this.camera.lookAt(playerPos.x, pivotY, playerPos.z);
+  }
+
+  /** Enter/leave sailing camera. Restores the previous zoom when returning. */
+  setShipMode(ship: Ship | null): void {
+    if (ship && !this.shipTarget) {
+      this.savedDistance = this.targetDistance;
+      this.targetDistance = 17;
+      this.distance = 17;
+      this.pitch = Math.max(this.pitch, 0.22);
+      this.shipTarget = ship;
+    } else if (!ship && this.shipTarget) {
+      this.shipTarget = null;
+      this.targetDistance = this.savedDistance;
+      this.distance = this.savedDistance;
+    }
+  }
+
+  /** Sailing camera: wide orbit around the helm, clamped above the waves. */
+  private updateShip(dt: number, ship: Ship, terrain: TerrainHeight): void {
+    this.distance = damp(this.distance, this.targetDistance, 6, dt);
+    const pivot = ship.wheelWorld;
+    pivot.y += 1.5;
+    this.lookAt.copy(pivot);
+
+    const cosP = Math.cos(this.pitch);
+    const dirX = Math.sin(this.yaw) * cosP;
+    const dirY = Math.sin(this.pitch);
+    const dirZ = Math.cos(this.yaw) * cosP;
+
+    // Keep the boom above the sea, allow glancing under the sails
+    let dist = this.distance;
+    const probe = (t: number) => {
+      const sx = pivot.x - dirX * t;
+      const sz = pivot.z - dirZ * t;
+      const sy = pivot.y - dirY * t;
+      return sy < terrain.height(sx, sz) + 1.2;
+    };
+    for (let i = 1; i <= 8; i++) {
+      const t = (i / 8) * this.distance;
+      if (probe(t)) {
+        dist = Math.max(8, t - this.distance / 8);
+        break;
+      }
+    }
+
+    const desired = new THREE.Vector3(
+      pivot.x - dirX * dist,
+      Math.max(pivot.y - dirY * dist, 2.2),
+      pivot.z - dirZ * dist,
+    );
+    this.currentPos.x = damp(this.currentPos.x, desired.x, 14, dt);
+    this.currentPos.y = damp(this.currentPos.y, desired.y, 10, dt);
+    this.currentPos.z = damp(this.currentPos.z, desired.z, 14, dt);
+
+    this.camera.position.copy(this.currentPos);
+    this.camera.lookAt(this.lookAt);
+
+    // Speed FOV
+    const fast = ship.speed / Math.max(1, ship.maxSpeed) > 0.72;
+    const targetFov = fast ? 72 : 62;
+    this.fov = damp(this.fov, targetFov, 4, dt);
+    if (Math.abs(this.camera.fov - this.fov) > 0.05) {
+      this.camera.fov = this.fov;
+      this.camera.updateProjectionMatrix();
+    }
   }
 
   /** Used by cinematics to drive the camera directly. */

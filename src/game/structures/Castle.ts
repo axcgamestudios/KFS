@@ -24,6 +24,9 @@ export function buildCastle(
 
   const buildWall = (ax: number, az: number, bx: number, bz: number, skipGap?: [number, number]) => {
     const len = Math.hypot(bx - ax, bz - az);
+    // rot orients the LOCAL +Z axis along the wall direction (dx, dz), so the
+    // length must be the box DEPTH (d), never the width — otherwise the wall
+    // renders perpendicular (thin slab across the courtyard) and looks invisible.
     const rot = Math.atan2(bx - ax, bz - az);
     const midX = (ax + bx) / 2, midZ = (az + bz) / 2;
     const gy = groundAt(midX, midZ);
@@ -36,13 +39,13 @@ export function buildCastle(
         const ex = ax + dirX * len * to, ez = az + dirZ * len * to;
         const mX = (sx + ex) / 2, mZ = (sz + ez) / 2;
         const sLen = len * (to - from);
-        b.solidBox('stone', sLen, wallH, wallT, mX, groundAt(mX, mZ) + wallH / 2 - 0.4, mZ, Math.atan2(ex - sx, ez - sz));
+        b.solidBox('stone', wallT, wallH, sLen, mX, groundAt(mX, mZ) + wallH / 2 - 0.4, mZ, Math.atan2(ex - sx, ez - sz));
         crenellate(mX, mZ, Math.atan2(ex - sx, ez - sz), sLen, groundAt(mX, mZ) + wallH - 0.4);
       };
       seg(0, skipGap[0]);
       seg(skipGap[1], 1);
     } else {
-      b.solidBox('stone', len, wallH, wallT, midX, gy + wallH / 2 - 0.4, midZ, rot);
+      b.solidBox('stone', wallT, wallH, len, midX, gy + wallH / 2 - 0.4, midZ, rot);
       crenellate(midX, midZ, rot, len, gy + wallH - 0.4);
     }
   };
@@ -100,7 +103,8 @@ export function buildCastle(
   b.solidBox('stone', gWidth, 2.8, 4.2, gateX, gGround + 6.0, gateZ, 0, false);
   b.addBoxCollider(gateX, gGround + 7.4, gateZ, gWidth, 1.0, 4.2, 0);
   b.box('stoneDark', gWidth + 0.6, 0.5, 4.6, gateX, gGround + 7.6, gateZ);
-  crenellate(gateX, gateZ, 0, gWidth + 0.6, gGround + 7.85);
+  // Gate top runs along X (like the south wall) → rot = π/2 for the merlons
+  crenellate(gateX, gateZ, Math.PI / 2, gWidth + 0.6, gGround + 7.85);
   // Raised portcullis (decorative, clearly open)
   for (const off of [-1.4, 0, 1.4]) {
     b.cylinder('metal', 0.06, 0.06, 1.6, 5, gateX + off, gGround + 5.6, gateZ + 1.6, false);

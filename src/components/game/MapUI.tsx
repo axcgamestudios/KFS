@@ -131,6 +131,35 @@ export default function MapUI() {
     ctx.stroke();
     ctx.restore();
 
+    // The player's ship (caravel marker) — shown once launched
+    if (pm.ship) {
+      const [sx, sy] = worldToCanvas(pm.ship.x, pm.ship.z, size);
+      ctx.save();
+      ctx.translate(sx, sy);
+      ctx.rotate(-pm.ship.heading);
+      // Hull
+      ctx.fillStyle = '#5c3f26';
+      ctx.strokeStyle = '#e8cc6a';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.moveTo(0, -9);
+      ctx.quadraticCurveTo(5.5, -2, 4.5, 7);
+      ctx.lineTo(-4.5, 7);
+      ctx.quadraticCurveTo(-5.5, -2, 0, -9);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      // Sail
+      ctx.fillStyle = '#d8cdb4';
+      ctx.beginPath();
+      ctx.moveTo(0, -7);
+      ctx.lineTo(3.4, 2);
+      ctx.lineTo(-3.4, 2);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+
     // Compass rose
     ctx.fillStyle = '#2a2118';
     ctx.font = `${Math.max(12, size * 0.03)}px 'Cinzel', serif`;

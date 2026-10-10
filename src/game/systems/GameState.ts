@@ -19,9 +19,9 @@ export const SKILLS: SkillDef[] = [
   { id: 'sup_botanico', name: 'Botánico', desc: 'Cada pétalo de marfil recogido cuenta doble.', tree: 'supervivencia' },
   { id: 'sup_zancada', name: 'Zancada del Explorador', desc: 'Velocidad de marcha y carrera +8%.', tree: 'supervivencia' },
   { id: 'sup_corazon', name: 'Corazón de Roble', desc: 'Salud máxima +25 y lenta regeneración continua.', tree: 'supervivencia' },
-  { id: 'nav_marino', name: 'Marinería', desc: 'Se desbloqueará al zarpar — Capítulo II: Los Mares Olvidados.', tree: 'navegacion', locked: true },
-  { id: 'nav_viento', name: 'Viento a Favor', desc: 'Se desbloqueará al zarpar — Capítulo II: Los Mares Olvidados.', tree: 'navegacion', locked: true },
-  { id: 'nav_bordo', name: 'Fuego de Bordada', desc: 'Se desbloqueará al zarpar — Capítulo II: Los Mares Olvidados.', tree: 'navegacion', locked: true },
+  { id: 'nav_marino', name: 'Marinería', desc: 'Velocidad máxima del Colibrí de Mar +12%.', tree: 'navegacion', locked: true },
+  { id: 'nav_viento', name: 'Viento a Favor', desc: 'El viento en contra apenas frena tu barco.', tree: 'navegacion', locked: true, requires: ['nav_marino'] },
+  { id: 'nav_bordo', name: 'Fuego de Bordada', desc: 'Los cañones recargan un 35% más rápido.', tree: 'navegacion', locked: true, requires: ['nav_marino'] },
 ];
 
 export type QuestStatus = 'active' | 'completed';
@@ -57,6 +57,7 @@ export class GameState {
   pickedHerbs = new Set<string>();
   exploredMap: boolean[] = [];
   playtimeSeconds = 0;
+  private evaluatingQuests = false;
 
   onChange?: (e: GameStateEvent) => void;
 
@@ -69,6 +70,8 @@ export class GameState {
   addItem(id: string, count = 1): void {
     this.inventory.set(id, (this.inventory.get(id) ?? 0) + count);
     this.emit('inventory');
+    // Live objective check so collect goals tick as items arrive
+    this.evaluateQuests();
   }
 
   removeItem(id: string, count = 1): boolean {
@@ -126,7 +129,9 @@ export class GameState {
 
   canLearn(skillId: string): boolean {
     const def = SKILLS.find((s) => s.id === skillId);
-    if (!def || def.locked) return false;
+    if (!def) return false;
+    // Navigation skills unlock with the story: once the Colibrí is repaired
+    if (def.locked && !this.hasFlag('ship_repaired')) return false;
     if (this.learnedSkills.has(skillId)) return false;
     if (this.skillPoints < 1) return false;
     if (def.requires?.some((r) => !this.learnedSkills.has(r))) return false;
@@ -177,7 +182,10 @@ export class GameState {
 
   /** Check all active quests' objectives & complete quests when done. */
   evaluateQuests(talkTarget?: string, interactTarget?: string): void {
-    for (const [questId, state] of this.questStates) {
+    if (this.evaluatingQuests) return; // reentrancy guard (rewards add items)
+    this.evaluatingQuests = true;
+    try {
+      for (const [questId, state] of this.questStates) {
       if (state.status !== 'active') continue;
       const def = QUESTS[questId];
       if (!def) continue;
@@ -232,6 +240,9 @@ export class GameState {
           setTimeout(() => this.startQuest(next), 50);
         }
       }
+    }
+    } finally {
+      this.evaluatingQuests = false;
     }
     this.emit('quests');
   }

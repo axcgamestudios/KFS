@@ -43,6 +43,43 @@ export interface POIDef {
   journal: string;
 }
 
+/** Secondary islands of the Forgotten Seas (Fase 2 — ocean region). */
+export interface IslandDef {
+  id: string;
+  name: string;
+  x: number;
+  z: number;
+  radius: number;
+  /** Peak height above sea level. */
+  height: number;
+  biome: 'volcanic' | 'sandy' | 'meadow';
+  /** Journal text shown when its POI is discovered. */
+  journal: string;
+}
+
+export const ISLANDS: IslandDef[] = [
+  {
+    id: 'crow', name: 'Isla del Cuervo Viejo',
+    x: -620, z: -520, radius: 130, height: 46, biome: 'volcanic',
+    journal: 'La isla del mapa de mi padre. Acantilados negros como alas de cuervo y, sobre la cala, una fortaleza de troncos erizada de estandartes rojos. Aquí anida el Cuervo de Tres Cabezas.',
+  },
+  {
+    id: 'faro', name: 'Farallón del Faro',
+    x: 660, z: 120, radius: 82, height: 30, biome: 'volcanic',
+    journal: 'Un farallón de roca volcánica coronado por las ruinas de un faro antiquísimo. Sus fuegos llevaron a los barcos de la Orden de la Marea durante siglos. Ahora solo lo habitan las gaviotas.',
+  },
+  {
+    id: 'bruma_a', name: 'Islas de la Bruma',
+    x: -80, z: 760, radius: 85, height: 16, biome: 'sandy',
+    journal: 'Dos hermanas de arena blanca y palmeras bajas, siempre envueltas en una bruma tibia. Los pescadores dicen que la marea deja regalos en sus orillas… y que algo más grande también las visita.',
+  },
+  {
+    id: 'bruma_b', name: 'Islas de la Bruma',
+    x: 40, z: 822, radius: 64, height: 13, biome: 'sandy',
+    journal: 'La hermana menor de las islas. Entre ambas, un paso poco profundo donde el agua brilla turquesa al mediodía.',
+  },
+];
+
 export const POIS: POIDef[] = [
   {
     id: 'village', name: 'Puerto Cuervo', x: 20, z: 150, radius: 90, xp: 20,
@@ -79,6 +116,18 @@ export const POIS: POIDef[] = [
   {
     id: 'peak', name: 'Cumbres de Garrahielo', x: 40, z: -320, radius: 90, xp: 40,
     journal: 'Las montañas del norte, coronadas de nieve eterna. Los pastores juran que a veces una sombra enorme cruza el cielo al atardecer. Los dragones dormían... ¿durmiendo aún?',
+  },
+  {
+    id: 'fortaleza', name: 'Fortaleza del Cuervo', x: -620, z: -520, radius: 100, xp: 60,
+    journal: 'La guarida pirata de la Isla del Cuervo Viejo: una empalizada de troncos rematada por cráneos de moros, cabañas de vela alquitranada y una única torre de vigía. La Gaviota Sangrienta ancla en su cala.',
+  },
+  {
+    id: 'faro', name: 'Ruinas del Faro Antiguo', x: 660, z: 120, radius: 60, xp: 40,
+    journal: 'El faro de los Guardianes de la Marea, derruido por la gran guerra. Sus escaleras de caracol suben en espiral hacia nada. En la cima, un brasero apagado espera una llama que nadie recuerda encender.',
+  },
+  {
+    id: 'bruma', name: 'Las Islas de la Bruma', x: -20, z: 790, radius: 115, xp: 40,
+    journal: 'Arenas blancas, palmeras bajas y niebla tibia. Entre conchas y maderas varadas encontré señales de que alguien ha acampado aquí hace poco. Alguien que cocinó pescado y talló espirales en la arena.',
   },
 ];
 
@@ -133,3 +182,19 @@ export const gauss = (dx: number, dz: number, radius: number): number => {
 };
 
 export const WORLD_SEED = 20261010;
+
+/** Flattened build sites (fort terrace, lighthouse shoulder, beach camp). */
+export interface FlatDef { x: number; z: number; r: number; h: number }
+
+export const FLATS: FlatDef[] = [
+  { x: -570, z: -515, r: 42, h: 18 },  // Fortaleza del Cuervo terrace
+  { x: 652, z: 128, r: 26, h: 22 },    // Faro plateau
+  { x: -80, z: 748, r: 24, h: 4 },     // Mist isles camp
+];
+
+/** Global sailing wind — slow precession, shared by ships, HUD and audio. */
+export const WIND = {
+  /** Direction the wind blows TOWARDS (radians, XZ plane like yaw). */
+  dir: 2.4,
+  strength: 1,
+};

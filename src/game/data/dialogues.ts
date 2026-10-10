@@ -343,6 +343,64 @@ export const DIALOGUES: Record<string, NPCDialogue> = {
         },
       },
       {
+        cond: 'aldric_ship_talked',
+        notCond: 'canvas_given',
+        requireItem: { id: 'petalo', count: 3 },
+        start: 'rc1',
+        nodes: {
+          rc1: {
+            text: '¿Tres pétalos de marfil más? La luna me sonría. Con el baño de pétalo la lona queda encerada, teñida y tres veces más fuerte — el secreto de las velas que no se rompen. Dame un minuto… ya está: tres piezas de primera, listas para el Colibrí.',
+            options: [
+              {
+                text: 'Un arte, Rosa. Tomad.',
+                action: [
+                  { t: 'takeItem', id: 'petalo', count: 3 },
+                  { t: 'item', id: 'lona', count: 3 },
+                  { t: 'flag', flag: 'canvas_given' },
+                  { t: 'close' },
+                ],
+              },
+            ],
+          },
+        },
+      },
+      {
+        cond: 'aldric_ship_talked',
+        notCond: 'canvas_given',
+        requireItem: { id: 'coin', count: 20 },
+        start: 'rc2',
+        nodes: {
+          rc2: {
+            text: 'Sin pétalos también se puede, aunque la lona sale blanca y menos noble: lino del norte a veinte monedas las tres piezas. Elige tú: la marea no espera y Bram tampoco.',
+            options: [
+              {
+                text: 'Tomo el lino. Aquí tenéis.',
+                action: [
+                  { t: 'takeItem', id: 'coin', count: 20 },
+                  { t: 'item', id: 'lona', count: 3 },
+                  { t: 'flag', flag: 'canvas_given' },
+                  { t: 'close' },
+                ],
+              },
+              { text: 'Volveré con pétalos de marfil.', action: { t: 'close' } },
+            ],
+          },
+        },
+      },
+      {
+        cond: 'aldric_ship_talked',
+        notCond: 'canvas_given',
+        start: 'rc3',
+        nodes: {
+          rc3: {
+            text: '¿La lona para el Colibrí? Claro que sé hacerla — lavé las velas de tu padre años enteros. Tráeme tres pétalos de marfil para el baño de encerado… o veinte monedas si la naturaleza no te sonríe esta semana.',
+            options: [
+              { text: 'Ya os traigo una cosa u otra.', action: { t: 'close' } },
+            ],
+          },
+        },
+      },
+      {
         start: 'r5',
         nodes: {
           r5: {
@@ -365,6 +423,55 @@ export const DIALOGUES: Record<string, NPCDialogue> = {
     npcId: 'bram',
     name: 'Bram el Herrero',
     trees: [
+      {
+        cond: 'aldric_ship_talked',
+        notCond: 'ship_repaired',
+        start: 'rf1',
+        nodes: {
+          rf1: {
+            text: 'Así que el Colibrí volverá al agua y tú eres el nuevo dueño. Bien. Aldric ya me adelantó la mitad del pago — la otra mitad me la debes en madera, lona y cuerda. Yo pongo los clavos, el sudor y los juramentos.',
+            options: [
+              { text: '¿Qué necesita exactamente el casco?', next: 'rf2' },
+              { text: '¿Y vos no os hacéis a la mar?', next: 'rf3' },
+            ],
+          },
+          rf2: {
+            text: 'Cuatro tablones de roble curado — hay cajas marcadas con mi sello en el muelle, en la costa del naufragio y en el sendero de la cascada. Tres piezas de lona encerada, que Rosa sabe preparar como nadie. Y dos cuerdas de cáñamo del buenísimo de Tom. Cuando lo tengas todo, deja los materiales junto al casco y yo me encargo del resto.',
+            options: [
+              {
+                text: 'Con esa lista, a trabajar. Buena forja, Bram.',
+                action: [
+                  { t: 'talk', target: 'bram_refit' },
+                  { t: 'close' },
+                ],
+              },
+              { text: '¿Y si falta algo?', next: 'rf3' },
+            ],
+          },
+          rf3: {
+            text: 'El Colibrí no zarpa a medias, muchacho. Ni los barcos ni los hombres. Consigue la lista completa y hablamos de mareas. Y una cosa más: cuando navegues, escucha al casco. La madera avisa antes de romperse… si sabes escuchar.',
+            options: [
+              {
+                text: 'Aprenderé a escuchar. Adiós, Bram.',
+                action: [
+                  { t: 'talk', target: 'bram_refit' },
+                  { t: 'close' },
+                ],
+              },
+            ],
+          },
+        },
+      },
+      {
+        cond: 'ship_repaired',
+        start: 'rf4',
+        nodes: {
+          rf4: {
+            text: '¡Ahí está el nuevo capitán! El casco canta bien, ¿verdad? Le puse refuerzos dobles en la quilla, donde a tu padre le gustaba rozar los arrecifes. Si oyes un crujido raro a babor… es el recuerdo de Eirik protestando, no la madera.',
+            options: [{ text: 'Ojalá proteste muchos años. Buena forja.', action: { t: 'close' } }],
+          },
+        },
+      },
       {
         start: 'b1',
         nodes: {
@@ -400,6 +507,46 @@ export const DIALOGUES: Record<string, NPCDialogue> = {
     npcId: 'tom',
     name: 'Tom el Pescador',
     trees: [
+      {
+        cond: 'aldric_ship_talked',
+        notCond: 'rope_given',
+        requireItem: { id: 'coin', count: 10 },
+        start: 'tr1',
+        nodes: {
+          tr1: {
+            text: '¿Eso que suena en tu bolsa? Exacto: monedas. Diez, contadas. Y estas son mis dos mejores cuerdas de cáñamo, trenzadas por mí, aguanta un mástil en plena galerna. Trato hecho, ¿eh? Nada de devoluciones: el cáñamo ya conoce tu olor.',
+            options: [
+              {
+                text: 'Trato hecho, Tom.',
+                action: [
+                  { t: 'takeItem', id: 'coin', count: 10 },
+                  { t: 'item', id: 'cuerda', count: 2 },
+                  { t: 'flag', flag: 'rope_given' },
+                  { t: 'close' },
+                ],
+              },
+            ],
+          },
+        },
+      },
+      {
+        cond: 'aldric_ship_talked',
+        notCond: 'rope_given',
+        start: 'tr2',
+        nodes: {
+          tr2: {
+            text: 'Cuerda de cáñamo para el Colibrí, ¿eh? Tengo las mejores del puerto… pero ya no regalo nada desde que un lobo me debía una red. Diez monedas por las dos cuerdas. El cáñamo no crece en las piedras, muchacho.',
+            options: [
+              { text: 'Volveré con las monedas.', action: { t: 'close' } },
+              { text: '¿Y no bajáis el precio para el hijo de Eirik?', next: 'tr3' },
+            ],
+          },
+          tr3: {
+            text: 'Para el hijo de Eirik bajo la charla y subo el cariño: diez monedas igual, pero con un nudo de suerte regalado. Los precios de pescador son como las mareas, muchacho: firmes.',
+            options: [{ text: 'Tendrá razón la marea. Hasta luego.', action: { t: 'close' } }],
+          },
+        },
+      },
       {
         start: 't1',
         nodes: {

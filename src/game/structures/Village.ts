@@ -14,6 +14,12 @@ export interface VillageLayout {
   eirikChestPos: THREE.Vector3;
   shipPos: THREE.Vector3;
   shipDeck: THREE.Vector3;
+  /** Static (under repair) Colibrí group — hidden once the real ship launches. */
+  staticShip: THREE.Group;
+  /** Show/hide the static ship including its colliders (refit / new game). */
+  setStaticShip: (visible: boolean) => void;
+  /** Whole merged village group (for distance streaming). */
+  mainGroup: THREE.Group;
   warehouseDoor: THREE.Vector3;
   tavernDoor: THREE.Vector3;
   smithyForge: THREE.Vector3;
@@ -68,9 +74,19 @@ export function buildVillage(
   b.add(new THREE.BoxGeometry(0.9, 0.08, 2.0), 'woodLight', 12, g(12, 236) + 0.38, 236, 0.3);
 
   // --- The “Colibrí de Mar” (damaged caravel) beside the pier ---
+  // Built into its own group & collider prefix so it can be swapped for the
+  // fully simulated ship the day the repairs are done.
   const shipX = 31, shipZ = 248;
-  const ship: { lanternLight?: (x: number, y: number, z: number) => void } = {};
-  buildShip(b, shipX, shipZ, 0.12, 0, ship);
+  const shipB = new StaticBuilder(colliders, 'ship_static');
+  buildShip(shipB, shipX, shipZ, 0.12, 0);
+  const staticShip = new THREE.Group();
+  shipB.build(staticShip, { shadows: true });
+  scene.add(staticShip);
+  const setStaticShip = (visible: boolean) => {
+    staticShip.visible = visible;
+    if (visible) shipB.reRegisterColliders();
+    else shipB.removeAllColliders();
+  };
 
   // Fisher nets & crates on the pier
   for (let i = 0; i < 3; i++) {
@@ -83,7 +99,6 @@ export function buildVillage(
   const group = new THREE.Group();
   b.build(group, { shadows: true });
   scene.add(group);
-
   // --- Dynamic props ---
   const torches = new TorchSystem(scene, 4);
   const torchSpots: Array<[number, number]> = [
@@ -106,6 +121,9 @@ export function buildVillage(
     eirikChestPos: new THREE.Vector3(chestX, g(chestX, chestZ), chestZ),
     shipPos: new THREE.Vector3(shipX, 0, shipZ),
     shipDeck: new THREE.Vector3(shipX, 1.0, shipZ + 5),
+    staticShip,
+    setStaticShip,
+    mainGroup: group,
     warehouseDoor: new THREE.Vector3(31, g(31, 212), 212),
     tavernDoor: new THREE.Vector3(9.5, g(9.5, 170), 170),
     smithyForge: forgePos,
