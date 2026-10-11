@@ -34,6 +34,20 @@ export class CameraRig {
     this.fovKick = Math.min(15, this.fovKick + intensity * 9);
   }
 
+  /** Fase 10 — cinematic dialogue: tighten the lens + step closer while a
+   *  conversation plays, ease back out when it closes. */
+  setDialogueFocus(active: boolean): void {
+    if (active === this.dialogueFocus) return;
+    this.dialogueFocus = active;
+    if (active) {
+      this.savedDistance = this.targetDistance;
+      this.targetDistance = clamp(this.savedDistance * 0.72, 2.2, 8.5);
+    } else {
+      this.targetDistance = this.savedDistance;
+    }
+  }
+  private dialogueFocus = false;
+
   handleInput(input: Input, dt: number): void {
     if (!input.pointerLocked) return;
     const sens = 0.0023 * this.sensitivity;
@@ -128,9 +142,10 @@ export class CameraRig {
     this.camera.position.copy(this.currentPos);
     this.camera.lookAt(this.lookAt);
 
-    // FOV kick while sprinting (+ Fase 9 combat punch decay)
+    // FOV kick while sprinting (+ Fase 9 combat punch decay) + the dialogue
+    // lens (Fase 10): conversations play tighter, like a film close-up
     this.fovKick = damp(this.fovKick, 0, 7, dt);
-    const targetFov = (sprinting ? 70 : 62) + this.fovKick;
+    const targetFov = (sprinting ? 70 : 62) + this.fovKick - (this.dialogueFocus ? 7 : 0);
     this.fov = damp(this.fov, targetFov, 5, dt);
     if (Math.abs(this.camera.fov - this.fov) > 0.05) {
       this.camera.fov = this.fov;

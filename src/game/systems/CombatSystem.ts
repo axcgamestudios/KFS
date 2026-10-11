@@ -27,6 +27,14 @@ export interface WeaponDef {
 }
 
 export const WEAPONS: Record<string, WeaponDef> = {
+  // Fase 10 — the STARTING sword: honest steel, weaker than Eirik's heirloom
+  // but always in hand from the first second. Bram's forge upgrades (sword
+  // tiers) apply on top of ANY sword (see swordDamageMult()).
+  espada_acero: {
+    id: 'espada_acero', kind: 'sword',
+    lightDmg: 15, heavyDmg: 26, reach: 2.45, arc: 1.75,
+    lightDur: 0.5, heavyDur: 0.8, recovery: 0.35, lightStamina: 8, heavyStamina: 16,
+  },
   espada_eirik: {
     id: 'espada_eirik', kind: 'sword',
     lightDmg: 20, heavyDmg: 34, reach: 2.5, arc: 1.75,
@@ -50,8 +58,17 @@ export const WEAPONS: Record<string, WeaponDef> = {
   },
 };
 
-/** Slot order for keys 1-4. */
-export const WEAPON_SLOTS = ['espada_eirik', 'hacha_orden', 'lanza_caza', 'arco_naufragio'];
+/** Slot order for keys 1-4. Slot 1 is the sword the player actually owns
+ * (Fase 10: the starting Espada de acero upgrades through Bram's forge and
+ * heirlooms are found along the way — the HUD always shows the best one). */
+export const SWORD_PRIORITY = ['espada_guardian', 'espada_eirik', 'espada_acero'];
+export const WEAPON_SLOTS = ['espada_acero', 'hacha_orden', 'lanza_caza', 'arco_naufragio'];
+
+/** Display names for the forge tiers of any sword. */
+export const SWORD_TIER_NAMES = ['', ' · Templada', ' · Rúnica', ' · Legendaria'];
+
+/** Fase 10 — Bram's forge damage multiplier by tier (0 = base). */
+export const SWORD_TIER_MULT = [1, 1.3, 1.7, 2.05];
 
 export interface CombatHooks {
   sound(kind: Parameters<import('./AudioSystem').AudioSystem['playEvent']>[0]): void;
@@ -62,6 +79,10 @@ export interface CombatHooks {
   damageDragon(dragon: Dragon, amount: number, heavy: boolean): void;
   /** Boarding crew query — returns true when someone was struck. */
   crewHit(origin: THREE.Vector3, yaw: number, dmg: number, reach: number, arc: number): boolean;
+  /** Fase 10 — red knight bandits: melee query + damage sink. */
+  banditMelee?(origin: THREE.Vector3, yaw: number, reach: number, arc: number):
+    { bandit: unknown; point: THREE.Vector3 } | null;
+  damageBandit?(bandit: unknown, amount: number, heavy: boolean): void;
   /** Training dummy — returns XP granted when struck. */
   dummyHit(origin: THREE.Vector3, yaw: number): boolean;
   /** Camera aim ray for the bow. */
@@ -165,7 +186,15 @@ export class CombatSystem {
 
   /** Weapon slot info for the HUD. */
   slots(): Array<{ slot: number; id: string; name: string; owned: boolean; equipped: boolean; kind: string }> {
-    return WEAPON_SLOTS.map((id, i) => ({
+    const slots = [...WEAPON_SLOTS];
+    // Slot 1 = the best sword currently owned
+    for (const id of SWORD_PRIORITY) {
+      if (this.state.hasItem(id)) {
+        slots[0] = id;
+        break;
+      }
+    }
+    return slots.map((id, i) => ({
       slot: i + 1,
       id,
       name: this.itemName(id),
@@ -177,7 +206,12 @@ export class CombatSystem {
 
   private itemName(id: string): string {
     // items.ts registry name (import avoided to prevent a cycle; lookup via ITEMS)
-    return ITEMS_NAME_LOOKUP[id] ?? id;
+    const base = ITEMS_NAME_LOOKUP[id] ?? id;
+    // forge tiers only show on swords
+    if (WEAPONS[id]?.kind === 'sword' && this.state.swordTier > 0) {
+      return base + (SWORD_TIER_NAMES[this.state.swordTier] ?? '');
+    }
+    return base;
   }
 
   /** Visual + state refresh after equip changes (called by the Game too). */
@@ -199,7 +233,8 @@ export class CombatSystem {
     // --- Weapon switching (1-4) ---
     for (let i = 0; i < WEAPON_SLOTS.length; i++) {
       if (input.anyPressed(`Digit${i + 1}`)) {
-        this.switchTo(WEAPON_SLOTS[i]);
+        const slotId = i === 0 ? this.currentSwordId() : WEAPON_SLOTS[i];
+        if (slotId) this.switchTo(slotId);
       }
     }
 
@@ -318,6 +353,14 @@ export class CombatSystem {
     }
   }
 
+  /** Best owned sword — slot 1 target (Fase 10). */
+  currentSwordId(): string | null {
+    for (const id of SWORD_PRIORITY) {
+      if (this.state.hasItem(id)) return id;
+    }
+    return null;
+  }
+
   private camYaw = 0;
   setCameraYaw(yaw: number): void {
     this.camYaw = yaw;
@@ -375,6 +418,8 @@ export class CombatSystem {
     let dmg = heavy ? weapon.heavyDmg : weapon.lightDmg;
     if (this.state.learnedSkills.has('comb_maestria')) dmg *= 1.15;
     dmg *= this.pendingDmgMult;      // Fase 9 — combo/counter weight
+    // Fase 10 — Bram's forge upgrades sharpen ANY sword
+    if (weapon.kind === 'sword') dmg *= SWORD_TIER_MULT[this.state.swordTier] ?? 1;
     const big = this.swingIsFinisher;
 
     // 1) Dragons — the big game
@@ -386,6 +431,17 @@ export class CombatSystem {
       this.hooks.sound('hit_scale');
       if (big) this.onCameraPunch?.(0.4);
       return;
+    }
+    // 1.5) Fase 10 — red knight bandits
+    if (this.hooks.banditMelee) {
+      const bHit = this.hooks.banditMelee(p.position, p.yaw, weapon.reach, weapon.arc);
+      if (bHit) {
+        this.hooks.damageBandit?.(bHit.bandit, dmg, heavy);
+        this.vfx.weaponImpact(bHit.point);
+        this.hooks.sound(big ? 'hit_scale' : 'damage');
+        if (big) this.onCameraPunch?.(0.5);
+        return;
+      }
     }
     // 2) Boarding pirates
     if (this.hooks.crewHit(p.position, p.yaw, dmg, weapon.reach, weapon.arc)) {
@@ -517,6 +573,15 @@ export class CombatSystem {
         this.removeArrow(i);
         continue;
       }
+      // Fase 10 — bandit hit (swept, same protocol)
+      const bandit = this.banditHitRef?.(a.mesh.position, 0.4, prev) ?? null;
+      if (bandit) {
+        this.damageBanditRef?.(bandit, a.dmg);
+        this.vfx.weaponImpact(a.mesh.position);
+        this.hooks.sound('arrow_hit');
+        this.removeArrow(i);
+        continue;
+      }
       // Terrain hit → stick (some can be recovered); over open water the
       // arrow is simply lost to the sea.
       const ground = this.terrainHeight(a.mesh.position.x, a.mesh.position.z);
@@ -566,6 +631,9 @@ export class CombatSystem {
 
   /** Injected by the Game (avoids a circular hook dependency). */
   dragonHitRef: ((pos: THREE.Vector3, radius: number, prevPos?: THREE.Vector3) => Dragon | null) | null = null;
+  /** Fase 10 — arrow collision against bandits (same swept protocol). */
+  banditHitRef: ((pos: THREE.Vector3, radius: number, prevPos?: THREE.Vector3) => unknown | null) | null = null;
+  damageBanditRef: ((bandit: unknown, amount: number) => void) | null = null;
   terrainHeightRef: ((x: number, z: number) => number) | null = null;
 
   private terrainHeight(x: number, z: number): number {

@@ -30,13 +30,15 @@ export interface CineShot {
   title?: string;
   /** Smaller line under the title. */
   subtitle?: string;
+  /** Fase 10 — long narration paragraph shown at the bottom (intro replay). */
+  text?: string;
 }
 
 export interface CineOpts {
   /** Called when the sequence finishes OR is skipped. */
   onDone?: () => void;
   /** Store sync so the React layer can draw letterbox + cards. */
-  onState?: (s: { active: boolean; title: string; subtitle: string; progress: number; shot: number; total: number } | null) => void;
+  onState?: (s: { active: boolean; title: string; subtitle: string; text?: string; progress: number; shot: number; total: number } | null) => void;
   /** Camera driver (Game wires this to CameraRig.setManual). */
   drive: (pos: THREE.Vector3, look: THREE.Vector3, fov?: number) => void;
 }
@@ -114,6 +116,7 @@ export class CinematicSystem {
       active: true,
       title: s?.title ?? '',
       subtitle: s?.subtitle ?? '',
+      text: s?.text,
       progress: this.totalProgress(),
       shot: this.idx,
       total: this.shots.length,

@@ -49,6 +49,17 @@ export default function CinematicOverlay() {
         </div>
       ) : null}
 
+      {/* Narration paragraph (intro replay) */}
+      {cine.text ? (
+        <p
+          className="absolute inset-x-0 bottom-[13vh] mx-auto w-[min(720px,84vw)] text-center text-sm leading-relaxed text-[color:var(--kotfs-parchment)]/95 md:text-base"
+          style={{ textShadow: '0 1px 10px rgba(0,0,0,0.95)', animation: 'kotfs-fade-in 1.2s ease' }}
+          key={`${cine.shot}-text`}
+        >
+          {cine.text}
+        </p>
+      ) : null}
+
       {/* Skip hint + progress */}
       <div className="absolute inset-x-0 flex flex-col items-center gap-2" style={{ bottom: '4vh' }}>
         <span

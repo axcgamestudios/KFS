@@ -33,6 +33,11 @@ export const ITEMS: Record<string, ItemDef> = {
     desc: 'Tónico amargo de Maren. Restaura 45 puntos de salud.',
     icon: 'FlaskConical', stackable: true, usable: true,
   },
+  espada_acero: {
+    id: 'espada_acero', name: 'Espada de acero', kind: 'weapon',
+    desc: 'Tu primera espada: acero honesto de la herrería de Puerto Cuervo. Bram puede templarla y mejorarla en su forja cuando reúnas el oro.',
+    icon: 'Sword', stackable: false, equipable: true, rarity: 'common',
+  },
   espada_eirik: {
     id: 'espada_eirik', name: 'Espada de Eirik', kind: 'weapon',
     desc: 'El acero del capitán desaparecido. La empuñadura lleva grabada una serpiente marina enroscada. Ligera, letal, llena de recuerdos.',

@@ -29,8 +29,8 @@ function GhostBar({
 }: { value: number; max: number; kind: 'hp' | 'st'; low?: boolean }) {
   const [ghost, setGhost] = useState(value);
   useEffect(() => {
-    if (value >= ghost) { setGhost(value); return; }
-    const t = setTimeout(() => setGhost(value), 420);
+    // heals follow instantly (next tick); damage trails behind (420 ms)
+    const t = setTimeout(() => setGhost(value), value < ghost ? 420 : 0);
     return () => clearTimeout(t);
   }, [value, ghost]);
   const pct = Math.max(0, Math.min(100, (value / max) * 100));
@@ -331,8 +331,8 @@ function MountPanel({ m }: { m: { horseName: string; gait: string; speedKmh: num
 function BossBar({ b }: { b: BossHud }) {
   const [ghost, setGhost] = useState(b.hp);
   useEffect(() => {
-    if (b.hp >= ghost) { setGhost(b.hp); return; }
-    const t = setTimeout(() => setGhost(b.hp), 520);
+    // heals follow instantly (next tick); damage trails behind (520 ms)
+    const t = setTimeout(() => setGhost(b.hp), b.hp < ghost ? 520 : 0);
     return () => clearTimeout(t);
   }, [b.hp, ghost]);
   const pct = Math.max(0, (b.hp / b.maxHp) * 100);
@@ -436,9 +436,9 @@ export default function HUD() {
   const mount = useGameStore((s) => s.mount);
   const hurtFlash = useGameStore((s) => s.hurtFlash);
   const combo = useGameStore((s) => s.combo);
-  const staminaOut = useRef(false);
-  if (stamina <= 0.5 && !staminaOut.current) staminaOut.current = true;
-  if (stamina > 8 && staminaOut.current) staminaOut.current = false;
+  // "staminaOut" latches while the bar sits at zero (pulse warning).
+  // Derived WITHOUT touching a ref during render (react-hooks/refs).
+  const staminaOut = stamina <= 0.5;
 
   const hidden = overlay !== null || dialogue !== null;
   if (hidden) return null;
@@ -521,7 +521,7 @@ export default function HUD() {
               {Math.round(stamina)}<span className="opacity-50">/{maxStamina}</span>
             </span>
           </div>
-          <div className={staminaOut.current ? 'kfs-stamina-out' : ''}>
+          <div className={staminaOut ? 'kfs-stamina-out' : ''}>
             <GhostBar value={stamina} max={maxStamina} kind="st" />
           </div>
         </div>

@@ -71,6 +71,12 @@ export interface EndingCard {
   text: string;
   card: number;
   totalCards: number;
+  /** Fase 10 — cinematic fades/progress for the long epic endings. */
+  fade?: number;
+  shot?: number;
+  totalShots?: number;
+  progress?: number;
+  finalCard?: boolean;
 }
 
 interface GameStore {
@@ -103,7 +109,7 @@ interface GameStore {
   endingActive: boolean;
   endingCard: EndingCard | null;
   /** Fase 9 — in-game narrative cinematic (letterbox + cards). */
-  cinematic: { title: string; subtitle: string; progress: number; shot: number; total: number } | null;
+  cinematic: { title: string; subtitle: string; progress: number; shot: number; total: number; text?: string } | null;
   /** Fase 9 — melee combo chain indicator (null when no chain). */
   combo: { step: number; counter: boolean } | null;
   // Progression

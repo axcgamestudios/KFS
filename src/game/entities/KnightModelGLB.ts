@@ -29,6 +29,9 @@ export interface KnightVisualDeps {
   /** Villager variant: re-tints the armour into clothes + headwear variety.
    *  When set, the statue sword & shield NEVER show. */
   villager?: { palette: import('./CharacterModel').CharacterPalette; seed: number; role?: string };
+  /** Fase 10 — bandit variant: RED knights (dark crimson cloth + oxidised
+   *  red-steel armour). When set the statue props never show. */
+  bandit?: { seed: number; captain?: boolean };
 }
 
 type Euler3 = [number, number, number];
@@ -57,6 +60,7 @@ export class KnightModelGLB implements CharacterVisual {
   private activeShield: THREE.Object3D | null = null;
   private wantsShield = false;
   private isVillager = false;
+  private isBandit = false;
   private blockHitT = 0;   // shield impact recoil (0..1)
   private blockHitDir = 1;
   // Fase 8 — night torch: replaces the shield after dusk (light source)
@@ -83,6 +87,7 @@ export class KnightModelGLB implements CharacterVisual {
     this.shieldFactory = deps.shieldFactory;
     const scene = deps.scene;
     this.isVillager = !!deps.villager;
+    this.isBandit = !!deps.bandit;
 
     // collect bones + meshes
     for (const name of BONE_NAMES) {
@@ -93,6 +98,7 @@ export class KnightModelGLB implements CharacterVisual {
     this.shieldProp = scene.getObjectByName('j_shield_held') ?? null;
 
     if (deps.villager) this.dressAsVillager(scene, deps.villager);
+    if (deps.bandit) this.dressAsBandit(scene, deps.bandit);
 
     scene.traverse((o) => {
       const mesh = o as THREE.Mesh;
@@ -221,6 +227,41 @@ export class KnightModelGLB implements CharacterVisual {
     this.hitT = 1;
   }
 
+  /** Fase 10 — sword upgrade tier (Bram's forge): adds an ember/runic glow
+   *  to the active blade + a subtle length boost so progress is VISIBLE. */
+  setWeaponTier(tier: number): void {
+    this.weaponTier = Math.max(0, Math.min(3, Math.floor(tier)));
+    this.applyWeaponGlow();
+  }
+
+  private weaponTier = 0;
+
+  private applyWeaponGlow(): void {
+    const w = this.activeWeapon ?? this.swordProp;
+    if (!w) return;
+    const glows = [null, 0xff9a3c, 0xe8c96a, 0x7ec8ff] as const;
+    const glow = glows[this.weaponTier];
+    w.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      for (const m of mats) {
+        const std = m as THREE.MeshStandardMaterial;
+        if (!std.isMeshStandardMaterial) continue;
+        if (glow === null) {
+          std.emissive?.setHex(0x000000);
+        } else {
+          std.emissive?.setHex(glow);
+          std.emissiveIntensity = 0.55 + this.weaponTier * 0.3;
+        }
+        std.needsUpdate = true;
+      }
+    });
+    // each tier forges a slightly longer, prouder blade
+    const s = 1 + this.weaponTier * 0.06;
+    w.scale.set(s, s, s);
+  }
+
   private refreshProps(): void {
     // Kit weapon in the right hand (detaches the previous one first)
     if (this.activeWeapon) {
@@ -245,6 +286,7 @@ export class KnightModelGLB implements CharacterVisual {
         }
         this.activeWeapon = w;
         this.tuneWeaponPose(this.weaponKind);
+        this.applyWeaponGlow();
       }
     }
     // shields: the kit shield on the left forearm
@@ -252,7 +294,7 @@ export class KnightModelGLB implements CharacterVisual {
       this.armSlot.remove(this.activeShield);
       this.activeShield = null;
     }
-    if (this.wantsShield && !this.isVillager && this.shieldFactory) {
+    if (this.wantsShield && !this.isVillager && !this.isBandit && this.shieldFactory) {
       const s = this.shieldFactory();
       if (s) {
         this.armSlot.add(s);
@@ -265,13 +307,13 @@ export class KnightModelGLB implements CharacterVisual {
     //   · the statue props only appear as FALLBACKS when the matching kit
     //     object could not be produced (kit GLB missing)
     if (this.swordProp) {
-      this.swordProp.visible = !this.isVillager
+      this.swordProp.visible = !this.isVillager && !this.isBandit
         && this.weaponKind !== 'none'
         && this.weaponKind !== 'bow'
         && !this.activeWeapon;
     }
     if (this.shieldProp) {
-      this.shieldProp.visible = !this.isVillager && this.wantsShield && !this.activeShield;
+      this.shieldProp.visible = !this.isVillager && !this.isBandit && this.wantsShield && !this.activeShield;
     }
   }
 
@@ -386,6 +428,76 @@ export class KnightModelGLB implements CharacterVisual {
     const build = r(1);
     const s = 0.93 + r(5) * 0.1 + (build > 0.7 ? 0.05 : 0);
     this.root.scale.setScalar(s);
+  }
+
+  /**
+   * Fase 10 — BANDIT variant: the same repository knight re-forged as a RED
+   * KNIGHT — dark crimson cloth, oxidised red-steel armour, ember eyes and
+   * a torn red cloak. Materials are CLONED (they are shared with the player).
+   */
+  private dressAsBandit(scene: THREE.Object3D, v: { seed: number; captain?: boolean }): void {
+    const r = (k: number) => {
+      const x = Math.sin(v.seed * 37.71 + k * 91.13) * 43758.5453;
+      return x - Math.floor(x);
+    };
+    const tint = new THREE.Color();
+    scene.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      const clones = mats.map((m) => (m as THREE.Material).clone());
+      for (const m of clones) {
+        const std = m as THREE.MeshStandardMaterial;
+        if (!std.isMeshStandardMaterial) continue;
+        const name = (std.name ?? '').toLowerCase();
+        const isUpper = /upper/i.test(name);
+        if (isUpper) {
+          // oxidised red steel with seeded shade variety
+          tint.setHSL(0.985 + r(3) * 0.012, 0.52 + r(4) * 0.2, 0.26 + r(5) * 0.08);
+          std.color.copy(tint);
+          std.metalness = 0.55;
+          std.roughness = 0.5;
+        } else {
+          // dark crimson trousers / leather
+          tint.setHSL(0.99, 0.42, 0.16 + r(6) * 0.07);
+          std.color.copy(tint);
+          std.metalness = 0.12;
+          std.roughness = 0.85;
+        }
+        std.needsUpdate = true;
+      }
+      mesh.material = clones.length === 1 ? clones[0] : clones;
+    });
+    // ember eyes — a tiny malevolent glow under the helm
+    const head = this.bones.get('j_head') ?? scene.getObjectByName('j_head');
+    if (head) {
+      const eyeMat = new THREE.MeshStandardMaterial({
+        color: 0x220000, emissive: 0xff2a1a, emissiveIntensity: 2.4, roughness: 0.4,
+      });
+      for (const ex of [-0.055, 0.055]) {
+        const eye = new THREE.Mesh(new THREE.SphereGeometry(0.016, 6, 5), eyeMat);
+        eye.position.set(ex, 0.055, 0.135);
+        eye.userData.villagerProp = true;
+        head.add(eye);
+      }
+    }
+    // torn crimson cloak for captains
+    if (v.captain) {
+      const torso = this.bones.get('j_torso');
+      if (torso) {
+        const cloakMat = new THREE.MeshStandardMaterial({
+          color: 0x5a1216, roughness: 0.95, side: THREE.DoubleSide,
+        });
+        const cloak = new THREE.Mesh(new THREE.PlaneGeometry(0.62, 0.95, 1, 3), cloakMat);
+        cloak.position.set(0, -0.28, -0.16);
+        cloak.rotation.x = 0.16;
+        cloak.userData.villagerProp = true;
+        torso.add(cloak);
+      }
+      this.root.scale.setScalar(1.08); // captains stand taller
+    } else {
+      this.root.scale.setScalar(0.97 + r(7) * 0.07);
+    }
   }
 
   /** Per-weapon grip orientation in the hand (tuned by eye). */
@@ -547,9 +659,23 @@ export class KnightModelGLB implements CharacterVisual {
       // arms counter-swing; the sword arm (R) carries the relaxed sword
       const armAmp = 0.34 + runK * 0.5;
       t.j_shoulderR = [legPhR * armAmp, 0, -0.06];
-      t.j_shoulderL = [legPhL * armAmp * 0.8, 0, 0.06];
+      // Fase 10 — SHIELD CARRY: a knight does NOT swing the shield arm like a
+      // pendulum while running (the old full counter-swing looked broken).
+      // With a shield visible the left arm locks into a steady carry: elbow
+      // bent, shield held low across the thigh, a touch of vertical bob so it
+      // still breathes with the gait.
+      const shieldCarry = this.wantsShield
+        && (this.activeShield !== null || (this.shieldProp?.visible ?? false))
+        && (p.blockT ?? 0) < 0.1;
+      if (shieldCarry) {
+        const bob = Math.sin(ph * 2) * 0.045;
+        t.j_shoulderL = [-0.34 + bob - runK * 0.1, 0.16, 0.3];
+        t.j_elbowL = [-0.92, 0, 0.18];
+      } else {
+        t.j_shoulderL = [legPhL * armAmp * 0.8, 0, 0.06];
+        t.j_elbowL = [-0.25 - runK * 0.3, 0, 0];
+      }
       t.j_elbowR = [-0.18 - runK * 0.35, 0, 0];
-      t.j_elbowL = [-0.25 - runK * 0.3, 0, 0];
       // torso: bob, forward lean, counter-rotation
       t.j_torso = [0.05 + runK * 0.17, Math.sin(ph) * (0.05 + runK * 0.06), 0];
       t.j_head = [-0.04 - runK * 0.08, -Math.sin(ph) * 0.04, 0];

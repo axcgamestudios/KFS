@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useGameStore } from '@/store/gameStore';
 import { gameApi } from '@/game/api';
 import { SaveSystem } from '@/game/systems/SaveSystem';
-import { Play, ScrollText, Settings2, Sparkles, ChevronRight, Ship, Anchor } from 'lucide-react';
+import { Play, ScrollText, Settings2, Sparkles, ChevronRight, Ship } from 'lucide-react';
 import { Embers, SeaWaves } from './menuFx';
 
 /**
@@ -261,11 +261,6 @@ export default function MainMenu() {
             {flash}
           </p>
         )}
-
-        <div className="kfs2-rise mt-10 flex items-center gap-2 text-xs tracking-widest text-[#a9b4c2] opacity-80" style={{ ['--rise-delay' as string]: '0.9s' }}>
-          <Anchor size={13} className="text-[#e2b95c]" />
-          FASE 6 — LA ISLA VIVA · v0.6
-        </div>
       </div>
 
       {/* Right side: the knight keeps his watch on the rock */}

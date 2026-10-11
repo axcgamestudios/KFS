@@ -68,6 +68,10 @@ export interface GameApi {
   adminFlying(): boolean;
   /** Jump the clock (0..1 day fraction). */
   adminSetTime(f: number): void;
+  /** Fase 10 — replayable cinematics for the admin panel. */
+  adminCinematics(): Array<{ key: string; label: string }>;
+  /** Play a cinematic by key (returns false if unavailable). */
+  adminPlayCinematic(key: string): boolean;
 }
 
 /** Live implementation is installed by the Game instance at boot. */
@@ -111,4 +115,6 @@ export const gameApi: GameApi = {
   adminFly: () => false,
   adminFlying: () => false,
   adminSetTime: () => undefined,
+  adminCinematics: () => [],
+  adminPlayCinematic: () => false,
 };

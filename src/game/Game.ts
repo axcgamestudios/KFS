@@ -17,8 +17,9 @@ import { VillagerModelGLB } from './entities/VillagerModelGLB';
 import { NavalSystem, type SailingHud } from './naval/NavalSystem';
 import type { Ship } from './naval/Ship';
 import { VfxSystem } from './systems/VfxSystem';
-import { CombatSystem, WEAPONS } from './systems/CombatSystem';
+import { CombatSystem, WEAPONS, SWORD_TIER_NAMES } from './systems/CombatSystem';
 import { DragonManager } from './systems/DragonManager';
+import { BanditSystem } from './systems/BanditSystem';
 import type { Dragon } from './entities/Dragon';
 import { CinematicSystem, type CineShot } from './systems/CinematicSystem';
 import { MountSystem } from './systems/MountSystem';
@@ -84,6 +85,8 @@ export class Game {
   private dragons?: DragonManager;
   private mounts?: MountSystem;
   private endings?: EndingSystem;
+  /** Fase 10 — red knight bandits patrolling road camps. */
+  private bandits?: BanditSystem;
   /** Fase 9 — in-game narrative cinematics (dragon victories, chapters). */
   private cinematics = new CinematicSystem();
   /** Fase 9 — chapter cinematic waiting for the closing dialogue to end. */
@@ -306,9 +309,22 @@ export class Game {
         cam.getWorldDirection(dir);
         return { origin: cam.position.clone(), dir };
       },
+      // Fase 10 — red knight bandits: the player's steel finds them too
+      banditMelee: (origin, yaw, reach, arc) =>
+        this.bandits ? this.bandits.meleeHitCheck(origin, yaw, reach, arc) : null,
+      damageBandit: (bandit, amount, heavy) => {
+        this.bandits?.damage(bandit, amount, heavy);
+        this.musicIntensityTarget = Math.max(this.musicIntensityTarget, 0.55);
+      },
     });
     this.combat.dragonHitRef = (pos, radius) =>
       this.dragons ? this.dragons.projectileHitTest(pos, radius) : null;
+    // Fase 10 — arrows also clip the bandits
+    this.combat.banditHitRef = (pos, radius, prev) =>
+      this.bandits ? this.bandits.projectileHitTest(pos, radius) : null;
+    this.combat.damageBanditRef = (bandit, amount) => {
+      this.bandits?.damage(bandit, amount, false);
+    };
     this.combat.terrainHeightRef = (x, z) => world.terrainHeight.height(x, z);
     // Fase 9 — combat camera punch: parries/counters/finishers kick the FOV
     this.combat.onCameraPunch = (i) => this.rig?.punch(i);
@@ -396,6 +412,26 @@ export class Game {
     // The stable cart
     this.mounts.spawnCart('carreta', 30, 156, 0.4);
     this.endings = new EndingSystem(this.state);
+
+    // --- Fase 10: RED KNIGHT bandits camped on the roads ---
+    this.bandits = new BanditSystem(
+      this.engine.scene, world.terrainHeight, world.assets, world.kits,
+      {
+        playerDamage: (dmg, fromX, fromZ, reason) => this.applyPlayerDamage(dmg, fromX, fromZ, reason ?? 'bandit'),
+        sound: (kind) => this.audio.playEvent(kind),
+        notify: (kind, title, body) => useGameStore.getState().notify(kind, title, body),
+        giveXp: (xp) => this.state.giveXp(xp),
+        addCoins: (n) => this.state.addItem('coin', n),
+        weaponImpact: (pos) => this.vfx?.weaponImpact(pos),
+        cameraShake: (i) => { this.shakeT = Math.max(this.shakeT, i); },
+      },
+    );
+
+    // Fase 10 — the marometa kick: camera pulse + whoosh on double jump
+    this.player.onDoubleJump = () => {
+      this.rig?.punch(0.42);
+      this.audio.playEvent('swing');
+    };
 
     for (const def of world.npcDefs) {
       // Fase 8 — NPCs wear the repository's fuse_civilian_2.glb (Mixamo
@@ -706,35 +742,81 @@ export class Game {
       },
     });
 
-    // --- Bram's forge: the Guardian blade ---
+    // --- Bram's forge: the Guardian blade + Fase 10 sword upgrades ---
     const forgePos = new THREE.Vector3(28, terrainH(28, 193), 193);
+    const SWORD_UPGRADE_COST = [
+      { gold: 120, scales: 0, label: 'Templar tu espada (120 oro)' },
+      { gold: 260, scales: 2, label: 'Grabar runas (260 oro + 2 escamas)' },
+    ];
     w.interactables.push({
       id: 'forge_guardian',
       pos: forgePos,
       radius: 3.4,
       get prompt(): string {
-        if (state.hasItem('espada_guardian')) return '';
-        const ready = state.hasItem('colmillo_ancestro', 1) && state.hasItem('escama', 3);
-        return ready ? 'Forjar la Espada del Guardián' : 'Forja de Bram (necesitas el Colmillo y 3 escamas)';
-      },
-      available: () => !state.hasItem('espada_guardian'),
-      run: () => {
-        const ready = state.hasItem('colmillo_ancestro', 1) && state.hasItem('escama', 3);
-        if (!ready) {
-          this.dialogue.startLore('La forja canta', [
-            'Bram revisa el yunque: «El colmillo del Ancestro y tres escamas de dragón. Ni más ni menos — la forja distingue».',
-            'El fuego de la fragua late como un corazón impaciente.',
-          ]);
-          return;
+        if (!state.hasItem('espada_guardian')) {
+          const ready = state.hasItem('colmillo_ancestro', 1) && state.hasItem('escama', 3);
+          if (ready) return 'Forjar la Espada del Guardián';
         }
-        state.removeItem('colmillo_ancestro', 1);
-        state.removeItem('escama', 3);
-        state.addItem('espada_guardian', 1);
-        state.interactMilestone('forge_guardian');
-        state.giveXp(100);
-        audio.playEvent('unlock');
-        this.musicIntensityTarget = 0.85;
-        store.getState().notify('item', '¡La Espada del Guardián!', 'Forjada con el Colmillo del Ancestro. Equípala desde el inventario (Tab): daño terrible, juramento incluido.');
+        // Fase 10 — progressive upgrades for the sword you carry
+        if (state.swordTier < SWORD_UPGRADE_COST.length) {
+          const cost = SWORD_UPGRADE_COST[state.swordTier];
+          const hasSword = state.hasItem('espada_acero') || state.hasItem('espada_eirik') || state.hasItem('espada_guardian');
+          if (hasSword && state.hasItem('coin', cost.gold) && state.hasItem('escama', cost.scales)) {
+            return cost.label;
+          }
+          if (hasSword) {
+            return `Forja de Bram — mejora tu espada (${cost.gold} oro${cost.scales ? ` + ${cost.scales} escamas` : ''})`;
+          }
+        }
+        return 'La forja de Bram';
+      },
+      available: () => true,
+      run: () => {
+        // 1 — the legendary Guardian blade (chapter quest)
+        if (!state.hasItem('espada_guardian')) {
+          const ready = state.hasItem('colmillo_ancestro', 1) && state.hasItem('escama', 3);
+          if (ready) {
+            state.removeItem('colmillo_ancestro', 1);
+            state.removeItem('escama', 3);
+            state.addItem('espada_guardian', 1);
+            state.interactMilestone('forge_guardian');
+            state.giveXp(100);
+            audio.playEvent('unlock');
+            this.musicIntensityTarget = 0.85;
+            store.getState().notify('item', '¡La Espada del Guardián!', 'Forjada con el Colmillo del Ancestro. Equípala desde el inventario (Tab): daño terrible, juramento incluido.');
+            return;
+          }
+        }
+        // 2 — Fase 10: upgrade the sword you carry
+        if (state.swordTier < SWORD_UPGRADE_COST.length) {
+          const cost = SWORD_UPGRADE_COST[state.swordTier];
+          const hasSword = state.hasItem('espada_acero') || state.hasItem('espada_eirik') || state.hasItem('espada_guardian');
+          if (
+            hasSword && state.hasItem('coin', cost.gold) && state.hasItem('escama', cost.scales)
+          ) {
+            state.removeItem('coin', cost.gold);
+            if (cost.scales > 0) state.removeItem('escama', cost.scales);
+            state.swordTier += 1;
+            state.giveXp(30);
+            audio.playEvent('unlock');
+            audio.playEvent('chest');
+            this.syncSwordVisuals();
+            const tierName = SWORD_TIER_NAMES[state.swordTier] ?? '';
+            store.getState().notify(
+              'item',
+              `Tu espada mejora:${tierName}`,
+              state.swordTier === 1
+                ? 'Bram templa el acero al rojo: +30% de daño y un filo que canta.'
+                : 'Runas de marea grabadas a fuego: +70% de daño y un brillo azul en la hoja.',
+            );
+            this.autosave();
+            return;
+          }
+        }
+        this.dialogue.startLore('La forja canta', [
+          'Bram limpia sus manos en el mandil: «El acero de esta vieja fragua ha visto caer reyes. Tráeme oro — y escamas, si quieres runas — y templaré esa espada tuya hasta que cante».',
+          'El fuego de la fragua late como un corazón impaciente.',
+        ]);
       },
     });
 
@@ -1077,6 +1159,12 @@ export class Game {
     this.player!.health = 100;
     this.player!.stamina = 100;
     this.player!.model.setEquippedState(false);
+    // Fase 10 — the hero STARTS with a sword: honest steel from the village
+    // forge, equipped and visible from the first second. Bram's forge can
+    // temper it further as the adventure progresses.
+    this.state.addItem('espada_acero', 1);
+    this.state.equip('espada_acero');
+    this.state.swordTier = 0;
     this.applyStats();
     // Fase 3: dragons reset to their lairs, combat state cleared
     this.dragons?.syncWithState();
@@ -1228,6 +1316,8 @@ export class Game {
     // Fase 3: align dragons & weapon visuals with the loaded save
     this.dragons?.syncWithState();
     this.combat?.refreshVisuals();
+    // Fase 10 — restore the forge tier glow on the blade
+    this.syncSwordVisuals();
     this.audio.bossIntensity = 0;
     const store = useGameStore.getState();
     store.setPhase('playing');
@@ -1283,6 +1373,14 @@ export class Game {
       skillPoints: this.state.skillPoints,
       inventoryVersion: st.inventoryVersion + 1,
     });
+  }
+
+  /** Fase 10 — push the forge tier onto the player's blade (glow + pride). */
+  private syncSwordVisuals(): void {
+    const visual = this.player?.model;
+    if (visual instanceof KnightModelGLB) {
+      visual.setWeaponTier(this.state.swordTier);
+    }
   }
 
   // ------------------------------------------------------------- main loop
@@ -1418,6 +1516,9 @@ export class Game {
     const sailing = naval.playerSailing && !!naval.playerShip;
     const riding = !!this.mounts?.ridingId;
 
+    // Fase 10 — conversations get the cinematic lens (tighter FOV + closer)
+    rig.setDialogueFocus(dialogueActive && !sailing);
+
     // --- Fase 4: ending cinematic takes over everything ---
     if (this.endings?.isPlaying) {
       this.endings.update(dt, this.engine.camera);
@@ -1461,6 +1562,11 @@ export class Game {
     );
     this.vfx?.update(dt);
 
+    // --- Fase 10: red knight bandits (AI frozen during cinematics/dialogue) ---
+    if (!cine && !this.endings?.isPlaying) {
+      this.bandits?.update(dt, p.position, !this.dead && !dialogueActive && !sailing);
+    }
+
     // --- Death / respawn ---
     if (p.health <= 0 && !this.dead) {
       this.dead = true;
@@ -1475,8 +1581,14 @@ export class Game {
       const sp = w.village.spawnPoint;
       p.teleport(sp.x, 1.5, sp.z);
       p.health = Math.floor(p.stats.maxHealth * 0.5);
-      store.notify('info', 'Las olas te devuelven a la orilla', 'Despiertas en el muelle, empapado pero vivo.');
+      p.stamina = Math.floor(p.stats.maxStamina * 0.5);
+      store.notify('info', 'Las olas te devuelven a la orilla', 'Despiertas en el muelle, empapado pero vivo. La marea no ha terminado contigo.');
       this.audio.playEvent('splash');
+      // Fase 10 FIX — death used to SOFT-LOCK the run (the `dead` flag never
+      // cleared, so the hero could never act again). The tide gives you back:
+      // the respawn IS the recovery — wake up on the dock, briefly untouchable.
+      p.invulnT = 2.5;
+      this.dead = false;
     }
 
     // --- Clock ---
@@ -2232,6 +2344,8 @@ export class Game {
       if (!this.world) return;
       this.world.sky.dayFraction = Math.max(0, Math.min(0.999, f));
     };
+    gameApi.adminCinematics = () => this.adminCinematicList();
+    gameApi.adminPlayCinematic = (key) => this.adminPlayCinematic(key);
   }
 
   // ---------------------------------------------------------------- state events
@@ -2332,14 +2446,15 @@ export class Game {
     });
   }
 
-  /** Fase 9 (PDF §6.2) — chapter milestone cinematic (short panoramic card). */
-  private playChapterCinematic(ch: { n: number; title: string; sub: string }): void {
+  /** Fase 9 (PDF §6.2) — chapter milestone cinematic (short panoramic card).
+   *  `force` (Fase 10 admin viewer) replays even if the flag is set. */
+  private playChapterCinematic(ch: { n: number; title: string; sub: string }, force = false): void {
     if (!this.world || !this.player) return;
     if (this.cinematics.active || this.endings?.isPlaying) return;
     const p = this.player;
     const w = this.world;
     const flag = `cine_chapter_${ch.n}`;
-    if (this.state.hasFlag(flag)) return;
+    if (this.state.hasFlag(flag) && !force) return;
     this.state.setFlag(flag);
 
     const groundClamp = (x: number, y: number, z: number): THREE.Vector3 => {
@@ -2380,6 +2495,134 @@ export class Game {
       },
     ];
 
+    this.musicIntensityTarget = 0.5;
+    this.cinematics.play(shots, {
+      drive: (pos, look, fov) => this.cinematicDrive?.(pos, look, fov),
+      onState: (s) => useGameStore.getState().setCinematic(
+        s ? { title: s.title, subtitle: s.subtitle, progress: s.progress, shot: s.shot, total: s.total } : null,
+      ),
+      onDone: () => {
+        this.rig?.snapBehind(p.position);
+      },
+    });
+  }
+
+  // -------------------------------------------------- Fase 10: admin viewer
+
+  /** Replayable cinematics for the admin panel. */
+  adminCinematicList(): Array<{ key: string; label: string }> {
+    return [
+      { key: 'intro', label: 'Introducción — El Legado de Eirik' },
+      { key: 'cap1', label: 'Hito · Capítulo I completo' },
+      { key: 'cap2', label: 'Hito · Capítulo II completo' },
+      { key: 'cap3', label: 'Hito · Capítulo III completo' },
+      { key: 'cap4', label: 'Hito · Capítulo IV completo' },
+      { key: 'victoria', label: 'Victoria de dragón (genérica)' },
+      { key: 'final_guardian', label: 'FINAL I — El Guardián de la Marea' },
+      { key: 'final_crown', label: 'FINAL II — La Corona de las Islas' },
+      { key: 'final_free', label: 'FINAL III — El Mar sin Dueño' },
+    ];
+  }
+
+  /** Play one of the registry cinematics on demand. */
+  adminPlayCinematic(key: string): boolean {
+    if (!this.world || !this.player) return false;
+    if (this.cinematics.active || this.endings?.isPlaying) return false;
+    if (this.naval?.boardingActive) return false;
+    const chapters: Record<string, { n: number; title: string; sub: string }> = {
+      cap1: { n: 1, title: 'CAPÍTULO I COMPLETO', sub: 'el legado de Eirik' },
+      cap2: { n: 2, title: 'CAPÍTULO II COMPLETO', sub: 'los mares olvidados' },
+      cap3: { n: 3, title: 'CAPÍTULO III COMPLETO', sub: 'el rumor de las alas' },
+      cap4: { n: 4, title: 'CAPÍTULO IV COMPLETO', sub: 'la corona hundida' },
+    };
+    if (key.startsWith('cap') && chapters[key]) {
+      this.playChapterCinematic(chapters[key], true);
+      return this.cinematics.active;
+    }
+    if (key === 'intro') {
+      this.playIntroReplay();
+      return this.cinematics.active;
+    }
+    if (key === 'victoria') {
+      this.playHeroicOrbit();
+      return this.cinematics.active;
+    }
+    if (key.startsWith('final_')) {
+      const id = key.slice('final_'.length) as EndingId;
+      if (!ENDINGS[id]) return false;
+      this.audio.playEvent('ending');
+      this.input.releaseLock();
+      this.endings?.play(id, () => {
+        // Preview over: hand the camera back to the player
+        this.input.requestLock();
+        this.rig?.snapBehind(this.player!.position);
+      }, true);
+      return true;
+    }
+    return false;
+  }
+
+  /** The 4-shot intro, rebuilt as a skippable in-game cinematic. */
+  private playIntroReplay(): void {
+    const shots: CineShot[] = INTRO_SHOTS.map((s, i) => ({
+      dur: s.dur,
+      fromPos: s.from,
+      toPos: s.to,
+      fromLook: s.lookFrom,
+      toLook: s.lookTo,
+      fov: i === 0 ? 52 : 48,
+      text: s.text,
+    }));
+    this.musicIntensityTarget = 0.3;
+    this.cinematics.play(shots, {
+      drive: (pos, look, fov) => this.cinematicDrive?.(pos, look, fov),
+      onState: (s) => useGameStore.getState().setCinematic(
+        s ? { title: s.title, subtitle: s.subtitle, text: s.text, progress: s.progress, shot: s.shot, total: s.total } : null,
+      ),
+      onDone: () => {
+        this.rig?.snapBehind(this.player!.position);
+      },
+    });
+  }
+
+  /** A generic epic orbit around the hero (admin "victory" preview). */
+  private playHeroicOrbit(): void {
+    if (!this.world || !this.player) return;
+    const p = this.player;
+    const w = this.world;
+    const groundClamp = (x: number, y: number, z: number): THREE.Vector3 => {
+      const g = w.terrainHeight.height(x, z);
+      return new THREE.Vector3(x, Math.max(y, g + 1.7), z);
+    };
+    const hero = () => new THREE.Vector3(p.position.x, p.position.y + 1.3, p.position.z);
+    const shots: CineShot[] = [
+      {
+        dur: 3.4,
+        fromPos: groundClamp(p.position.x + 7.5, p.position.y + 2.4, p.position.z + 4.5),
+        toPos: groundClamp(p.position.x - 5.5, p.position.y + 3.4, p.position.z + 6.8),
+        fromLook: hero,
+        toLook: hero,
+        fov: 42,
+      },
+      {
+        dur: 2.8,
+        fromPos: groundClamp(p.position.x - 3.2, p.position.y + 1.7, p.position.z - 6.4),
+        toPos: groundClamp(p.position.x + 3.2, p.position.y + 1.7, p.position.z - 6.4),
+        fromLook: hero,
+        toLook: hero,
+        fov: 38,
+      },
+      {
+        dur: 3.4,
+        fromPos: groundClamp(p.position.x + 9.5, p.position.y + 6.5, p.position.z + 9.5),
+        toPos: groundClamp(p.position.x + 7.5, p.position.y + 8.5, p.position.z + 7.5),
+        fromLook: hero,
+        toLook: hero,
+        fov: 52,
+        title: 'LA LEYENDA DEL CABALLERO',
+        subtitle: 'las canciones aún no se atreven a contarlo',
+      },
+    ];
     this.musicIntensityTarget = 0.5;
     this.cinematics.play(shots, {
       drive: (pos, look, fov) => this.cinematicDrive?.(pos, look, fov),

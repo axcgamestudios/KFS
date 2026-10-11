@@ -133,23 +133,43 @@ export class VillagerModelGLB implements CharacterVisual {
     }
 
     // --- normalise to a real human height -------------------------------
-    // Fase 9 ROOT FIX: the export's Sketchfab_model node carries a weird
-    // 0.01651 normalisation scale (NOT the cm→m 0.01), so the rendered
-    // skeleton stands ~2.99 m tall (head_end at y=2.974 in raw world units)
-    // — the "giant villagers" bug. Measure the REAL height and scale from
-    // that, targeting the 1.60–1.85 m human band with personal variety.
-    // ⚠ The SkeletonUtils clone ships STALE world matrices — Box3 would
-    // measure garbage (~0.5 m) and scale ×6 too big. Update first!
+    // Fase 10 ROOT FIX: villagers must be a BIT SMALLER than the player
+    // (the knight stands ~1.95 m). A Box3 over a SkinnedMesh measures the
+    // BIND-POSE geometry, which for this export (Sketchfab_model scale
+    // 0.01651, stray vertices, stale clone matrices) has proven unreliable
+    // ("giant villagers"). Instead we sample the TRUE deformed vertices with
+    // SkinnedMesh.applyBoneTransform — the same math the GPU skinning uses —
+    // so the measured height is exactly what gets rendered, then clamp hard.
     scene.updateMatrixWorld(true);
-    const rawBox = new THREE.Box3().setFromObject(scene);
-    const rawH = Math.max(0.5, rawBox.max.y - rawBox.min.y); // ≈ 2.99 for this GLB
-    const height = 1.6 + r(5) * 0.25;            // 1.60 – 1.85 m (PDF spec)
+    const { rawH, rawMinY } = (() => {
+      let minY = Infinity;
+      let maxY = -Infinity;
+      const v = new THREE.Vector3();
+      scene.traverse((o) => {
+        const mesh = o as THREE.SkinnedMesh;
+        if (!mesh.isSkinnedMesh || !mesh.geometry?.attributes?.position) return;
+        mesh.updateWorldMatrix(true, false);
+        const pos = mesh.geometry.attributes.position;
+        const stride = Math.max(1, Math.floor(pos.count / 500));
+        for (let i = 0; i < pos.count; i += stride) {
+          v.fromBufferAttribute(pos as THREE.BufferAttribute, i);
+          mesh.applyBoneTransform(i, v);
+          mesh.localToWorld(v);
+          if (v.y < minY) minY = v.y;
+          if (v.y > maxY) maxY = v.y;
+        }
+      });
+      if (!Number.isFinite(minY) || !Number.isFinite(maxY)) return { rawH: 1.75, rawMinY: 0 };
+      return { rawH: Math.max(0.5, maxY - minY), rawMinY: minY };
+    })();
+    // Target: 1.50–1.70 m — clearly human, always below the 1.95 m player
+    const height = 1.5 + r(5) * 0.2;
     const build = 0.94 + r(1) * 0.12;
     const scale = height / rawH;
     this.inner.scale.setScalar(scale);
-    // Feet on the ground: the raw model's soles sit at rawBox.min.y — lift
-    // the body so the scaled soles land exactly on the root origin.
-    this.baseY = -rawBox.min.y * scale;
+    // Feet on the ground: lift the body so the scaled soles land exactly on
+    // the root origin (the bob in poseWalk rides on top of this offset).
+    this.baseY = -rawMinY * scale;
     this.inner.position.y = this.baseY;
 
     // --- materials: clone + per-NPC tint (they are shared across clones!) ---

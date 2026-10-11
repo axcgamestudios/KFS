@@ -4,14 +4,18 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { gameApi } from '@/game/api';
 import { useGameStore } from '@/store/gameStore';
 import {
-  Ship, Rabbit, Flame, Swords, Wind, X, Compass, Sun, Moon, Sparkles,
+  Ship, Rabbit, Flame, Swords, Wind, X, Compass, Sun, Moon, Sparkles, Clapperboard,
 } from 'lucide-react';
 
 /**
  * Fase 8 — Admin panel ( combinación U+I+O ).
  * Hold the three keys at once to open/close. Spawn ships, horses and dragons
- * right where you stand, toggle free-fly, drag the sun across the sky.
+ * right where you stand, toggle free-fly, drag the sun across the sky,
+ * replay any cinematic (Fase 10).
  * Purely a dev/cheat surface — gameplay code never reads it.
+ *
+ * Fase 10: the combo hint is HIDDEN (user request) — the panel is a
+ * deliberate secret for the developer.
  */
 
 const DRAGON_SPECIES: Array<{ id: string; label: string; boss: boolean }> = [
@@ -80,13 +84,6 @@ export default function AdminPanel() {
 
   return (
     <>
-      {/* subtle hint that the combo exists */}
-      {!open && (
-        <div className="pointer-events-none absolute bottom-2 left-1/2 -translate-x-1/2 text-[0.55rem] tracking-[0.3em] text-[color:var(--kotfs-parchment-dim)] opacity-25">
-          U+I+O · PANEL DEL ADMIN
-        </div>
-      )}
-
       {open && (
         <div className="kfs-prompt pointer-events-auto absolute left-1/2 top-1/2 z-40 w-[min(560px,92vw)] -translate-x-1/2 -translate-y-1/2">
           <div className="kfs-frame px-6 py-5">
@@ -148,6 +145,25 @@ export default function AdminPanel() {
               ))}
             </div>
 
+            {/* cinematics (Fase 10) */}
+            <p className="kotfs-title mb-2 flex items-center gap-1.5 text-[0.6rem] tracking-[0.25em] text-[color:var(--kotfs-parchment-dim)]">
+              <Clapperboard size={11} /> VER CINEMÁTICAS
+            </p>
+            <div className="mb-4 grid grid-cols-2 gap-1.5">
+              {(gameApi.adminCinematics?.() ?? []).map((c) => (
+                <button
+                  key={c.key}
+                  className="kfs-admin-row"
+                  onClick={() => {
+                    const ok = gameApi.adminPlayCinematic(c.key);
+                    if (ok) setOpen(false);
+                  }}
+                >
+                  <span className="truncate">{c.label}</span>
+                </button>
+              ))}
+            </div>
+
             {/* fly + time */}
             <div className="grid grid-cols-2 gap-4 border-t border-[color:rgba(201,162,39,0.25)] pt-3">
               <button
@@ -186,10 +202,6 @@ export default function AdminPanel() {
                 ))}
               </div>
             )}
-
-            <p className="mt-3 text-center text-[0.55rem] tracking-[0.25em] text-[color:var(--kotfs-parchment-dim)] opacity-50">
-              CIERRA CON U+I+O O LA X
-            </p>
           </div>
         </div>
       )}

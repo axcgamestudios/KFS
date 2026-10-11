@@ -59,6 +59,9 @@ export class GameState {
   pickedHerbs = new Set<string>();
   exploredMap: boolean[] = [];
   playtimeSeconds = 0;
+  /** Fase 10 — Bram's forge upgrades for the equipped sword (0–3).
+   *  Applies a damage multiplier + blade glow to ANY sword carried. */
+  swordTier = 0;
   private evaluatingQuests = false;
 
   onChange?: (e: GameStateEvent) => void;
@@ -299,6 +302,7 @@ export class GameState {
       flags: [...this.flags],
       inventory: [...this.inventory.entries()],
       equippedWeapon: this.equippedWeapon,
+      swordTier: this.swordTier,
       xp: this.xp,
       level: this.level,
       skillPoints: this.skillPoints,
@@ -319,6 +323,7 @@ export class GameState {
     this.flags = new Set(data.flags);
     this.inventory = new Map(data.inventory);
     this.equippedWeapon = data.equippedWeapon;
+    this.swordTier = data.swordTier ?? 0;
     this.xp = data.xp;
     this.level = data.level;
     this.skillPoints = data.skillPoints;
@@ -342,6 +347,7 @@ export class GameState {
     this.flags.clear();
     this.inventory.clear();
     this.equippedWeapon = null;
+    this.swordTier = 0;
     this.xp = 0;
     this.level = 1;
     this.skillPoints = 0;

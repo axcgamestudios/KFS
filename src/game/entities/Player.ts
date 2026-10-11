@@ -46,6 +46,11 @@ export class Player {
   /** Dodge roll in progress (0..1). */
   rollT = 0;
   readonly rollDir = new THREE.Vector3(0, 0, -1);
+  /** Fase 10 — DOUBLE JUMP: second mid-air jump (marometa). flipT drives
+   *  the full forward somersault (0..1); jumpsUsed resets on landing. */
+  flipT = 0;
+  jumpsUsed = 0;
+  onDoubleJump?: () => void;
   /** Bow draw progress: -1 = not drawing, else 0..1. */
   bowDraw = -1;
   /** Post-hit invulnerability window (seconds left). */
@@ -127,8 +132,11 @@ export class Player {
     // Cancel any combat action in progress
     this.attackT = 0;
     this.rollT = 0;
+    this.flipT = 0;
+    this.jumpsUsed = 0;
     this.bowDraw = -1;
     this.invulnT = 0;
+    this.model.root.rotation.x = 0;
   }
 
   toggleLantern(): void {
@@ -383,10 +391,22 @@ export class Player {
     // Jump — only when the jump key is actually pressed this frame.
     // (Regression fix: this used to fire whenever grounded, making the
     // player hop endlessly without any input.)
-    if (!dialogueActive && input.pressed('jump') && this.grounded && !this.swimming && this.stamina > 10 && !this.wading) {
-      this.verticalVel = 7.4;
-      this.grounded = false;
-      this.stamina -= 10;
+    // Fase 10 — DOUBLE JUMP: a second press mid-air launches a marometa
+    // (forward somersault). The flip itself is pure animation — the impulse
+    // is a fresh vertical boost so it always feels responsive.
+    if (!dialogueActive && input.pressed('jump') && !this.swimming && this.stamina > 10) {
+      if (this.grounded && !this.wading) {
+        this.verticalVel = 7.4;
+        this.grounded = false;
+        this.stamina -= 10;
+        this.jumpsUsed = 1;
+      } else if (!this.grounded && this.jumpsUsed === 1 && this.airTime < 1.5 && this.flipT === 0) {
+        this.verticalVel = 7.0;
+        this.stamina = Math.max(0, this.stamina - 12);
+        this.jumpsUsed = 2;
+        this.flipT = 0.0001;          // marometa! (progresses below)
+        this.onDoubleJump?.();
+      }
     }
 
     if (this.swimming) {
@@ -464,6 +484,9 @@ export class Player {
         this.verticalVel = 0;
         this.grounded = true;
         this.airTime = 0;
+        this.jumpsUsed = 0;
+        // Landing mid-flip: the somersault snaps upright over a beat
+        if (this.flipT > 0 && this.flipT < 1) this.flipT = Math.max(this.flipT, 0.82);
       } else {
         this.grounded = false;
         this.airTime += dt;
@@ -488,14 +511,26 @@ export class Player {
     }
     this.group.rotation.y = this.yaw;
 
-    // --- Swim pitch (lean body forward in water) ---
-    this.model.root.rotation.x = damp(this.model.root.rotation.x, this.swimming ? 1.15 : 0, 8, dt);
+    // --- Swim pitch (lean body forward in water) + whole-body spins ---
+    // The dodge roll and the double-jump marometa rotate the model root a
+    // full 2π forward; everything else eases back to the swim lean.
+    const spinT = this.rollT > 0 ? this.rollT : this.flipT;
+    if (spinT > 0) {
+      this.model.root.rotation.x = spinT * Math.PI * 2;
+    } else {
+      this.model.root.rotation.x = damp(this.model.root.rotation.x, this.swimming ? 1.15 : 0, 8, dt);
+    }
     this.model.root.position.y = damp(this.model.root.position.y, this.swimming ? 0.55 : 0, 8, dt);
 
     // --- Combat timers (Fase 3) ---
     if (this.rollT > 0) {
       this.rollT += dt / 0.55;
       if (this.rollT >= 1) this.rollT = 0;
+    }
+    // Fase 10 — marometa progress (0.62 s full rotation)
+    if (this.flipT > 0) {
+      this.flipT += dt / 0.62;
+      if (this.flipT >= 1) this.flipT = 0;
     }
     if (this.invulnT > 0) this.invulnT -= dt;
     if (this.attackRecovery > 0) this.attackRecovery -= dt;
@@ -527,7 +562,8 @@ export class Player {
       attackT: this.attackT,
       attackKind: this.attackKind,
       blockT: this.blockT,
-      rollT: this.rollT,
+      // the marometa borrows the roll's tucked pose (limbs folded tight)
+      rollT: this.rollT > 0 ? this.rollT : this.flipT,
       bowDraw: this.bowDraw,
     });
 

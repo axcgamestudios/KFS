@@ -1203,3 +1203,114 @@
   from { opacity: 0; transform: translateY(12px); letter-spacing: 0.42em; }
   to   { opacity: 1; transform: none; }
 }
+
+/* ============================================================
+   FASE 10 — Cinematic loading screen (key art + rays + mist)
+   ============================================================ */
+@keyframes kfs-load-kenburns {
+  0%   { transform: scale(1.05) translate3d(0, 0, 0); }
+  100% { transform: scale(1.16) translate3d(-1.6%, -1.4%, 0); }
+}
+.kfs-load-art {
+  animation: kfs-load-kenburns 46s ease-in-out infinite alternate;
+  filter: saturate(0.88) contrast(1.05);
+}
+@keyframes kfs-load-rays-sweep {
+  0%   { transform: translateX(-12%) rotate(0.4deg); opacity: 0.1; }
+  50%  { opacity: 0.2; }
+  100% { transform: translateX(12%) rotate(-0.4deg); opacity: 0.1; }
+}
+.kfs-load-rays {
+  animation: kfs-load-rays-sweep 17s ease-in-out infinite alternate;
+}
+@keyframes kfs-load-mist-drift {
+  0%   { transform: translateX(-6%); }
+  100% { transform: translateX(6%); }
+}
+.kfs-load-mist {
+  animation: kfs-load-mist-drift 23s ease-in-out infinite alternate;
+}
+
+/* ============================================================
+   FASE 10 — Cinematic dialogue (simple but premium)
+   ============================================================ */
+@keyframes kfs-dlg-rise {
+  from { opacity: 0; transform: translateY(26px) scale(0.985); }
+  to   { opacity: 1; transform: none; }
+}
+.kfs-dlg {
+  animation: kfs-dlg-rise 0.42s cubic-bezier(0.22, 0.9, 0.24, 1) both;
+  background:
+    linear-gradient(180deg, rgba(16, 14, 10, 0.94) 0%, rgba(10, 9, 7, 0.96) 100%);
+  border: 1px solid rgba(201, 162, 39, 0.32);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.65),
+    0 18px 50px rgba(0, 0, 0, 0.75),
+    inset 0 1px 0 rgba(232, 204, 106, 0.09);
+}
+.kfs-dlg::before,
+.kfs-dlg::after {
+  content: '';
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid rgba(201, 162, 39, 0.75);
+  pointer-events: none;
+}
+.kfs-dlg::before {
+  top: 7px;
+  left: 7px;
+  border-right: none;
+  border-bottom: none;
+}
+.kfs-dlg::after {
+  bottom: 7px;
+  right: 7px;
+  border-left: none;
+  border-top: none;
+}
+@keyframes kfs-dlg-name-in {
+  from { opacity: 0; transform: translateX(-14px); }
+  to   { opacity: 1; transform: none; }
+}
+.kfs-dlg-name {
+  animation: kfs-dlg-name-in 0.5s ease 0.14s both;
+}
+@keyframes kfs-dlg-rule {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+.kfs-dlg-rule {
+  transform-origin: left center;
+  animation: kfs-dlg-rule 0.7s cubic-bezier(0.22, 0.9, 0.24, 1) 0.2s both;
+  background: linear-gradient(90deg, rgba(201, 162, 39, 0.85), rgba(201, 162, 39, 0.06));
+  height: 1px;
+}
+@keyframes kfs-dlg-opt-in {
+  from { opacity: 0; transform: translateX(18px); }
+  to   { opacity: 1; transform: none; }
+}
+.kfs-dlg-opt {
+  animation: kfs-dlg-opt-in 0.34s ease both;
+  transition: background 0.18s ease, transform 0.18s ease, border-color 0.18s ease;
+}
+.kfs-dlg-opt:hover,
+.kfs-dlg-opt:focus-visible {
+  background: linear-gradient(90deg, rgba(201, 162, 39, 0.16), rgba(201, 162, 39, 0.02));
+  border-color: rgba(201, 162, 39, 0.55) !important;
+  transform: translateX(5px);
+}
+@keyframes kfs-dlg-caret {
+  0%, 100% { opacity: 0.25; transform: translateY(0); }
+  50%      { opacity: 1; transform: translateY(3px); }
+}
+.kfs-dlg-caret {
+  animation: kfs-dlg-caret 1.1s ease-in-out infinite;
+}
+@keyframes kfs-dlg-bar-in {
+  from { transform: translateY(-100%); }
+  to   { transform: translateY(0); }
+}
+.kfs-dlg-bar {
+  animation: kfs-dlg-bar-in 0.6s cubic-bezier(0.22, 0.9, 0.24, 1) both;
+}
