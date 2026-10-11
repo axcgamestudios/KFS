@@ -16,10 +16,10 @@ interface SkyPalette {
 }
 
 const PALETTE_NIGHT: SkyPalette = {
-  zenith: new THREE.Color(0x070d1c), horizon: new THREE.Color(0x121a28),
-  fog: new THREE.Color(0x0d141f), sunColor: new THREE.Color(0x8fa8cc),
-  hemiSky: new THREE.Color(0x1a2436), hemiGround: new THREE.Color(0x0c0f14),
-  hemiIntensity: 0.32, fogDensity: 0.0034,
+  zenith: new THREE.Color(0x0a1226), horizon: new THREE.Color(0x1a2537),
+  fog: new THREE.Color(0x121a2a), sunColor: new THREE.Color(0x9db6e8),
+  hemiSky: new THREE.Color(0x2a3854), hemiGround: new THREE.Color(0x181c28),
+  hemiIntensity: 0.62, fogDensity: 0.0034,
 };
 const PALETTE_DAWN: SkyPalette = {
   zenith: new THREE.Color(0x2c3a58), horizon: new THREE.Color(0xd9885a),
@@ -42,6 +42,8 @@ export class SkySystem {
   dayFraction = 0.30; // 0=midnight … 0.5=noon. Start ~7:12
   dayCount = 1;
   timePaused = false;
+  /** Fase 8 — quality fog multiplier (Ultra-Bajo pulls the world in close). */
+  qualityFogMul = 1;
 
   readonly sunLight: THREE.DirectionalLight;
   readonly hemiLight: THREE.HemisphereLight;
@@ -195,19 +197,23 @@ export class SkySystem {
     this.hemiLight = new THREE.HemisphereLight(0x9db8cc, 0x4a5238, 0.7);
   }
 
-  /** Advance the clock. Returns true when a new day starts. */
+  /** Advance the clock. Returns true when a new day starts.
+   * Fase 8 — asymmetric clock: daylight crawls (×1.9 slower) while the small
+   * hours fly by (×0.55 faster), so the playable DAY lasts noticeably more
+   * and the pitch-black night doesn't overstay. */
   tick(dt: number): boolean {
     if (this.timePaused) return false;
     this.time += dt;
-    const prev = this.dayFraction;
-    this.dayFraction += dt / DAY_LENGTH_SECONDS;
+    const theta = (this.dayFraction - 0.25) * Math.PI * 2;
+    const sy = Math.sin(theta);
+    const speed = sy > -0.08 ? 0.55 : 1.9; // day crawls · deep night flies
+    this.dayFraction += (dt / DAY_LENGTH_SECONDS) * speed;
     let newDay = false;
     if (this.dayFraction >= 1) {
       this.dayFraction -= 1;
       this.dayCount++;
       newDay = true;
     }
-    void prev;
     return newDay;
   }
 
@@ -266,7 +272,7 @@ export class SkySystem {
     this.sunLight.intensity =
       (isDay
         ? 0.35 + this.dayFactor * 2.3
-        : clamp(this.nightFactor, 0, 1) * 0.4) * this.weatherLightMul + this.lightning * 3.2;
+        : clamp(this.nightFactor, 0, 1) * 1.05) * this.weatherLightMul + this.lightning * 3.2;
     this.sunLight.position.copy(focusPoint).addScaledVector(dir, 190);
     this.sunLight.target.position.copy(focusPoint);
     this.sunLight.target.updateMatrixWorld();
@@ -281,7 +287,7 @@ export class SkySystem {
       const f = scene.fog as THREE.FogExp2;
       f.color.copy(fog);
       if (this.lightning > 0.01) f.color.lerp(new THREE.Color(0xd8e2ee), this.lightning * 0.55);
-      f.density = fogDensity * this.weatherFogMul;
+      f.density = fogDensity * this.weatherFogMul * this.qualityFogMul;
     }
 
     this.domeMat.uniforms.uNight.value = this.nightFactor;

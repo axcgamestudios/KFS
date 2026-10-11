@@ -26,6 +26,8 @@ export class Player {
   swimming = false;
   attackT = 0;
   lanternOn = false;
+  /** Fase 8 — admin free-fly: WASD + ESPACIO sube / E baja. */
+  flying = false;
 
   // ---- Fase 3 combat state (driven by CombatSystem, read for animation) ----
   /** Current attack animation variant. */
@@ -49,7 +51,7 @@ export class Player {
   /** Damage taken while blocking is also paid with stamina. */
   hasShieldEquipped = false;
 
-  private verticalVel = 0;
+  verticalVel = 0; // (admin fly needs to reset it externally)
   private stepTimer = 0;
   private lanternLight: THREE.PointLight;
   private lanternFlame: THREE.Sprite;
@@ -215,6 +217,48 @@ export class Player {
       const rz = Math.sin(cameraYaw);
       moveX = fx * iz + rx * ix;
       moveZ = fz * iz + rz * ix;
+    }
+
+    // --- Fase 8 — admin free-fly (U+I+O panel): WASD vuela, ESPACIO sube,
+    //     E baja, MAYÚS acelera. Gravity, water and collisions are suspended. ---
+    if (this.flying && !dialogueActive) {
+      const spd = input.isDown('sprint') ? 46 : 17;
+      this.velocity.set(moveX * spd, 0, moveZ * spd);
+      let vy = 0;
+      if (input.isDown('jump')) vy += spd * 0.62;
+      if (input.isDown('interact')) vy -= spd * 0.62;
+      this.verticalVel = damp(this.verticalVel, vy, 10, dt);
+      this.position.x += this.velocity.x * dt;
+      this.position.z += this.velocity.z * dt;
+      this.position.y += this.verticalVel * dt;
+      // soft floor at the terrain skin (free to skim the sea surface)
+      const th = terrain.height(this.position.x, this.position.z);
+      if (this.position.y < th + 0.4) {
+        this.position.y = th + 0.4;
+        this.verticalVel = Math.max(0, this.verticalVel);
+      }
+      this.position.x = clamp(this.position.x, -1010, 1010);
+      this.position.z = clamp(this.position.z, -1010, 1010);
+      this.grounded = false;
+      this.swimming = false;
+      this.wading = false;
+      this.rollT = 0;
+      this.stamina = this.stats.maxStamina;
+      const hSpeed = Math.hypot(this.velocity.x, this.velocity.z);
+      this.speedSm = damp(this.speedSm, hSpeed, 8, dt);
+      if (hSpeed > 0.4) {
+        this.yaw = dampAngle(this.yaw, Math.atan2(this.velocity.x, this.velocity.z), 12, dt);
+      }
+      this.group.rotation.y = this.yaw;
+      // sky-diver lean
+      this.model.root.rotation.x = damp(this.model.root.rotation.x, 0.32, 6, dt);
+      this.model.root.position.y = damp(this.model.root.position.y, 0, 8, dt);
+      this.model.update({
+        dt, speed: this.speedSm, moving: inputLen > 0, grounded: false,
+        swimming: false, attackT: 0, blockT: 0, rollT: 0, bowDraw: -1,
+      });
+      this.wasGrounded = false;
+      return;
     }
 
     const wantRun = input.isDown('sprint') && inputLen > 0 && this.stamina > 1 && !this.swimming && !this.wading;

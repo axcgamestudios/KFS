@@ -721,12 +721,15 @@
 .kotfs-kenburns {
   position: absolute;
   inset: 0;
+  /* Fase 8 — the title is baked at the TOP of the key art: anchor the zoom
+     there (transform-origin top) so no pan/zoom ever crops it again. */
+  transform-origin: 50% 18%;
   animation: kotfs-kb 52s ease-in-out infinite alternate;
   will-change: transform;
 }
 @keyframes kotfs-kb {
-  from { transform: scale(1.02) translate(0, 0); }
-  to { transform: scale(1.09) translate(-1.4%, 0.9%); }
+  from { transform: scale(1.0) translate(0, 0); }
+  to { transform: scale(1.06) translate(-1.1%, 0.7%); }
 }
 .kotfs-fog {
   position: absolute;
@@ -741,4 +744,442 @@
 @keyframes kotfs-fogdrift {
   from { transform: translateX(-4.5%) translateY(0.5%); }
   to { transform: translateX(4.5%) translateY(-0.6%); }
+}
+
+/* ============================================================
+   FASE 7 — HUD AAA: marcos de metal biselado, gemas, medallas
+   ============================================================ */
+
+/* --- Beveled iron/brass frame with inner gold hairline ------- */
+.kfs-frame {
+  position: relative;
+  background: linear-gradient(165deg, rgba(40, 32, 21, 0.92) 0%, rgba(20, 15, 10, 0.95) 100%);
+  border: 1px solid rgba(201, 162, 39, 0.38);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.7),
+    inset 0 1px 0 rgba(255, 226, 150, 0.08),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.6),
+    0 12px 38px rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(5px);
+}
+.kfs-frame::before {
+  content: '';
+  position: absolute;
+  inset: 3px;
+  border: 1px solid rgba(201, 162, 39, 0.14);
+  pointer-events: none;
+}
+.kfs-rivet {
+  position: absolute;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #e8c96a, #8a6a1e 60%, #4a3810);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+  pointer-events: none;
+}
+.kfs-rivet-tl { top: 3px; left: 3px; }
+.kfs-rivet-tr { top: 3px; right: 3px; }
+.kfs-rivet-bl { bottom: 3px; left: 3px; }
+.kfs-rivet-br { bottom: 3px; right: 3px; }
+
+/* --- Heroic bars: ghost damage + shimmer + ticks ------------- */
+.kfs-bar {
+  position: relative;
+  height: 13px;
+  background: #0a0806;
+  border: 1px solid rgba(201, 162, 39, 0.42);
+  box-shadow: inset 0 2px 7px rgba(0, 0, 0, 0.95), 0 0 0 1px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+}
+.kfs-bar-ghost {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  background: linear-gradient(90deg, rgba(238, 222, 180, 0.85), rgba(201, 162, 39, 0.7));
+  transition: width 0.8s cubic-bezier(0.2, 0.7, 0.3, 1) 0.32s;
+}
+.kfs-bar-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  transition: width 0.16s ease-out;
+}
+.kfs-bar-fill-hp {
+  background: linear-gradient(180deg, #e07a62 0%, #b03a3a 42%, #77211f 100%);
+  box-shadow: 0 0 14px rgba(214, 74, 58, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+.kfs-bar-fill-st {
+  background: linear-gradient(180deg, #b6d37e 0%, #7fa04a 45%, #4c6b2f 100%);
+  box-shadow: 0 0 12px rgba(150, 200, 90, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+.kfs-bar-fill::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg, transparent 32%, rgba(255, 255, 255, 0.2) 48%, transparent 64%);
+  background-size: 240% 100%;
+  animation: kfs-shimmer 3.4s linear infinite;
+}
+@keyframes kfs-shimmer {
+  from { background-position: 130% 0; }
+  to { background-position: -130% 0; }
+}
+.kfs-bar-ticks {
+  position: absolute;
+  inset: 0;
+  background-image: repeating-linear-gradient(
+    90deg, transparent 0 calc(20% - 1px), rgba(0, 0, 0, 0.55) calc(20% - 1px) 20%
+  );
+  pointer-events: none;
+}
+.kfs-bar-low { animation: kfs-bar-low 0.9s ease-in-out infinite; }
+@keyframes kfs-bar-low {
+  0%, 100% { box-shadow: inset 0 2px 7px rgba(0, 0, 0, 0.95), 0 0 6px rgba(220, 60, 40, 0.4); }
+  50% { box-shadow: inset 0 2px 7px rgba(0, 0, 0, 0.95), 0 0 18px rgba(240, 70, 40, 0.85); }
+}
+
+/* --- Level medallion with XP ring ---------------------------- */
+.kfs-medallion {
+  position: relative;
+  width: 54px;
+  height: 54px;
+  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.7));
+}
+.kfs-medallion-num {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Cinzel', serif;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #f0e2b6;
+  text-shadow: 0 1px 0 #000, 0 0 14px rgba(201, 162, 39, 0.65);
+}
+
+/* --- Compass strip ------------------------------------------- */
+.kfs-compass {
+  position: relative;
+  height: 34px;
+  overflow: hidden;
+  border: 1px solid rgba(201, 162, 39, 0.4);
+  background:
+    linear-gradient(180deg, rgba(24, 18, 12, 0.92), rgba(12, 9, 6, 0.94)),
+    repeating-linear-gradient(90deg, transparent 0 3px, rgba(255, 255, 255, 0.012) 3px 4px);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.7), inset 0 2px 8px rgba(0, 0, 0, 0.9), 0 8px 26px rgba(0, 0, 0, 0.55);
+}
+.kfs-compass::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  transform: translateX(-50%);
+  background: linear-gradient(180deg, #e8c96a, #8a6a1e);
+  box-shadow: 0 0 8px rgba(232, 201, 106, 0.8);
+  z-index: 3;
+}
+.kfs-compass-vignette {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, rgba(6, 5, 4, 0.95), transparent 16%, transparent 84%, rgba(6, 5, 4, 0.95));
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* --- Weapon action bar ---------------------------------------- */
+.kfs-slot {
+  position: relative;
+  width: 62px;
+  height: 62px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  background: linear-gradient(170deg, rgba(38, 30, 20, 0.9), rgba(16, 12, 9, 0.94));
+  border: 1px solid rgba(201, 162, 39, 0.22);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 226, 150, 0.06);
+  transition: all 0.22s ease;
+}
+.kfs-slot-owned:hover {
+  border-color: rgba(201, 162, 39, 0.55);
+  transform: translateY(-2px);
+}
+.kfs-slot-equipped {
+  border-color: rgba(232, 201, 106, 0.95);
+  background: linear-gradient(170deg, rgba(64, 50, 26, 0.95), rgba(30, 22, 12, 0.96));
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.65),
+    0 0 20px rgba(201, 162, 39, 0.35),
+    inset 0 0 16px rgba(201, 162, 39, 0.14);
+  animation: kfs-slot-equipped 2.6s ease-in-out infinite;
+}
+@keyframes kfs-slot-equipped {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(0,0,0,0.65), 0 0 14px rgba(201,162,39,0.28), inset 0 0 12px rgba(201,162,39,0.1); }
+  50% { box-shadow: 0 0 0 1px rgba(0,0,0,0.65), 0 0 26px rgba(201,162,39,0.5), inset 0 0 18px rgba(201,162,39,0.2); }
+}
+.kfs-slot-locked { opacity: 0.38; filter: grayscale(0.8); }
+.kfs-keycap {
+  position: absolute;
+  top: -7px;
+  left: -7px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Cinzel', serif;
+  font-size: 0.62rem;
+  font-weight: 700;
+  color: #f0e2b6;
+  background: linear-gradient(180deg, #5a4826, #2e2312);
+  border: 1px solid rgba(232, 201, 106, 0.65);
+  border-radius: 3px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 235, 170, 0.25);
+}
+
+/* --- Prompt with keycaps -------------------------------------- */
+.kfs-prompt {
+  animation: kfs-prompt-in 0.28s cubic-bezier(0.2, 1.4, 0.4, 1);
+}
+@keyframes kfs-prompt-in {
+  from { transform: translateY(14px) scale(0.94); opacity: 0; }
+  to { transform: translateY(0) scale(1); opacity: 1; }
+}
+.kfs-kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  margin: 0 2px;
+  font-family: 'Cinzel', serif;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #f4e8c0;
+  background: linear-gradient(180deg, #4c3d20, #241b0d);
+  border: 1px solid rgba(232, 201, 106, 0.7);
+  border-radius: 4px;
+  box-shadow: 0 3px 6px rgba(0, 0, 0, 0.85), inset 0 1px 0 rgba(255, 235, 170, 0.3);
+  vertical-align: middle;
+  transform: translateY(-1px);
+}
+
+/* --- Notifications --------------------------------------------- */
+.kfs-notif {
+  position: relative;
+  overflow: hidden;
+  animation: kfs-notif-in 0.42s cubic-bezier(0.16, 1.1, 0.3, 1);
+}
+@keyframes kfs-notif-in {
+  from { transform: translateX(-38px) skewX(-6deg); opacity: 0; }
+  to { transform: translateX(0) skewX(0); opacity: 1; }
+}
+.kfs-notif::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(232, 201, 106, 0.5), transparent);
+}
+.kfs-notif-glow-quest { box-shadow: 0 0 0 1px rgba(0,0,0,0.6), 0 0 22px rgba(201, 162, 39, 0.22); }
+
+/* --- Boss bar --------------------------------------------------- */
+.kfs-boss {
+  animation: kfs-boss-in 0.6s cubic-bezier(0.2, 1, 0.3, 1);
+}
+@keyframes kfs-boss-in {
+  from { transform: translateY(-26px) scale(0.96); opacity: 0; }
+  to { transform: translateY(0) scale(1); opacity: 1; }
+}
+.kfs-gem {
+  width: 9px;
+  height: 9px;
+  transform: rotate(45deg);
+  background: linear-gradient(135deg, #3a2c14, #17110a);
+  border: 1px solid rgba(232, 201, 106, 0.5);
+  box-shadow: inset 0 0 3px rgba(0, 0, 0, 0.9);
+  transition: all 0.4s ease;
+}
+.kfs-gem-lit {
+  background: radial-gradient(circle at 35% 30%, #ffe9a6, #e8a12a 55%, #7a4a10);
+  box-shadow: 0 0 10px rgba(232, 161, 42, 0.8), inset 0 0 3px rgba(255, 240, 190, 0.8);
+}
+
+/* --- Low health vignette ---------------------------------------- */
+.kfs-lowhp {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, transparent 46%, rgba(140, 10, 5, 0.42) 100%);
+  animation: kfs-lowhp-pulse 1.15s ease-in-out infinite;
+}
+@keyframes kfs-lowhp-pulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}
+
+/* --- Reticle ----------------------------------------------------- */
+.kfs-reticle-tick {
+  position: absolute;
+  background: linear-gradient(180deg, rgba(232, 201, 106, 0.95), rgba(232, 201, 106, 0.25));
+  transition: all 0.12s ease-out;
+}
+
+/* --- Stamina exhausted flash ------------------------------------- */
+.kfs-stamina-out { animation: kfs-st-flash 0.5s ease-in-out 2; }
+@keyframes kfs-st-flash {
+  0%, 100% { filter: none; }
+  50% { filter: brightness(2.2) saturate(0.3); }
+}
+
+/* --- Discovery banner -------------------------------------------- */
+.kfs-discovery-line {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(232, 201, 106, 0.85), transparent);
+  animation: kfs-discovery-line 4.4s ease forwards;
+}
+@keyframes kfs-discovery-line {
+  0% { transform: scaleX(0); opacity: 0; }
+  18% { transform: scaleX(1); opacity: 1; }
+  80% { opacity: 1; transform: scaleX(1); }
+  100% { opacity: 0; transform: scaleX(1); }
+}
+
+/* --- Richer shared panel (lifts inventory / journal / map too) --- */
+.kotfs-panel {
+  background: linear-gradient(165deg, rgba(30, 24, 16, 0.9), rgba(14, 11, 8, 0.93));
+  border: 1px solid rgba(201, 162, 39, 0.4);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.62),
+    inset 0 1px 0 rgba(255, 226, 150, 0.07),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.55),
+    inset 0 0 46px rgba(201, 162, 39, 0.05),
+    0 14px 46px rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(6px);
+}
+
+/* ============================================================
+   FASE 8 — Admin panel (U+I+O)
+   ============================================================ */
+.kfs-admin-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 0.7rem 0.4rem 0.55rem;
+  font-family: 'Cinzel', serif;
+  font-size: 0.68rem;
+  letter-spacing: 0.14em;
+  color: var(--kotfs-parchment);
+  background: linear-gradient(170deg, rgba(44, 34, 20, 0.92), rgba(18, 13, 9, 0.95));
+  border: 1px solid rgba(201, 162, 39, 0.3);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 226, 150, 0.06);
+  transition: all 0.18s ease;
+  cursor: pointer;
+}
+.kfs-admin-btn small {
+  font-family: 'EB Garamond', Georgia, serif;
+  font-size: 0.6rem;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  color: var(--kotfs-parchment-dim);
+  opacity: 0.8;
+}
+.kfs-admin-btn:hover {
+  border-color: rgba(232, 201, 106, 0.85);
+  transform: translateY(-2px);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), 0 6px 18px rgba(0, 0, 0, 0.5), 0 0 16px rgba(201, 162, 39, 0.2);
+}
+.kfs-admin-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 0.4rem 0.65rem;
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  color: var(--kotfs-parchment);
+  background: rgba(16, 12, 9, 0.8);
+  border: 1px solid rgba(201, 162, 39, 0.22);
+  transition: all 0.15s ease;
+  cursor: pointer;
+  text-align: left;
+}
+.kfs-admin-row:hover {
+  border-color: rgba(232, 201, 106, 0.7);
+  background: rgba(38, 29, 17, 0.9);
+}
+.kfs-admin-row-boss {
+  color: #e0a0a0;
+  border-color: rgba(192, 86, 86, 0.35);
+}
+.kfs-admin-row-boss:hover {
+  border-color: rgba(220, 110, 110, 0.8);
+}
+.kfs-admin-fly {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0.85rem 0.5rem;
+  font-family: 'Cinzel', serif;
+  font-size: 0.68rem;
+  letter-spacing: 0.14em;
+  color: var(--kotfs-parchment);
+  background: linear-gradient(170deg, rgba(30, 38, 30, 0.92), rgba(12, 16, 12, 0.95));
+  border: 1px solid rgba(156, 193, 104, 0.3);
+  transition: all 0.18s ease;
+  cursor: pointer;
+}
+.kfs-admin-fly small {
+  font-family: 'EB Garamond', Georgia, serif;
+  font-size: 0.58rem;
+  letter-spacing: 0.04em;
+  color: var(--kotfs-parchment-dim);
+  text-transform: none;
+}
+.kfs-admin-fly:hover { border-color: rgba(156, 193, 104, 0.8); }
+.kfs-admin-fly-on {
+  color: #d7ecb2;
+  border-color: rgba(156, 193, 104, 0.9);
+  box-shadow: 0 0 22px rgba(156, 193, 104, 0.28), inset 0 0 18px rgba(156, 193, 104, 0.12);
+  animation: kotfs-pulse 2.2s ease-in-out infinite;
+}
+.kfs-admin-range {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 5px;
+  background: linear-gradient(90deg, #1a2340 0%, #6b5416 30%, #c9a227 50%, #6b5416 70%, #1a2340 100%);
+  border: 1px solid rgba(201, 162, 39, 0.35);
+  outline: none;
+  cursor: pointer;
+}
+.kfs-admin-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #ffe9a6, #c9a227 60%, #6b5416);
+  border: 1px solid rgba(0, 0, 0, 0.7);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.8);
+}
+.kfs-admin-range::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #ffe9a6, #c9a227 60%, #6b5416);
+  border: 1px solid rgba(0, 0, 0, 0.7);
 }

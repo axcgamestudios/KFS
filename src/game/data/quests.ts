@@ -49,7 +49,7 @@ export const QUESTS: Record<string, QuestDef> = {
     id: 'q2_herbs',
     title: 'La Guardiana de las Hierbas',
     description: 'Maren la herborista guarda el amuleto de cobre, pero pedirá algo a cambio: tres pétalos de marfil.',
-    journal: 'Maren, la herborista del pueblo, custodia el amuleto que abre el cofre de Eirik. Antes de dármelo quiere tres pétalos de marfil. Dijo que crecen junto al sendero de la cascada, al norte del pueblo, y entre las ruinas del bosque occidental.',
+    journal: 'Maren, la herborista del pueblo, custodia el amuleto que abre el cofre de Eirik. Antes de dármelo quiere tres pétalos de marfil. Brotan por todas partes alrededor del pueblo: junto a la plaza, en el prado norte y a la orilla del camino al muelle.',
     objectives: [
       { id: 'o1', text: 'Busca a Maren la herborista', type: 'talk', target: 'maren' },
       { id: 'o2', text: 'Reúne 3 pétalos de marfil (0/3)', type: 'collect', target: 'petalo', count: 3 },

@@ -86,10 +86,23 @@ export class DragonModelGLB {
       const size = new THREE.Vector3();
       box.getSize(size);
       const len = Math.max(size.x, size.z) || 6;
-      this.inner.scale.setScalar((7.5 / len) * this.scale);
+      // Fase 8 — bigger beasts: ~10.5 m body length before the def scale
+      // (was 7.5 — the bosses read as overgrown lizards at that size)
+      this.inner.scale.setScalar((10.5 / len) * this.scale);
       // The model faces +Z? Sketchfab exports usually face +Z; if the fight
       // shows it backwards we flip at integration. Rotate to face +Z (yaw 0).
       // this.inner.rotation.y = Math.PI;
+
+      // Fase 8 — strip the export's ground plane (Plane_Material_0: a big
+      // dark disc under the dragon that reads as a floating floor in-game)
+      const junk: THREE.Object3D[] = [];
+      scene.traverse((o) => {
+        const mesh = o as THREE.Mesh;
+        if (mesh.isMesh && /plane/i.test(mesh.name)) junk.push(mesh);
+        const light = o as unknown as { isLight?: boolean; isCamera?: boolean };
+        if (light.isLight || light.isCamera) junk.push(o);
+      });
+      for (const j of junk) j.parent?.remove(j);
 
       // Bind joints
       const bind = (name: string) => {
@@ -114,6 +127,12 @@ export class DragonModelGLB {
         this.mouthAnchor.position.set(0, -0.05, 0.55);
       }
 
+      // Fase 7 — per-dragon tint. The clone shares materials with the cached
+      // template (and every other dragon), so clone FIRST then pull the body
+      // toward this dragon's colours. The GLB material map:
+      //   Game_dragon / Game_dragon.001 → body plates & belly · EYES → eyes
+      this.applyTint(scene);
+
       // Native idle clip (plays while resting)
       if (clips.length > 0) {
         this.mixer = new THREE.AnimationMixer(scene);
@@ -136,6 +155,43 @@ export class DragonModelGLB {
 
   get isLoaded(): boolean {
     return this.loaded;
+  }
+
+  /**
+   * Fase 7 — per-dragon tint. The SkeletonUtils clone SHARES materials with
+   * the cached template (and every other dragon), so clone each material
+   * first, then pull the body plates toward this dragon's palette. Material
+   * map of the export: Game_dragon / Game_dragon.001 → body & belly plates,
+   * EYES → eyes (with a lit emissive). The ground plane ('Material') and any
+   * other part stay untouched.
+   */
+  private applyTint(scene: THREE.Object3D): void {
+    const body = new THREE.Color(this.colors.body);
+    const belly = new THREE.Color(this.colors.belly);
+    const eye = new THREE.Color(this.colors.eye);
+    scene.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      const clones = mats.map((m) => (m as THREE.Material).clone());
+      let touched = false;
+      clones.forEach((c, i) => {
+        const std = c as THREE.MeshStandardMaterial;
+        if (!std.isMeshStandardMaterial) return;
+        const name = (std.name ?? '').toLowerCase();
+        if (name.includes('eyes')) {
+          std.color.copy(eye);
+          std.emissive?.copy(eye).multiplyScalar(0.5);
+          touched = true;
+        } else if (name.includes('dragon')) {
+          // first dragon material = body plates, second = belly
+          std.color.lerp(i === 0 && clones.length > 1 ? body : belly, 0.62);
+          touched = true;
+        }
+        if (touched) std.needsUpdate = true;
+      });
+      if (touched) mesh.material = clones.length === 1 ? clones[0] : clones;
+    });
   }
 
   flash(): void {

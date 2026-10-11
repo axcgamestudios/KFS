@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { KitSystem } from './KitSystem';
 import type { TerrainHeight } from './TerrainHeight';
 import type { ColliderRegistry } from '../systems/ColliderRegistry';
+import { getFlameFX } from './FlameFX';
 
 /**
  * Fase 5 — world dressing with the repository kits.
@@ -104,6 +105,11 @@ export function dressWithKits(
   put('bonfire', 40, 262, { solid: 0.8 });
   put('tree_chopped', 42.5, 264.5);
   put('tree_chopped', 38.6, 265.2);
+  // Fase 7 — the signal fire BURNS: procedural shader flame + rising embers
+  getFlameFX(scene).addFlame(
+    new THREE.Vector3(40, g(40, 262) + 0.85, 262),
+    { scale: 0.85, height: 1.85, heat: 0.5, embers: 26 },
+  );
 
   // --- Castle gate: banners, stone blocks, a weapons rack (sword + shield) ---
   const cg = refs.castleGate ?? { x: 110, z: 12 };

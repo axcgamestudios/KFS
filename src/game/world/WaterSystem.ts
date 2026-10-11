@@ -77,11 +77,15 @@ export class WaterSystem {
         uHeightMap: { value: heightTex },
         uWorldHalf: { value: worldHalf },
         uCameraPos: { value: new THREE.Vector3() },
+        /** Fase 8 — radius (m) around the camera where waves still move. */
+        uWaveMotion: { value: 2000.0 },
       },
       vertexShader: /* glsl */ `
         uniform float uTime;
         uniform sampler2D uHeightMap;
         uniform float uWorldHalf;
+        uniform vec3 uCameraPos;
+        uniform float uWaveMotion;
         varying vec3 vWorldPos;
         varying vec3 vNormal;
         varying float vShore;
@@ -98,6 +102,11 @@ export class WaterSystem {
         void main() {
           vec3 pos = (modelMatrix * vec4(position, 1.0)).xyz;
           float shore = terrainH(pos.xz);
+          // Fase 8 — quality: the far sea calms down. Waves only MOVE within
+          // uWaveMotion metres of the camera; beyond it the surface keeps its
+          // shape shading but stops churning (distant water stops saturating
+          // the frame and low-end GPUs catch a break).
+          float motionK = 1.0 - smoothstep(uWaveMotion * 0.55, uWaveMotion, distance(pos.xz, uCameraPos.xz));
           // Ola completa en aguas profundas, amortiguada en bahías y orilla
           // (profundo ≤ -20 m → 1.0 · muelle/bahía ≥ -3.5 m → 0.12)
           float shallowK = 1.0 - smoothstep(-20.0, -3.5, shore);
@@ -108,9 +117,11 @@ export class WaterSystem {
           float set = 0.82 + 0.22 * sin(t * 0.11) * sin(t * 0.073 + 1.7);
 
           // Tres olas Gerstner épicas: el desplazamiento horizontal afila las crestas
-          float amp1 = 1.35 * shallowK * set, len1 = 34.0;
-          float amp2 = 0.58 * shallowK * set, len2 = 20.0;
-          float amp3 = 0.32 * shallowK * set, len3 = 13.5;
+          // (Fase 8: la amplitud se desvanece con motionK — el mar lejano queda
+          // plano y la transición es suave, sin saltos de fase al acercarse)
+          float amp1 = 1.35 * shallowK * set * motionK, len1 = 34.0;
+          float amp2 = 0.58 * shallowK * set * motionK, len2 = 20.0;
+          float amp3 = 0.32 * shallowK * set * motionK, len3 = 13.5;
           vec2 d1 = normalize(vec2(1.0, 0.28));
           vec2 d2 = normalize(vec2(0.82, -0.57));
           vec2 d3 = normalize(vec2(-0.45, 0.89));
@@ -257,6 +268,23 @@ export class WaterSystem {
     this.mesh.position.x = camera.position.x;
     this.mesh.position.z = camera.position.z;
     this.material.uniforms.uCameraPos.value.copy(camera.position);
+  }
+
+  /**
+   * Fase 8 — quality ladder: rebuild the sea mesh at a new segment count
+   * (96 on Ultra-Bajo → 148k triangles saved vs 384) and set the radius
+   * around the camera within which waves actually move.
+   */
+  setDetail(segments: number, waveMotionRadius: number): void {
+    this.material.uniforms.uWaveMotion.value = Math.max(20, waveMotionRadius);
+    const seg = Math.max(48, Math.min(384, Math.round(segments)));
+    const params = this.mesh.geometry as THREE.PlaneGeometry;
+    if (params.parameters?.widthSegments === seg) return; // same detail
+    const size = params.parameters?.width ?? 1900;
+    const geo = new THREE.PlaneGeometry(size, size, seg, seg);
+    geo.rotateX(-Math.PI / 2);
+    this.mesh.geometry.dispose();
+    this.mesh.geometry = geo;
   }
 
   /**

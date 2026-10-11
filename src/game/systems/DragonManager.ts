@@ -28,11 +28,12 @@ export const DRAGON_DEFS: DragonDef[] = [
   {
     id: 'vaelthara', name: 'Vaelthara', title: 'Guardiana de las Ruinas',
     boss: true, wyvern: false, canFly: true, startsAsleep: true,
+    useGlbModel: true,
     colors: { body: 0x50634a, belly: 0xa89a6a, membrane: 0x7d8f6d, eye: 0xffc040, horn: 0xc9b17a },
     scale: 1.15, maxHp: 420,
     home: { x: -243, z: -140 }, territory: 130, aggroRange: 55,
     attacks: ['bite', 'claw', 'tail', 'fire'],
-    meleeRange: 5.4, fireRange: 26, fireDps: 24, meleeDamage: 16,
+    meleeRange: 6.9, fireRange: 27, fireDps: 24, meleeDamage: 16,
     speedGround: 3.4, speedFly: 10,
     xp: 220, deathFlag: 'vaelthara_dead', introFlag: 'vaelthara_seen',
     phase2At: 0.5,
@@ -42,11 +43,12 @@ export const DRAGON_DEFS: DragonDef[] = [
   {
     id: 'skarnvind', name: 'Skarnvind', title: 'Wyvern de las Brumas',
     boss: true, wyvern: true, canFly: true,
+    useGlbModel: true,
     colors: { body: 0x4a5560, belly: 0x9aa5b0, membrane: 0x5a6a7a, eye: 0x9fe8ff, horn: 0x2e3640 },
     scale: 1.05, maxHp: 300,
     home: { x: 0, z: 500 }, territory: 420, aggroRange: 90,
     attacks: ['fire'],
-    meleeRange: 4.5, fireRange: 40, fireDps: 20, meleeDamage: 14,
+    meleeRange: 5.8, fireRange: 40, fireDps: 20, meleeDamage: 14,
     speedGround: 3, speedFly: 13,
     xp: 260, deathFlag: 'skarnvind_dead', introFlag: 'skarnvind_seen',
     drops: [{ id: 'garra_skarnvind', count: 1 }, { id: 'escama', count: 2 }],
@@ -55,11 +57,12 @@ export const DRAGON_DEFS: DragonDef[] = [
   {
     id: 'ancestro', name: 'Vaelyx', title: 'Ancestro de Garrahielo',
     boss: true, wyvern: false, canFly: true, startsAsleep: true,
+    useGlbModel: true,
     colors: { body: 0x3d4a5e, belly: 0xb8c4d4, membrane: 0x6a7f9e, eye: 0x8fd8ff, horn: 0xdce8f4 },
     scale: 1.7, maxHp: 700,
     home: { x: 20, z: -300 }, territory: 95, aggroRange: 48,
     attacks: ['bite', 'claw', 'tail', 'fire'],
-    meleeRange: 7.2, fireRange: 34, fireDps: 30, meleeDamage: 22,
+    meleeRange: 9.2, fireRange: 35, fireDps: 30, meleeDamage: 22,
     speedGround: 3.8, speedFly: 11.5,
     xp: 500, deathFlag: 'ancestro_dead', introFlag: 'ancestro_seen',
     phase2At: 0.66, phase3At: 0.33,
@@ -77,7 +80,7 @@ export const DRAGON_DEFS: DragonDef[] = [
     scale: 1.55, maxHp: 950,
     home: { x: -478, z: -520 }, territory: 120, aggroRange: 60,
     attacks: ['bite', 'claw', 'tail', 'fire'],
-    meleeRange: 7.4, fireRange: 40, fireDps: 34, meleeDamage: 26,
+    meleeRange: 9.4, fireRange: 41, fireDps: 34, meleeDamage: 26,
     speedGround: 4.2, speedFly: 12.5,
     xp: 800, deathFlag: 'kraivenn_dead', introFlag: 'kraivenn_intro',
     phase2At: 0.62, phase3At: 0.3,
@@ -87,11 +90,12 @@ export const DRAGON_DEFS: DragonDef[] = [
   {
     id: 'drake_stones', name: 'Drakeling de las Vigilias', boss: false,
     wyvern: false, canFly: false,
+    useGlbModel: true,
     colors: { body: 0x6a4034, belly: 0xa8846a, membrane: 0x8a5a4a, eye: 0xffb050, horn: 0x3a2620 },
     scale: 0.52, maxHp: 90,
     home: { x: -136, z: -252 }, territory: 60, aggroRange: 26,
     attacks: ['bite', 'fire'],
-    meleeRange: 2.6, fireRange: 15, fireDps: 14, meleeDamage: 11,
+    meleeRange: 3.4, fireRange: 16, fireDps: 14, meleeDamage: 11,
     speedGround: 3.6, speedFly: 0,
     xp: 60, deathFlag: 'drake_stones_dead',
     drops: [{ id: 'escama', count: 1 }, { id: 'flecha', count: 3 }],
@@ -100,11 +104,12 @@ export const DRAGON_DEFS: DragonDef[] = [
   {
     id: 'drake_grotto', name: 'Drakeling de la Gruta', boss: false,
     wyvern: true, canFly: true,
+    useGlbModel: true,
     colors: { body: 0x3f5544, belly: 0x93a88a, membrane: 0x5d7a68, eye: 0xd0ffb0, horn: 0x2a352c },
     scale: 0.5, maxHp: 80,
     home: { x: 196, z: -172 }, territory: 70, aggroRange: 28,
     attacks: ['bite', 'fire'],
-    meleeRange: 2.4, fireRange: 16, fireDps: 12, meleeDamage: 10,
+    meleeRange: 3.2, fireRange: 17, fireDps: 12, meleeDamage: 10,
     speedGround: 3.2, speedFly: 9,
     xp: 60, deathFlag: 'drake_grotto_dead',
     drops: [{ id: 'escama', count: 1 }, { id: 'flecha', count: 3 }],
@@ -155,7 +160,10 @@ export class DragonManager {
         }
         continue;
       }
-      const dragon = new Dragon(def, scene, def.id.length * 7 + def.home.x);
+      const loader = def.useGlbModel && this.assets
+        ? () => this.assets!.loadAnimatedModelShared('black_dragon.glb')
+        : undefined;
+      const dragon = new Dragon(def, scene, def.id.length * 7 + def.home.x, loader);
       const deadAlready = state.hasFlag(def.deathFlag);
       dragon.spawnAt(terrain, false);
       if (deadAlready) {
@@ -178,7 +186,7 @@ export class DragonManager {
   spawnDeferred(def: DragonDef, restored = false): Dragon | null {
     if (this.byId.has(def.id)) return this.byId.get(def.id)!;
     const loader = this.assets
-      ? () => this.assets!.loadModelWithAnimations('black_dragon.glb')
+      ? () => this.assets!.loadAnimatedModelShared('black_dragon.glb')
       : undefined;
     const dragon = new Dragon(def, this.scene, 4242, loader);
     dragon.spawnAt(this.terrain, false);
@@ -206,6 +214,36 @@ export class DragonManager {
     if (!def) return;
     this.hooks.setFlag('kraivenn_awake');
     this.spawnDeferred(def, false);
+  }
+
+  /**
+   * Fase 8 — admin panel: conjure a dragon of the chosen species right in
+   * front of a point. These are EXTRA specimens (unique ids, not registered
+   * in the quest tables): bosses keep their phases, drakes are minors.
+   */
+  adminSpawn(speciesId: string, x: number, z: number): Dragon | null {
+    const base = DRAGON_DEFS.find((d) => d.id === speciesId) ?? DRAGON_DEFS[3];
+    const def: DragonDef = {
+      ...base,
+      id: `admin_${speciesId}_${Date.now() % 100000}`,
+      name: `${base.name} (invocado)`,
+      home: { x, z },
+      spawnFlag: undefined,
+      deathFlag: `admin_kill_${Date.now()}`,
+      startsAsleep: false,
+      drops: [],
+      lootGold: 0,
+    };
+    const loader = this.assets
+      ? () => this.assets!.loadAnimatedModelShared('black_dragon.glb')
+      : undefined;
+    const dragon = new Dragon(def, this.scene, (x * 31 + z * 7) | 0 || 99, loader);
+    dragon.spawnAt(this.terrain, false);
+    dragon.aggro = true;
+    dragon.setStepHook(() => this.hooks.sound('thud'));
+    this.dragons.push(dragon);
+    this.byId.set(def.id, dragon);
+    return dragon;
   }
 
   // ---------------------------------------------------------------- events

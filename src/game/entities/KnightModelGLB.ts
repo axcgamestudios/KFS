@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { type AnimParams, type CharacterVisual, type WeaponKind } from './CharacterModel';
 import { damp } from '../core/MathUtils';
+import { getFlameFX, type PersistentFlameHandle } from '../world/FlameFX';
 
 /**
  * Fase 5 — KnightModelGLB.
@@ -25,6 +26,9 @@ export interface KnightVisualDeps {
   scene: THREE.Object3D;
   weaponFactory?: (kind: Exclude<WeaponKind, 'none'>) => THREE.Object3D | null;
   shieldFactory?: () => THREE.Object3D | null;
+  /** Villager variant: re-tints the armour into clothes + headwear variety.
+   *  When set, the statue sword & shield NEVER show. */
+  villager?: { palette: import('./CharacterModel').CharacterPalette; seed: number; role?: string };
 }
 
 type Euler3 = [number, number, number];
@@ -52,6 +56,15 @@ export class KnightModelGLB implements CharacterVisual {
   private activeWeapon: THREE.Object3D | null = null;
   private activeShield: THREE.Object3D | null = null;
   private wantsShield = false;
+  private isVillager = false;
+  private blockHitT = 0;   // shield impact recoil (0..1)
+  private blockHitDir = 1;
+  // Fase 8 — night torch: replaces the shield after dusk (light source)
+  private torchProp: THREE.Group | null = null;
+  private torchFlame: PersistentFlameHandle | null = null;
+  private torchLight: THREE.PointLight | null = null;
+  private torchOn = false;
+  private torchT = 0;
 
   private t = 0;
   private phase = Math.random() * 8;
@@ -69,6 +82,7 @@ export class KnightModelGLB implements CharacterVisual {
     this.weaponFactory = deps.weaponFactory;
     this.shieldFactory = deps.shieldFactory;
     const scene = deps.scene;
+    this.isVillager = !!deps.villager;
 
     // collect bones + meshes
     for (const name of BONE_NAMES) {
@@ -77,6 +91,8 @@ export class KnightModelGLB implements CharacterVisual {
     }
     this.swordProp = scene.getObjectByName('j_sword_held') ?? null;
     this.shieldProp = scene.getObjectByName('j_shield_held') ?? null;
+
+    if (deps.villager) this.dressAsVillager(scene, deps.villager);
 
     scene.traverse((o) => {
       const mesh = o as THREE.Mesh;
@@ -131,6 +147,62 @@ export class KnightModelGLB implements CharacterVisual {
     this.setEquippedState(equipped);
   }
 
+  /** Shield / guard just deflected a hit — recoil impulse on the arms. */
+  blockImpact(): void {
+    this.blockHitT = 1;
+    this.blockHitDir = Math.random() < 0.5 ? -1 : 1;
+  }
+
+  /**
+   * Fase 8 — at dusk the shield gives way to a lit torch: a wooden brand
+   * with a real FlameFX flame and a warm flickering light, riding the left
+   * forearm slot. At dawn the torch goes out and the shield returns.
+   */
+  setNightTorch(on: boolean): void {
+    if (on === this.torchOn || this.isVillager) return;
+    this.torchOn = on;
+    if (on) {
+      const g = new THREE.Group();
+      g.name = 'night_torch';
+      const wood = new THREE.MeshStandardMaterial({ color: 0x5a4028, roughness: 0.9 });
+      const stick = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.042, 0.52, 6), wood);
+      stick.position.y = 0.16;
+      stick.castShadow = true;
+      g.add(stick);
+      const wrap = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.062, 0.05, 0.15, 8),
+        new THREE.MeshStandardMaterial({ color: 0x3a2c1c, roughness: 1 }),
+      );
+      wrap.position.y = 0.46;
+      g.add(wrap);
+      this.torchLight = new THREE.PointLight(0xff9a3c, 2.4, 20, 1.7);
+      this.torchLight.position.y = 0.55;
+      g.add(this.torchLight);
+      this.armSlot.add(g);
+      g.rotation.set(-0.35, 0, 0);
+      g.position.set(-0.02, -0.05, 0.1);
+      this.torchProp = g;
+      // the flame mesh lives at the scene root (additive) — synced every frame
+      this.torchFlame = getFlameFX().addFlame(new THREE.Vector3(0, -100, 0), {
+        scale: 0.17, height: 0.42, heat: 0.5,
+      });
+      // the shield hides while the torch burns
+      if (this.activeShield) this.activeShield.visible = false;
+      if (this.shieldProp) this.shieldProp.visible = false;
+    } else {
+      if (this.torchProp) { this.armSlot.remove(this.torchProp); this.torchProp = null; }
+      if (this.torchFlame) { this.torchFlame.dispose(); this.torchFlame = null; }
+      this.torchLight = null;
+      this.torchOn = false;
+      // the shield returns with the sun
+      this.refreshProps();
+    }
+  }
+
+  get nightTorchOn(): boolean {
+    return this.torchOn;
+  }
+
   setEquippedState(equipped: boolean): void {
     if (!equipped && this.weaponKind !== 'none') {
       this.weaponKind = 'none'; // holster: statue sword returns to the hand
@@ -150,14 +222,13 @@ export class KnightModelGLB implements CharacterVisual {
   }
 
   private refreshProps(): void {
-    // statue sword: rests in the right hand whenever no kit weapon is wielded
-    const showKitWeapon = this.weaponKind !== 'none';
-    if (this.swordProp) this.swordProp.visible = !showKitWeapon && this.weaponKind !== 'bow';
-    // kit weapon in the right hand
+    // Kit weapon in the right hand (detaches the previous one first)
     if (this.activeWeapon) {
       this.handSlot.remove(this.activeWeapon);
+      if (this.activeWeapon.parent) this.activeWeapon.parent.remove(this.activeWeapon);
       this.activeWeapon = null;
     }
+    const showKitWeapon = !this.isVillager && this.weaponKind !== 'none';
     if (showKitWeapon && this.weaponFactory) {
       const w = this.weaponFactory(this.weaponKind as Exclude<WeaponKind, 'none'>);
       if (w) {
@@ -176,12 +247,12 @@ export class KnightModelGLB implements CharacterVisual {
         this.tuneWeaponPose(this.weaponKind);
       }
     }
-    // shields: the statue shield yields to the kit shield
+    // shields: the kit shield on the left forearm
     if (this.activeShield) {
       this.armSlot.remove(this.activeShield);
       this.activeShield = null;
     }
-    if (this.wantsShield && this.shieldFactory) {
+    if (this.wantsShield && !this.isVillager && this.shieldFactory) {
       const s = this.shieldFactory();
       if (s) {
         this.armSlot.add(s);
@@ -189,7 +260,132 @@ export class KnightModelGLB implements CharacterVisual {
         this.tuneShieldPose();
       }
     }
-    if (this.shieldProp) this.shieldProp.visible = !this.activeShield;
+    // Fase 7 — NOTHING is shown until equipped:
+    //   · bare hands → no statue sword, no statue shield
+    //   · the statue props only appear as FALLBACKS when the matching kit
+    //     object could not be produced (kit GLB missing)
+    if (this.swordProp) {
+      this.swordProp.visible = !this.isVillager
+        && this.weaponKind !== 'none'
+        && this.weaponKind !== 'bow'
+        && !this.activeWeapon;
+    }
+    if (this.shieldProp) {
+      this.shieldProp.visible = !this.isVillager && this.wantsShield && !this.activeShield;
+    }
+  }
+
+  /**
+   * Fase 7 — villager variant: the repository knight's body re-dressed as a
+   * commoner. Materials are CLONED first (the AssetSystem shares them with
+   * the player), the armour is re-tinted to cloth/leather tones and each NPC
+   * gets seeded headwear (hood / straw hat / cap) + a work tool by role.
+   */
+  private dressAsVillager(scene: THREE.Object3D, v: { palette: import('./CharacterModel').CharacterPalette; seed: number; role?: string }): void {
+    const r = (k: number) => {
+      const x = Math.sin(v.seed * 37.71 + k * 91.13) * 43758.5453;
+      return x - Math.floor(x);
+    };
+    const tint = new THREE.Color();
+    scene.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      const clones = mats.map((m) => (m as THREE.Material).clone());
+      for (const m of clones) {
+        const std = m as THREE.MeshStandardMaterial;
+        if (!std.isMeshStandardMaterial) continue;
+        const isUpper = /upper/i.test(std.name ?? '');
+        const base = isUpper ? v.palette.tunic : v.palette.pants;
+        tint.setHex(base);
+        // seeded shade variety per NPC (avoid clone-army look)
+        const shade = 0.82 + r(9) * 0.36;
+        tint.multiplyScalar(shade);
+        std.color.copy(tint);
+        std.roughness = 0.92;
+        std.metalness = 0.04;
+        std.emissive?.setHex(0x000000);
+        std.needsUpdate = true;
+      }
+      mesh.material = clones.length === 1 ? clones[0] : clones;
+    });
+
+    // --- headwear on the head bone (rigid props ride the skeleton) ---
+    const head = this.bones.get('j_head') ?? scene.getObjectByName('j_head');
+    if (head) {
+      const cloth = (c: number, rough = 0.95) =>
+        new THREE.MeshStandardMaterial({ color: c, roughness: rough, metalness: 0.02 });
+      const wear = r(2);
+      if (wear < 0.34) {
+        // hood
+        const hood = new THREE.Mesh(new THREE.ConeGeometry(0.155, 0.3, 8, 1, true), cloth(v.palette.tunic));
+        hood.position.y = 0.22;
+        hood.rotation.x = -0.14;
+        hood.castShadow = true;
+        hood.userData.villagerProp = true;
+        head.add(hood);
+      } else if (wear < 0.64) {
+        // straw hat (brim + crown)
+        const g = new THREE.Group();
+        const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.28, 0.025, 12), cloth(0xb59a58));
+        const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.15, 0.13, 10), cloth(0xa8894a));
+        crown.position.y = 0.07;
+        brim.castShadow = crown.castShadow = true;
+        g.add(brim, crown);
+        g.userData.villagerProp = true;
+        g.position.y = 0.26;
+        g.rotation.z = (r(3) - 0.5) * 0.24;
+        head.add(g);
+      } else if (wear < 0.85) {
+        // soft cap
+        const cap = new THREE.Mesh(
+          new THREE.SphereGeometry(0.15, 10, 8, 0, Math.PI * 2, 0, Math.PI * 0.52),
+          cloth(v.palette.sleeves),
+        );
+        cap.position.y = 0.17;
+        cap.castShadow = true;
+        cap.userData.villagerProp = true;
+        head.add(cap);
+      }
+    }
+
+    // --- role tool in the right hand ---
+    const wristR = scene.getObjectByName('j_wristR');
+    if (wristR && v.role) {
+      const wood = new THREE.MeshStandardMaterial({ color: 0x6a4e2e, roughness: 0.9, metalness: 0.02 });
+      const steel = new THREE.MeshStandardMaterial({ color: 0x767c82, roughness: 0.42, metalness: 0.78 });
+      if (v.role === 'smith') {
+        const hammer = new THREE.Group();
+        const haft = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.02, 0.34, 6), wood);
+        haft.position.y = 0.14;
+        const hm = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.055, 0.05), steel);
+        hm.position.y = 0.3;
+        hammer.add(haft, hm);
+        hammer.rotation.x = 1.35;
+        hammer.userData.villagerProp = true;
+        wristR.add(hammer);
+      } else if (v.role === 'merchant') {
+        const sack = new THREE.Mesh(
+          new THREE.SphereGeometry(0.09, 8, 6),
+          new THREE.MeshStandardMaterial({ color: 0x9a8a66, roughness: 0.98, metalness: 0.0 }),
+        );
+        sack.scale.y = 1.2;
+        sack.position.set(0.02, -0.14, 0.05);
+        sack.userData.villagerProp = true;
+        wristR.add(sack);
+      } else if (v.role === 'fisher') {
+        const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.008, 0.85, 5), wood);
+        rod.position.set(0, 0.3, 0.05);
+        rod.rotation.x = 0.5;
+        rod.userData.villagerProp = true;
+        wristR.add(rod);
+      }
+    }
+
+    // --- per-NPC build variety ---
+    const build = r(1);
+    const s = 0.93 + r(5) * 0.1 + (build > 0.7 ? 0.05 : 0);
+    this.root.scale.setScalar(s);
   }
 
   /** Per-weapon grip orientation in the hand (tuned by eye). */
@@ -276,7 +472,7 @@ export class KnightModelGLB implements CharacterVisual {
 
     // ---- block overlay ----
     const blockT = p.blockT ?? 0;
-    if (blockT > 0) this.poseBlock(target, blockT, this.activeShield !== null);
+    if (blockT > 0) this.poseBlock(target, blockT, this.activeShield !== null || (!!this.shieldProp && this.shieldProp.visible));
 
     // ---- attack overlays (timed curves — applied directly) ----
     if (p.attackT > 0) {
@@ -305,9 +501,23 @@ export class KnightModelGLB implements CharacterVisual {
       for (const m of this.flashMats) m.emissive.setRGB(e, e * 0.12, e * 0.08);
     }
     if (this.hitT > 0) this.hitT = Math.max(0, this.hitT - p.dt * 2.6);
-    // the statue shield tucks away while aiming a bow
-    if (this.shieldProp) {
-      this.shieldProp.visible = !this.activeShield && (p.bowDraw ?? 0) < 0;
+    // the statue shield (fallback only) tucks away while aiming a bow
+    if (this.shieldProp && !this.isVillager) {
+      this.shieldProp.visible = this.wantsShield && !this.activeShield && (p.bowDraw ?? 0) < 0;
+    }
+    // shield impact recoil decay
+    if (this.blockHitT > 0) this.blockHitT = Math.max(0, this.blockHitT - p.dt * 4.2);
+    // Fase 8 — the night torch rides the left forearm: sync the flame to the
+    // brand head and flicker the light with the same rhythm
+    if (this.torchOn && this.torchProp && this.torchFlame) {
+      this.torchT += p.dt;
+      this.torchProp.updateWorldMatrix(true, false);
+      this.torchFlame.position.setFromMatrixPosition(this.torchProp.matrixWorld);
+      this.torchFlame.position.y += 0.55;
+      if (this.torchLight) {
+        const fl = 0.8 + Math.sin(this.torchT * 11.3) * 0.14 + Math.sin(this.torchT * 23.7) * 0.07;
+        this.torchLight.intensity = 2.4 * fl;
+      }
     }
     // the kit weapon stays in the hand; while swimming it is shouldered up
     if (this.activeWeapon) {
@@ -464,23 +674,28 @@ export class KnightModelGLB implements CharacterVisual {
   private poseBlock(t: PoseTarget, blockT: number, hasKitShield: boolean): void {
     const k = Math.min(1, blockT);
     const L = THREE.MathUtils.lerp;
+    // impact recoil: quick pushback on the guard side
+    const hit = this.blockHitT * this.blockHitT;
+    const shake = hit * this.blockHitDir;
     if (hasKitShield) {
-      // shield raised across the front, braced
-      t.j_shoulderL = [L(t.j_shoulderL[0], -1.05, k), 0, L(t.j_shoulderL[1], 0.32, k)];
-      t.j_elbowL = [L(t.j_elbowL[0], -0.8, k), 0, 0];
-      t.j_shoulderR = [L(t.j_shoulderR[0], -0.32, k), 0, L(t.j_shoulderR[1], -0.1, k)];
-      t.j_elbowR = [L(t.j_elbowR[0], -1.4, k), 0, 0];
+      // shield raised across the front, braced behind it
+      t.j_shoulderL = [L(t.j_shoulderL[0], -1.02, k) + hit * 0.5, 0, L(t.j_shoulderL[1], 0.34, k) + shake * 0.12];
+      t.j_elbowL = [L(t.j_elbowL[0], -0.78, k), 0, 0];
+      t.j_shoulderR = [L(t.j_shoulderR[0], -0.3, k) + hit * 0.3, 0, L(t.j_shoulderR[1], -0.14, k)];
+      t.j_elbowR = [L(t.j_elbowR[0], -1.45, k), 0, 0];
+      t.j_head = [L(t.j_head[0], 0.12, k), 0, 0];
     } else {
-      // no shield: sword held vertical in guard
-      t.j_shoulderR = [L(t.j_shoulderR[0], -0.95, k), 0, L(t.j_shoulderR[1], -0.28, k)];
-      t.j_elbowR = [L(t.j_elbowR[0], -1.3, k), 0, 0];
-      t.j_shoulderL = [L(t.j_shoulderL[0], -0.5, k), 0, 0];
-      t.j_elbowL = [L(t.j_elbowL[0], -1.0, k), 0, 0];
+      // no shield: weapon held vertical in a high guard
+      t.j_shoulderR = [L(t.j_shoulderR[0], -1.0, k) + hit * 0.45, 0, L(t.j_shoulderR[1], -0.3, k) + shake * 0.1];
+      t.j_elbowR = [L(t.j_elbowR[0], -1.32, k), 0, 0];
+      t.j_shoulderL = [L(t.j_shoulderL[0], -0.55, k) + hit * 0.3, 0, L(t.j_shoulderL[1], 0.1, k)];
+      t.j_elbowL = [L(t.j_elbowL[0], -1.05, k), 0, 0];
+      t.j_head = [L(t.j_head[0], 0.1, k), 0, 0];
     }
-    t.j_torso = [L(t.j_torso[0], 0.14, k), t.j_torso[1], 0];
-    t.j_kneeR = [t.j_kneeR[0] + 0.28 * k, 0, 0];
-    t.j_kneeL = [t.j_kneeL[0] + 0.3 * k, 0, 0];
-    this.inner.position.y -= 0.05 * k;
+    t.j_torso = [L(t.j_torso[0], 0.17, k) + hit * 0.2, (t.j_torso[1] ?? 0) + shake * 0.08, 0];
+    t.j_kneeR = [t.j_kneeR[0] + 0.3 * k, 0, 0];
+    t.j_kneeL = [t.j_kneeL[0] + 0.34 * k, 0, 0];
+    this.inner.position.y -= 0.06 * k;
   }
 
   /** Attack curves. attackT: 0→1 across the whole swing. */
@@ -631,6 +846,19 @@ export class KnightModelGLB implements CharacterVisual {
   }
 
   dispose(): void {
+    if (this.isVillager) {
+      // Villager clones SHARE geometry with the player's knight (SkeletonUtils
+      // clone) — only the per-instance headwear may be freed.
+      this.root.traverse((o) => {
+        const mesh = o as THREE.Mesh;
+        if (mesh.isMesh && mesh.userData.villagerProp) {
+          mesh.geometry?.dispose();
+          const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+          for (const m of mats) (m as THREE.Material).dispose();
+        }
+      });
+      return;
+    }
     this.root.traverse((o) => {
       const mesh = o as THREE.Mesh;
       if (mesh.isMesh) {

@@ -120,7 +120,8 @@ export class Dragon {
       : new DragonModel(def.colors, def.scale, def.wyvern);
     this.group.add(this.model.root);
     scene.add(this.group);
-    this.legHeight = 1.28 * def.scale;
+    // Fase 8 — the GLB normalises to a 10.5 m body (was 7.5): the hips sit higher
+    this.legHeight = 1.8 * def.scale;
     let a = (seed * 2654435761) >>> 0 || 7;
     this.rng = () => {
       a = (a + 0x6d2b79f5) | 0;

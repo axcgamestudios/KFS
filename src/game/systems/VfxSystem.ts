@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { getFlameFX } from '../world/FlameFX';
 
 /**
  * Pooled combat/creature VFX (Fase 3): dragon fire, embers, smoke, weapon
@@ -99,7 +100,6 @@ class SpritePool {
 }
 
 export class VfxSystem {
-  private fire: SpritePool;     // dragon breath core (additive)
   private embers: SpritePool;   // small rising sparks
   private smoke: SpritePool;    // dark lingering smoke
   private sparks: SpritePool;   // weapon/block impacts (additive)
@@ -111,7 +111,8 @@ export class VfxSystem {
   private tmp2 = new THREE.Vector3();
 
   constructor(scene: THREE.Scene) {
-    this.fire = new SpritePool(scene, 140, 'rgba(255,140,40,1)', true);
+    // Fase 7 — real shader flames live in the shared FlameFX singleton
+    getFlameFX(scene);
     this.embers = new SpritePool(scene, 50, 'rgba(255,200,90,1)', true);
     this.smoke = new SpritePool(scene, 40, 'rgba(40,36,34,0.85)', false);
     this.sparks = new SpritePool(scene, 48, 'rgba(255,230,160,1)', true);
@@ -127,9 +128,13 @@ export class VfxSystem {
     }
   }
 
-  /** One frame of dragon fire breath: a cone of fire + embers from `from` toward `dir`. */
+  /** One frame of dragon fire breath: a cone of real shader flames + embers
+   *  from `from` toward `dir`. */
   fireBreath(from: THREE.Vector3, dir: THREE.Vector3, dt: number, power = 1): void {
-    const spawnCount = Math.min(9, Math.max(2, Math.round(dt * 160 * power)));
+    const fx = getFlameFX();
+    // Fase 8 — fewer, hotter tongues: the additive stack was saturating
+    // into a milky cone. 6/frame with lower opacity reads as true fire.
+    const spawnCount = Math.min(6, Math.max(2, Math.round(dt * 100 * power)));
     for (let i = 0; i < spawnCount; i++) {
       const dist = Math.random() * 9 * power;
       this.tmp.copy(from).addScaledVector(dir, dist);
@@ -140,8 +145,10 @@ export class VfxSystem {
       this.tmp.z += (Math.random() - 0.5) * spread * 2;
       this.tmp2.copy(dir).multiplyScalar(11 + Math.random() * 7);
       this.tmp2.y += 0.8;
-      this.fire.spawn(this.tmp, 2.1 + Math.random() * 1.7 * power, 0.55 + Math.random() * 0.3, this.tmp2, {
-        grow: 2.6, drag: 1.6, opacity: 0.75,
+      // white-hot near the mouth → cooler oranges down the cone
+      const heat = 0.85 - Math.min(0.55, dist * 0.07);
+      fx.spawn(this.tmp, 1.0 + Math.random() * 0.75 * power, 0.5 + Math.random() * 0.32, this.tmp2, {
+        heat, grow: 2.2, drag: 1.5, gravity: 0.5, opacity: 0.55,
       });
       if (Math.random() < 0.3) {
         this.tmp2.copy(dir).multiplyScalar(6 + Math.random() * 8);
@@ -163,8 +170,7 @@ export class VfxSystem {
 
   /** Small fire puff (mouth glow while charging, crash impacts). */
   firePuff(pos: THREE.Vector3, scale = 1.6): void {
-    this.tmp2.set(0, 1.2, 0);
-    this.fire.spawn(pos, scale, 0.5, this.tmp2, { grow: 2, drag: 2, opacity: 0.5 });
+    getFlameFX().burst(pos, scale * 0.8, 4, 0.7);
     this.borrowLight(pos, 1.6, 0.3);
   }
 
@@ -262,7 +268,7 @@ export class VfxSystem {
   }
 
   update(dt: number): void {
-    this.fire.update(dt);
+    getFlameFX().update(); // frame-guarded: safe alongside TorchSystem's call
     this.embers.update(dt);
     this.smoke.update(dt);
     this.sparks.update(dt);

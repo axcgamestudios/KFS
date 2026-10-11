@@ -59,6 +59,15 @@ export interface GameApi {
   // Misc
   playtime(): number;
   clickResumeHint(): void;
+  // Fase 8 — admin panel (U+I+O)
+  /** Spawn a world entity near the player. Returns a human-readable location. */
+  adminSpawn(kind: 'ship' | 'horse' | 'dragon', species?: string): string | null;
+  /** Toggle the free-fly mode. Returns the new state. */
+  adminFly(on: boolean): boolean;
+  /** Is free-fly active right now? */
+  adminFlying(): boolean;
+  /** Jump the clock (0..1 day fraction). */
+  adminSetTime(f: number): void;
 }
 
 /** Live implementation is installed by the Game instance at boot. */
@@ -98,4 +107,8 @@ export const gameApi: GameApi = {
   narrationBlip: () => undefined,
   playtime: () => 0,
   clickResumeHint: () => undefined,
+  adminSpawn: () => null,
+  adminFly: () => false,
+  adminFlying: () => false,
+  adminSetTime: () => undefined,
 };

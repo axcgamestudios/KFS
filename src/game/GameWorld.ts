@@ -118,7 +118,7 @@ export async function buildWorld(
   scene: THREE.Scene,
   colliders: ColliderRegistry,
   state: GameState,
-  quality: 'low' | 'medium' | 'high' | 'ultra',
+  quality: 'xlow' | 'low' | 'medium' | 'high' | 'ultra',
   onProgress?: (frac: number, label: string) => void,
 ): Promise<WorldRefs> {
   const prog = (f: number, l: string) => onProgress?.(f, l);
@@ -130,7 +130,7 @@ export async function buildWorld(
   //     structures receive textured materials right away. ---
   const assets = new AssetSystem();
   prog(0.03, 'Cargando texturas antiguas…');
-  await assets.loadCoreTextures(quality === 'low' ? 1 : quality === 'medium' ? 2 : quality === 'high' ? 4 : 8);
+  await assets.loadCoreTextures(quality === 'xlow' || quality === 'low' ? 1 : quality === 'medium' ? 2 : quality === 'high' ? 4 : 8);
   assets.applyToStructureMaterials(MAT as unknown as Record<string, THREE.MeshStandardMaterial>);
 
   prog(0.06, 'Esculpiendo montañas y valles…');
@@ -155,7 +155,7 @@ export async function buildWorld(
 
   prog(0.10, 'Plantando los bosques antiguos…');
   const vegetation = new VegetationSystem(
-    terrainHeight, quality === 'low' ? 0 : quality === 'medium' ? 0.4 : quality === 'high' ? 0.75 : 1, scene,
+    terrainHeight, quality === 'xlow' || quality === 'low' ? 0 : quality === 'medium' ? 0.4 : quality === 'high' ? 0.75 : 1, scene,
     assets.mapleBark && assets.mapleLeaf ? { bark: assets.mapleBark, leaf: assets.mapleLeaf } : undefined,
   );
   // Trees are solid trunks: register/unregister colliders with the streaming
@@ -292,22 +292,26 @@ export async function buildWorld(
   crateB.build(crateGroup, { shadows: true });
   scene.add(crateGroup);
 
-  // Herb spots (pétalos de marfil)
+  // Herb spots (pétalos de marfil) — Fase 8: the FIRST collect quest must be
+  // a stroll, not an expedition. Five petals bloom right around the village
+  // (square, meadow and the path to the docks); a few distant extras reward
+  // the curious.
   const herbSpots: Array<[string, number, number]> = [
-    ['herb_1', -80, -178],
-    ['herb_2', -98, -190],
-    ['herb_3', -252, -150],
-    ['herb_4', -135, -245],
-    ['herb_5', 35, 95],
+    ['herb_1', 36, 142],    // east of the square
+    ['herb_2', 5, 152],     // west meadow
+    ['herb_3', 16, 126],    // north meadow
+    ['herb_4', 34, 163],    // by the road to the docks
+    ['herb_5', 10, 134],    // NW corner
   ];
   for (const [id, x, z] of herbSpots) {
     const y = terrainHeight.height(x, z);
     herbs.push({ id, pos: new THREE.Vector3(x, y, z), mesh: createHerb(x, y, z, scene) });
   }
-  // A few extra petals near the falls trail for generous players
+  // A few extra petals far afield for generous players (same as before)
   const extraSpots: Array<[string, number, number]> = [
-    ['herb_6', -70, -160],
-    ['herb_7', -230, -128],
+    ['herb_6', -80, -178],
+    ['herb_7', -98, -190],
+    ['herb_8', 35, 95],
   ];
   for (const [id, x, z] of extraSpots) {
     const y = terrainHeight.height(x, z);

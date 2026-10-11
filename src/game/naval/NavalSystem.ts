@@ -1,11 +1,12 @@
 import * as THREE from 'three';
-import { Ship, type CannonShot } from './Ship';
+import { Ship, type CannonShot, type ShipKind } from './Ship';
 import { CharacterModel, type CharacterPalette } from '../entities/CharacterModel';
 import type { TerrainHeight } from '../world/TerrainHeight';
 import type { WaterSystem } from '../world/WaterSystem';
 import type { GameState } from '../systems/GameState';
 import { WIND } from '../world/WorldConfig';
 import { clamp, damp, dampAngle } from '../core/MathUtils';
+import { getFlameFX } from '../world/FlameFX';
 
 /** HUD snapshot while sailing (consumed by the React layer). */
 export interface SailingHud {
@@ -189,6 +190,11 @@ export class NavalSystem {
   boarding: { brain: EnemyBrain; crew: BoardingCrew[]; done: boolean; endTimer: number } | null = null;
   private sinkRespawn: { timer: number } | null = null;
 
+  /** Fase 7 — optional GLB hull provider (the repository's pirate_ship.glb).
+   *  When set, every spawned ship wears the real model (caravels get warm
+   *  cream sails, pirates keep the black ones). */
+  shipModelLoader?: (kind: ShipKind) => Promise<THREE.Object3D | null>;
+
   /** Fase 3 hook: cannonballs can strike flying dragons (sea wyvern fight).
    *  Return an object whose damage(amount) applies the hit, or null. */
   dragonHitTest: ((pos: THREE.Vector3, prevPos?: THREE.Vector3) => { damage: (amount: number) => void } | null) | null = null;
@@ -210,6 +216,7 @@ export class NavalSystem {
     private cb: NavalCallbacks,
   ) {
     this.splashes = new SpritePool(scene, 40, 'rgba(230,242,238,0.95)');
+    getFlameFX(scene); // Fase 7 — cannon fire wears real flames
     this.smoke = new SpritePool(scene, 48, 'rgba(70,66,62,0.8)');
     this.flashes = new SpritePool(scene, 24, 'rgba(255,170,60,1)', true);
     const ballGeo = new THREE.SphereGeometry(0.15, 8, 6);
@@ -237,8 +244,50 @@ export class NavalSystem {
     ship.onCreak = () => this.cb.sound('creak');
     this.scene.add(ship.group);
     this.playerShip = ship;
+    this.dressShip(ship);
     this.applyPerks();
     return ship;
+  }
+
+  /** Fase 7 — attach the repository GLB hull to a ship when available. */
+  private dressShip(ship: Ship): void {
+    if (!this.shipModelLoader) return;
+    this.shipModelLoader(ship.kind).then((model) => {
+      if (!model || ship.sunk) return;
+      // the player's caravel gets warm cream canvas; pirates keep black sails
+      ship.attachGlb(model, ship.kind === 'caravel' ? { sailTint: 0xd8c49a } : {});
+    }).catch(() => { /* procedural hull stays */ });
+  }
+
+  /**
+   * Fase 8 — admin panel: drop a decorative anchored ship near a point.
+   * It rides the waves (buoyancy on) but carries no AI — it will not chase
+   * or fire at the player. Returns the spawn position.
+   */
+  spawnAdminShip(x: number, z: number): THREE.Vector3 {
+    // find the nearest deep-water spot (ring scan)
+    let bestX = x, bestZ = z, bestD = Infinity;
+    for (let r = 6; r <= 90; r += 6) {
+      for (let a = 0; a < 12; a++) {
+        const ang = (a / 12) * Math.PI * 2;
+        const sx = x + Math.cos(ang) * r;
+        const sz = z + Math.sin(ang) * r;
+        if (this.terrain.height(sx, sz) < -2.2) {
+          const d = Math.hypot(sx - x, sz - z);
+          if (d < bestD) { bestD = d; bestX = sx; bestZ = sz; }
+        }
+      }
+      if (bestD < Infinity) break;
+    }
+    const ship = new Ship({
+      id: `admin_${Date.now() % 100000}`,
+      name: 'Navío Errante', kind: 'pirate', isPlayer: false,
+      x: bestX, z: bestZ, heading: Math.random() * Math.PI * 2,
+    });
+    ship.anchored = true;
+    this.scene.add(ship.group);
+    this.dressShip(ship);
+    return new THREE.Vector3(bestX, 0, bestZ);
   }
 
   spawnEnemies(): void {
@@ -248,6 +297,7 @@ export class NavalSystem {
       x: -505, z: -378, heading: 2.2, hullHp: 120, cannonCd: 6.5,
     });
     this.scene.add(gaviota.group);
+    this.dressShip(gaviota);
     this.enemies.push({
       ship: gaviota,
       mode: 'patrol',
@@ -268,6 +318,7 @@ export class NavalSystem {
       x: 140, z: 520, heading: 0.4, hullHp: 100, cannonCd: 7,
     });
     this.scene.add(zharpa.group);
+    this.dressShip(zharpa);
     this.enemies.push({
       ship: zharpa,
       mode: 'patrol',
@@ -342,8 +393,9 @@ export class NavalSystem {
       dir.normalize();
       const speed = 32 + Math.random() * 3;
       this.spawnBall(shot.from, dir.multiplyScalar(speed), fromPlayer);
-      // Muzzle flash + gun smoke
-      this.flashes.spawn(shot.from, 1.6, 0.14, 3);
+      // Muzzle flash + gun smoke (Fase 7: real flame burst at the muzzle)
+      getFlameFX().burst(shot.from, 0.9, 3, 0.75);
+      this.flashes.spawn(shot.from, 1.2, 0.14, 3);
       this.smoke.spawn(shot.from.clone().add(new THREE.Vector3(0, 0.4, 0)), 1.8, 1.6, 1.4,
         new THREE.Vector3(dir.x * 2, 0.6, dir.z * 2));
       if (i === 0) this.cb.sound('cannon');
@@ -943,6 +995,7 @@ export class NavalSystem {
               tgt.ship.applyDamage(dmg);
             }
             this.smoke.spawn(p.clone(), 1.4, 1.1, 1.6, new THREE.Vector3(0, 1.2, 0));
+            getFlameFX().burst(p.clone(), 0.8, 3, 0.6);
             this.flashes.spawn(p.clone(), 1.1, 0.1, 2);
             this.cb.sound('hit_hull');
             if (ball.fromPlayer && tgt.ship.isPlayer === false) {

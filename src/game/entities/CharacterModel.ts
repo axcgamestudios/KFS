@@ -62,6 +62,10 @@ export interface CharacterVisual {
   setEquippedState(equipped: boolean): void;
   faceYaw?(yaw: number): void;
   setSwordEquipped?(equipped: boolean): void;
+  /** Fase 7 — guard deflected a hit: recoil impulse on arms/torso. */
+  blockImpact?(): void;
+  /** Fase 8 — dusk lights the night torch in place of the shield. */
+  setNightTorch?(on: boolean): void;
   dispose(): void;
 }
 

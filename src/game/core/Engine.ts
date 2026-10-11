@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { PostFX } from '../world/PostFX';
 
 /** Graphics quality presets. */
-export type QualityLevel = 'low' | 'medium' | 'high' | 'ultra';
+export type QualityLevel = 'xlow' | 'low' | 'medium' | 'high' | 'ultra';
 
 export interface QualitySettings {
   pixelRatioCap: number;
@@ -13,13 +13,25 @@ export interface QualitySettings {
   anisotropy: number;
   /** Fase 4 — cinematic post chain (bloom + MSAA) on Ultra. */
   postfx: boolean;
+  /** Fase 8 — fog density multiplier (xlow hides the world edge). */
+  fogMul: number;
+  /** Fase 8 — water mesh segments per side (detail × perf). */
+  waterSegments: number;
+  /** Fase 8 — waves animate only within this radius of the camera (m).
+   *  Beyond it the surface stays flat: far water is calm and cheap. */
+  waveMotionRadius: number;
+  /** Fase 8 — NPCs animate their pose within this radius (m). */
+  npcAnimDistance: number;
+  /** Fase 8 — creature/tree wind & dressing distance scale. */
+  streamDistance: number;
 }
 
 export const QUALITY_PRESETS: Record<QualityLevel, QualitySettings> = {
-  low:    { pixelRatioCap: 0.75, shadowMapSize: 0,    shadowsEnabled: false, viewChunkRadius: 4, grassDensity: 0.0,  anisotropy: 1, postfx: false },
-  medium: { pixelRatioCap: 1.0,  shadowMapSize: 1024, shadowsEnabled: true,  viewChunkRadius: 5, grassDensity: 0.4,  anisotropy: 2, postfx: false },
-  high:   { pixelRatioCap: 1.25, shadowMapSize: 2048, shadowsEnabled: true,  viewChunkRadius: 6, grassDensity: 0.75, anisotropy: 4, postfx: false },
-  ultra:  { pixelRatioCap: 1.5,  shadowMapSize: 4096, shadowsEnabled: true,  viewChunkRadius: 7, grassDensity: 1.0,  anisotropy: 8, postfx: true },
+  xlow:   { pixelRatioCap: 0.62, shadowMapSize: 0,    shadowsEnabled: false, viewChunkRadius: 2, grassDensity: 0.0,  anisotropy: 1, postfx: false, fogMul: 3.4, waterSegments: 96,  waveMotionRadius: 55,  npcAnimDistance: 28, streamDistance: 0.45 },
+  low:    { pixelRatioCap: 0.75, shadowMapSize: 0,    shadowsEnabled: false, viewChunkRadius: 4, grassDensity: 0.0,  anisotropy: 1, postfx: false, fogMul: 1.7, waterSegments: 160, waveMotionRadius: 130, npcAnimDistance: 45, streamDistance: 0.7 },
+  medium: { pixelRatioCap: 1.0,  shadowMapSize: 1024, shadowsEnabled: true,  viewChunkRadius: 5, grassDensity: 0.4,  anisotropy: 2, postfx: false, fogMul: 1.15, waterSegments: 224, waveMotionRadius: 260, npcAnimDistance: 70, streamDistance: 0.9 },
+  high:   { pixelRatioCap: 1.25, shadowMapSize: 2048, shadowsEnabled: true,  viewChunkRadius: 6, grassDensity: 0.75, anisotropy: 4, postfx: false, fogMul: 1.0, waterSegments: 320, waveMotionRadius: 520, npcAnimDistance: 95, streamDistance: 1.0 },
+  ultra:  { pixelRatioCap: 1.5,  shadowMapSize: 4096, shadowsEnabled: true,  viewChunkRadius: 7, grassDensity: 1.0,  anisotropy: 8, postfx: true,  fogMul: 0.92, waterSegments: 384, waveMotionRadius: 2000, npcAnimDistance: 130, streamDistance: 1.0 },
 };
 
 /**

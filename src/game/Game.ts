@@ -12,6 +12,8 @@ import { KnightModelGLB } from './entities/KnightModelGLB';
 import { KitSystem } from './world/KitSystem';
 import { CameraRig } from './entities/CameraRig';
 import { NPC } from './entities/NPC';
+import { villagerPalette, VillagerModel, type CharacterVisual } from './entities/CharacterModel';
+import { VillagerModelGLB } from './entities/VillagerModelGLB';
 import { NavalSystem, type SailingHud } from './naval/NavalSystem';
 import type { Ship } from './naval/Ship';
 import { VfxSystem } from './systems/VfxSystem';
@@ -97,6 +99,9 @@ export class Game {
   private lastIntroShot = -1;
   private musicIntensityTarget = 0.15;
   private dead = false;
+  private nightTorchActive = false;
+  /** Fase 8 — NPCs animate their poses only inside this radius (quality). */
+  private npcAnimDistance = 95;
   /** Fase 4 — riding state mirrors (for save & HUD). */
   private ridingGait = '';
   private pollTimer = 0;
@@ -167,6 +172,11 @@ export class Game {
       (frac, label) => store.setProgress(0.05 + frac * 0.75, label),
     );
     this.world = world;
+    // Fase 8 — boot-time quality ladder (fog · water detail · NPC distance)
+    const q0 = this.engine.quality;
+    world.sky.qualityFogMul = q0.fogMul;
+    world.water.setDetail(q0.waterSegments, q0.waveMotionRadius);
+    this.npcAnimDistance = q0.npcAnimDistance;
 
     // Fase 4 — cinematic post chain (Ultra), attached to the engine loop
     this.postfx = new PostFX(this.engine.renderer, this.engine.scene, this.engine.camera);
@@ -239,6 +249,11 @@ export class Game {
     );
     this.naval.dockSpawn = world.dockSpawn;
 
+    // Fase 7 — every ship wears the repository's pirate_ship.glb hull
+    // (caravels are re-canvassed to warm cream, pirates keep the black sails)
+    this.naval.shipModelLoader = () =>
+      world.assets.loadModel('pirate_ship.glb').catch(() => null);
+
     // --- Fase 3: VFX pool, player combat and the dragons of Eldoria ---
     this.vfx = new VfxSystem(this.engine.scene);
     this.combat = new CombatSystem(this.engine.scene, this.player, this.state, this.vfx, {
@@ -307,6 +322,7 @@ export class Game {
     this.player.onBlockSparks = (pos) => {
       this.vfx!.blockSparks(pos);
       this.audio.playEvent('block');
+      this.player!.model.blockImpact?.();
     };
     this.naval.onDisembark = (spot) => {
       const p = this.player!;
@@ -360,7 +376,24 @@ export class Game {
     this.endings = new EndingSystem(this.state);
 
     for (const def of world.npcDefs) {
-      this.npcs.push(new NPC(def, this.engine.scene));
+      // Fase 8 — NPCs wear the repository's fuse_civilian_2.glb (Mixamo
+      // civilian, procedurally animated idle/walk/talk). Falls back to the
+      // procedural VillagerModel when the GLB is unavailable.
+      let visual: CharacterVisual | undefined;
+      try {
+        const pal = villagerPalette(def.paletteIndex);
+        const seed = def.paletteIndex * 13.7 + def.name.length;
+        visual = new VillagerModelGLB({
+          palette: pal,
+          seed,
+          role: def.role,
+          assets: world.assets,
+          fallback: () => new VillagerModel(pal, seed, def.role),
+        });
+      } catch {
+        visual = undefined;
+      }
+      this.npcs.push(new NPC(def, this.engine.scene, visual));
     }
 
     this.buildInteractables();
@@ -1409,6 +1442,16 @@ export class Game {
       store.notify('info', `Día ${w.sky.dayCount} en Aldmor`, formatClock(w.sky.dayFraction));
     }
 
+    // --- Fase 8 — dusk swaps the shield for a lit torch (dawn brings it back) ---
+    const isNight = w.sky.nightFactor > 0.5;
+    if (isNight !== this.nightTorchActive && this.player) {
+      this.nightTorchActive = isNight;
+      this.player.model.setNightTorch?.(isNight);
+      if (isNight) {
+        store.notify('info', 'Cae la noche', 'Enciendes una antorcha para iluminar el camino.');
+      }
+    }
+
     if (sailing && !naval.boardingActive) {
       // ================= SAILING MODE — the player holds the wheel =================
       const ship = naval.playerShip!;
@@ -1579,9 +1622,12 @@ export class Game {
     const foamMat = w.waterfallFoam.material as THREE.MeshBasicMaterial;
     foamMat.opacity = 0.42 + Math.sin(windTime.value * 3.1) * 0.12;
 
-    // NPC updates
+    // NPC updates (Fase 8 — pose animation culled by distance/quality;
+    // far villagers keep their schedule but stop animating, so distant
+    // streets stop saturating the frame)
     for (const npc of this.npcs) {
-      npc.update(dt, w.sky.dayFraction, w.terrainHeight, this.colliders, p.position);
+      const near = npc.position.distanceToSquared(p.position) < this.npcAnimDistance * this.npcAnimDistance;
+      npc.update(dt, w.sky.dayFraction, w.terrainHeight, this.colliders, p.position, near);
     }
 
     // --- Interaction scan ---
@@ -2032,9 +2078,13 @@ export class Game {
       // Fase 4 — post chain follows the quality preset (Ultra only)
       this.postfx?.setEnabled(this.engine.quality.postfx);
       this.world?.terrain.updateQuality(s.quality);
-      this.world?.vegetation.setGrassDensity(
-        s.quality === 'low' ? 0 : s.quality === 'medium' ? 0.4 : s.quality === 'high' ? 0.75 : 1,
-      );
+      // Fase 8 — quality drives the whole optimisation ladder:
+      //   grass density · water detail & wave-motion radius · fog · NPC pose
+      const q = this.engine.quality;
+      this.world?.vegetation.setGrassDensity(q.grassDensity);
+      this.world?.water.setDetail(q.waterSegments, q.waveMotionRadius);
+      if (this.world) this.world.sky.qualityFogMul = q.fogMul;
+      this.npcAnimDistance = q.npcAnimDistance;
       // Rebuild the grass ring at the new density right away
       if (this.player) {
         this.world?.vegetation.refreshGrassNear(this.player.position.x, this.player.position.z);
@@ -2059,6 +2109,52 @@ export class Game {
     gameApi.clickResumeHint = () => {
       const phase = useGameStore.getState().phase;
       if (phase === 'playing') this.input.requestLock();
+    };
+
+    // --- Fase 8 — admin panel (U+I+O): spawn anything + free-fly ---
+    gameApi.adminSpawn = (kind, species) => {
+      const p = this.player;
+      if (!p) return null;
+      // spawn point: 12 m in front of the player, on open ground
+      const sx = p.position.x + Math.sin(p.yaw) * 14;
+      const sz = p.position.z + Math.cos(p.yaw) * 14;
+      if (kind === 'ship') {
+        const w = this.naval!.spawnAdminShip(p.position.x, p.position.z);
+        return `Barco fondeado en el agua (${w.x.toFixed(0)}, ${w.z.toFixed(0)})`;
+      }
+      if (kind === 'horse') {
+        const coats = ['bay', 'black', 'chestnut', 'grey'] as const;
+        const coat = coats[Math.floor(Math.random() * coats.length)];
+        const names = ['Siroco', 'Vendaval', 'Marea', 'Bruma', 'Ceniza', 'Tempestad'];
+        const name = names[Math.floor(Math.random() * names.length)];
+        this.mounts!.spawnHorse(
+          `admin_h_${Date.now() % 100000}`, name, coat,
+          sx, sz, true, 0,
+        );
+        return `${name} (${coat}) apareció frente a ti`;
+      }
+      if (kind === 'dragon') {
+        const d = this.dragons!.adminSpawn(species ?? 'drake_stones', sx, sz);
+        return d ? `${d.def.name} invocado — ¡cuidado!` : null;
+      }
+      return null;
+    };
+    gameApi.adminFly = (on) => {
+      if (!this.player) return false;
+      this.player.flying = on;
+      if (on) {
+        this.player.velocity.set(0, 0, 0);
+        useGameStore.getState().notify('info', 'Modo vuelo ACTIVADO', 'ESPACIO sube · E baja · MAYÚS acelera');
+      } else {
+        this.player.verticalVel = 0;
+        useGameStore.getState().notify('info', 'Modo vuelo desactivado', 'La gravedad vuelve a mandar.');
+      }
+      return on;
+    };
+    gameApi.adminFlying = () => !!this.player?.flying;
+    gameApi.adminSetTime = (f) => {
+      if (!this.world) return;
+      this.world.sky.dayFraction = Math.max(0, Math.min(0.999, f));
     };
   }
 

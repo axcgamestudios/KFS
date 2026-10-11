@@ -126,7 +126,7 @@ export default function MainMenu() {
           alt="Kingdoms of the Forgotten Seas"
           fill
           priority
-          className="object-cover object-center"
+          className="object-cover object-top"
           sizes="100vw"
         />
       </div>

@@ -2,38 +2,23 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { MAT } from './Materials';
 import type { ColliderRegistry } from '../systems/ColliderRegistry';
+import { getFlameFX, type PersistentFlameHandle } from '../world/FlameFX';
 
 /** ---------------- Torch posts with a shared flickering light pool ---------------- */
 
-function makeFlameTexture(): THREE.Texture {
-  const c = document.createElement('canvas');
-  c.width = c.height = 64;
-  const ctx = c.getContext('2d')!;
-  const grad = ctx.createRadialGradient(32, 40, 2, 32, 36, 30);
-  grad.addColorStop(0, 'rgba(255, 240, 190, 1)');
-  grad.addColorStop(0.35, 'rgba(255, 170, 60, 0.85)');
-  grad.addColorStop(0.7, 'rgba(200, 80, 20, 0.35)');
-  grad.addColorStop(1, 'rgba(120, 40, 10, 0)');
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, 64, 64);
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
-
 interface Torch {
   pos: THREE.Vector3;
-  flame: THREE.Sprite;
+  flame: PersistentFlameHandle;
 }
 
 export class TorchSystem {
   private torches: Torch[] = [];
   private lights: THREE.PointLight[] = [];
-  private flameTex: THREE.Texture;
   private time = 0;
 
   constructor(private scene: THREE.Scene, lightCount = 4) {
-    this.flameTex = makeFlameTexture();
+    // Fase 7 — the shared procedural-flame system (created here on first use)
+    getFlameFX(scene);
     for (let i = 0; i < lightCount; i++) {
       const l = new THREE.PointLight(0xff9a3c, 0, 26, 1.8);
       l.castShadow = false;
@@ -42,7 +27,7 @@ export class TorchSystem {
     }
   }
 
-  /** Add a torch post (visual) + flame. */
+  /** Add a torch post (visual) + a living flame. */
   addTorchPost(x: number, y: number, z: number, colliders?: ColliderRegistry): void {
     // Post
     const post = new THREE.Mesh(
@@ -56,15 +41,11 @@ export class TorchSystem {
     const bowl = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.1, 0.16, 8), MAT.metal);
     bowl.position.set(x, y + 2.62, z);
     this.scene.add(bowl);
-    const flame = new THREE.Sprite(new THREE.SpriteMaterial({
-      map: this.flameTex,
-      transparent: true,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-    }));
-    flame.position.set(x, y + 2.85, z);
-    flame.scale.set(0.7, 1.0, 1);
-    this.scene.add(flame);
+    // Fase 7 — real shader flame (teardrop + fbm turbulence)
+    const flame = getFlameFX().addFlame(
+      new THREE.Vector3(x, y + 2.68, z),
+      { scale: 0.34, height: 0.78, heat: 0.42 },
+    );
     this.torches.push({ pos: new THREE.Vector3(x, y + 2.7, z), flame });
     colliders?.add(`torch:${x.toFixed(1)}:${z.toFixed(1)}`, {
       kind: 'cylinder', x, z, r: 0.14, minY: y, maxY: y + 2.6,
@@ -73,11 +54,11 @@ export class TorchSystem {
 
   update(dt: number, nightFactor: number, playerPos: THREE.Vector3): void {
     this.time += dt;
+    getFlameFX().update(); // frame-guarded
     // Flame flicker (always a little alive; stronger glow at night)
     for (const t of this.torches) {
       const flick = 0.75 + Math.sin(this.time * 11 + t.pos.x * 7.3) * 0.12 + Math.sin(this.time * 23 + t.pos.z * 3.1) * 0.08;
-      t.flame.scale.set(0.55 * flick, 0.85 * flick, 1);
-      (t.flame.material as THREE.SpriteMaterial).opacity = 0.55 + 0.45 * flick * 0.4;
+      t.flame.setIntensity(0.62 + flick * 0.34);
     }
     // Assign the light pool to the nearest torches
     const maxDist = 42;
@@ -100,7 +81,8 @@ export class TorchSystem {
   }
 
   dispose(): void {
-    this.flameTex.dispose();
+    for (const t of this.torches) t.flame.dispose();
+    this.torches.length = 0;
   }
 }
 

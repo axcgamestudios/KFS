@@ -8,6 +8,7 @@ import MainMenu from './MainMenu';
 import IntroCinematic from './IntroCinematic';
 import EndingOverlay from './EndingOverlay';
 import HUD from './HUD';
+import AdminPanel from './AdminPanel';
 import DialogueBox from './DialogueBox';
 import InventoryUI from './InventoryUI';
 import MapUI from './MapUI';
@@ -93,6 +94,7 @@ export default function GameRoot() {
           {(phase === 'playing' || phase === 'paused') && (
             <>
               <HUD />
+              <AdminPanel />
               <DialogueBox />
               {overlay === 'inventory' && <InventoryUI />}
               {overlay === 'map' && <MapUI />}

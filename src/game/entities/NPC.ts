@@ -125,11 +125,14 @@ export class NPC {
   private walkTime = 0;
   private readonly rng: () => number;
 
-  constructor(def: NPCDef, scene: THREE.Scene) {
+  constructor(def: NPCDef, scene: THREE.Scene, visual?: CharacterVisual) {
     this.def = def;
     const palette = { ...villagerPalette(def.paletteIndex) };
     if (def.cape) palette.cape = 0x5a1f1f;
-    this.model = new VillagerModel(palette, def.paletteIndex * 13.7 + def.name.length, def.role);
+    // Fase 7 — the repository knight body re-dressed as a villager when the
+    // GLB template is available; the procedural VillagerModel stays as a
+    // graceful fallback.
+    this.model = visual ?? new VillagerModel(palette, def.paletteIndex * 13.7 + def.name.length, def.role);
     this.group.add(this.model.root);
     this.group.position.copy(def.work);
     scene.add(this.group);
@@ -163,7 +166,7 @@ export class NPC {
     this.yaw = Math.atan2(playerPos.x - this.position.x, playerPos.z - this.position.z);
   }
 
-  update(dt: number, dayFraction: number, terrain: TerrainHeight, colliders: ColliderRegistry, playerPos: THREE.Vector3): void {
+  update(dt: number, dayFraction: number, terrain: TerrainHeight, colliders: ColliderRegistry, playerPos: THREE.Vector3, animate = true): void {
     // --- Pick activity by hour ---
     const hour = dayFraction * 24;
     const wanted: NPCActivity = hour >= 7 && hour < 19 ? 'work' : hour >= 19 && hour < 23 ? 'evening' : 'home';
@@ -266,6 +269,9 @@ export class NPC {
     // Ground clamp
     this.position.y = terrain.height(this.position.x, this.position.z);
     this.group.rotation.y = this.yaw;
+
+    // Fase 8 — distant villagers keep their schedule but hold their pose
+    if (!animate) return;
 
     this.model.update({
       dt,

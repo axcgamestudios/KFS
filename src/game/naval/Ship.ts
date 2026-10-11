@@ -70,6 +70,10 @@ export class Ship {
   private smokeTimer = 0;
   private sternFoam!: THREE.Mesh;
   private t = 0;
+  /** Static procedural body (hidden once a GLB hull is attached). */
+  private bodyG = new THREE.Group();
+  /** Fase 7 — the repository's pirate_ship.glb hull, when available. */
+  private glbHull: THREE.Group | null = null;
 
   /** Local (deck space) muzzle offsets — [port, starboard] × 3 guns. */
   private muzzles: Array<{ x: number; y: number; z: number }> = [];
@@ -95,6 +99,7 @@ export class Ship {
     this.cannonCd = opts.cannonCd ?? 5.2;
     this.pos.set(opts.x, 0, opts.z);
     this.heading = opts.heading ?? 0;
+    this.hull.add(this.bodyG);
     this.buildModel();
     this.group.add(this.hull);
     this.syncTransform();
@@ -218,8 +223,8 @@ export class Ship {
     lantern(0, QUARTER_Y + 0.95, -L / 2 - 0.2);
     lantern(0, DECK_Y + 0.5, L / 2 - 0.1);
 
-    // Merge static hull parts
-    b.build(this.hull, { shadows: true });
+    // Merge static hull parts (into the hideable procedural body group)
+    b.build(this.bodyG, { shadows: true });
 
     // --- Animated sails (separate meshes) ---
     const mkSail = (y: number, z: number, w: number, h: number) => {
@@ -278,6 +283,84 @@ export class Ship {
   }
 
   // ------------------------------------------------------------ helpers
+
+  /**
+   * Fase 7 — wear the repository's pirate_ship.glb as the ship's body.
+   * The model is normalised to the gameplay hull (≈16 m, local +Z = bow,
+   * deck plane at DECK_Y) and the procedural body/sails/flag are retired.
+   * Cannons, wheel, smoke and wake foam stay (gameplay-anchored visuals).
+   */
+  attachGlb(model: THREE.Object3D, opts: { sailTint?: number; hullTint?: number } = {}): void {
+    if (this.glbHull) return; // already dressed
+
+    // 1. Strip lights/cameras baked into the Sketchfab export
+    const junk: THREE.Object3D[] = [];
+    model.traverse((o) => {
+      const any = o as unknown as { isLight?: boolean; isCamera?: boolean };
+      if (any.isLight || any.isCamera) junk.push(o);
+    });
+    for (const j of junk) j.parent?.remove(j);
+
+    // 2. Per-ship material clones when a tint is requested (the AssetSystem
+    //    shares materials between every instance of the model)
+    if (opts.sailTint !== undefined || opts.hullTint !== undefined) {
+      model.traverse((o) => {
+        const mesh = o as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        const clones = mats.map((m) => (m as THREE.Material).clone());
+        for (const c of clones) {
+          const std = c as THREE.MeshStandardMaterial;
+          if (!std.isMeshStandardMaterial) continue;
+          const name = (std.name ?? '').toLowerCase();
+          if (opts.sailTint !== undefined && (name.includes('sail') || name.includes('material_0'))) {
+            std.color.setHex(opts.sailTint);
+          } else if (opts.hullTint !== undefined && (name.includes('mat.1') || name.includes('main'))) {
+            std.color.lerp(new THREE.Color(opts.hullTint), 0.5);
+          }
+        }
+        mesh.material = clones.length === 1 ? clones[0] : clones;
+      });
+    }
+
+    // 3. Normalise: fit the longest horizontal axis to ~17 m (the hull spans
+    //    ≈16 m + bowsprit), flip so the GLB bow (-Z, verified from the
+    //    bowsprit/jib geometry) matches the ship convention (+Z = bow).
+    model.updateWorldMatrix(true, true);
+    const rawBox = new THREE.Box3().setFromObject(model);
+    const rawSize = rawBox.getSize(new THREE.Vector3());
+    const s = 17.2 / Math.max(1e-6, Math.max(rawSize.x, rawSize.z));
+
+    const wrap = new THREE.Group();
+    wrap.name = 'glb_hull';
+    wrap.add(model);
+    model.rotation.y = Math.PI; // bow to +Z
+    model.scale.multiplyScalar(s);
+
+    // 4. Align: centre on X/Z and put the export's DESIGNED WATERLINE at the
+    //    buoyancy surface (y ≈ 0). Measured offline from the GLB: the dark
+    //    anti-fouling hull (Main/Mat.1/Mat.5) spans raw Y -1080..-60, so the
+    //    designed waterline sits at raw Y ≈ -60; the deck plane lands ≈1 m
+    //    above the sea at the 17.2 m normalisation — matching DECK_Y.
+    wrap.updateWorldMatrix(true, true);
+    const box = new THREE.Box3().setFromObject(model);
+    const center = box.getCenter(new THREE.Vector3());
+    model.position.set(0, 0, 0);
+    const WATERLINE_RAW = -60; // top of the dark underwater hull
+    wrap.position.set(-center.x, -WATERLINE_RAW * s, -center.z);
+
+    // 5. Retire the procedural body & sails — keep cannons, wheel, smoke, foam
+    this.bodyG.visible = false;
+    this.sailMain.visible = false;
+    this.sailFore.visible = false;
+    this.flag.visible = false;
+    this.hull.add(wrap);
+    this.glbHull = wrap;
+  }
+
+  get usesGlbHull(): boolean {
+    return this.glbHull !== null;
+  }
 
   get length(): number {
     return 16;

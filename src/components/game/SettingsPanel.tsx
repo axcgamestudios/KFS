@@ -6,6 +6,7 @@ import type { Settings } from '@/game/systems/SaveSystem';
 import { Monitor, Music, Volume2, MousePointer2 } from 'lucide-react';
 
 const QUALITY_LABEL: Record<Settings['quality'], string> = {
+  xlow: 'Ultra Bajo — máxima optimización',
   low: 'Baja — equipos modestos',
   medium: 'Media',
   high: 'Alta — recomendada',
@@ -35,7 +36,7 @@ export default function SettingsPanel({ onBack }: { onBack?: () => void }) {
           <Monitor size={13} className="text-[color:var(--kotfs-gold)]" /> CALIDAD GRÁFICA
         </p>
         <div className="grid grid-cols-2 gap-1.5">
-          {(['low', 'medium', 'high', 'ultra'] as const).map((q) => (
+          {(['xlow', 'low', 'medium', 'high', 'ultra'] as const).map((q) => (
             <button
               key={q}
               onClick={() => set('quality', q)}

@@ -54,6 +54,10 @@ export class AssetSystem {
   private models = new Map<string, THREE.Object3D>();
   private modelWaiters = new Map<string, Array<() => void>>();
   private failed = new Set<string>();
+  /** Fase 7 — parsed animated models (scene + clips) shared via SkeletonUtils
+   *  clones so several creatures reuse ONE geometry/texture set on the GPU. */
+  private animated = new Map<string, { scene: THREE.Object3D; clips: THREE.AnimationClip[] }>();
+  private animatedWaiters = new Map<string, Array<() => void>>();
   private anisotropy = 4;
 
   /** Texture loading status for the progress screen. */
@@ -246,6 +250,42 @@ export class AssetSystem {
         undefined,
         () => reject(new Error(`model failed: ${key}`)),
       );
+    });
+  }
+
+  /**
+   * Fase 7 — cached animated model: parses the GLB ONCE and hands out
+   * SkeletonUtils clones (own skeleton, SHARED geometry & textures). Several
+   * dragons can now wear the repository model without duplicating the GPU
+   * resources. The clips array is read-only data and can be shared as-is.
+   */
+  loadAnimatedModelShared(key: string): Promise<{ scene: THREE.Object3D; clips: THREE.AnimationClip[] }> {
+    const ready = this.animated.get(key);
+    if (ready) {
+      return Promise.resolve({ scene: skeletonClone(ready.scene), clips: ready.clips });
+    }
+    if (this.failed.has(key)) return Promise.reject(new Error(`model failed earlier: ${key}`));
+    return new Promise((resolve, reject) => {
+      const waiters = this.animatedWaiters.get(key) ?? [];
+      waiters.push(() => {
+        const m = this.animated.get(key);
+        if (m) resolve({ scene: skeletonClone(m.scene), clips: m.clips });
+        else reject(new Error(`model failed: ${key}`));
+      });
+      this.animatedWaiters.set(key, waiters);
+      if (waiters.length === 1) {
+        this.loadModelWithAnimations(key)
+          .then(({ scene, clips }) => {
+            this.animated.set(key, { scene, clips });
+            this.animatedWaiters.get(key)?.forEach((fn) => fn());
+            this.animatedWaiters.delete(key);
+          })
+          .catch(() => {
+            this.failed.add(key);
+            this.animatedWaiters.get(key)?.forEach((fn) => fn());
+            this.animatedWaiters.delete(key);
+          });
+      }
     });
   }
 

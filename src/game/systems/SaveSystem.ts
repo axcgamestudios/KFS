@@ -40,7 +40,7 @@ export interface SaveData {
 }
 
 export interface Settings {
-  quality: 'low' | 'medium' | 'high' | 'ultra';
+  quality: 'xlow' | 'low' | 'medium' | 'high' | 'ultra';
   masterVolume: number;
   musicVolume: number;
   sfxVolume: number;
