@@ -85,6 +85,11 @@ interface ArrowPickup {
  * Player combat (Fase 3): light/heavy melee with per-weapon stats, blocking,
  * dodge rolls, the bow with real projectiles and recoverable arrows.
  * Works alongside the existing boarding-crew and training-dummy fights.
+ *
+ * Fase 9 — CINEMATIC COMBAT (PDF §4): 3-hit combo chains (light → light →
+ * heavy finisher) with buffered inputs and chain windows, PARRY (perfect
+ * block within 0.19 s) that staggers attackers and opens a ×1.6 counter
+ * window, hit knockback, and camera punches on decisive blows.
  */
 export class CombatSystem {
   private player: Player;
@@ -102,6 +107,29 @@ export class CombatSystem {
   private tmp2 = new THREE.Vector3();
   private tmpDir = new THREE.Vector3();
 
+  // ---- Fase 9: combo chain state ----
+  /** Position in the chain (0 = fresh, 1 = second hit, 2 = finisher). */
+  private comboStep = 0;
+  /** Seconds left to continue the chain before it resets. */
+  private comboWindowT = 0;
+  /** Attack clicked during the swing tail/recovery → fires when possible. */
+  private bufferedNext = false;
+  /** Counter window after a parry: next melee ×1.6 + camera punch. */
+  private parryCounterT = 0;
+  /** Damage multiplier queued by the current swing (combo/counter). */
+  private pendingDmgMult = 1;
+  /** True while the current swing is a chain FINISHER (bigger feedback). */
+  private swingIsFinisher = false;
+
+  /** Fase 9 — camera punch hook (Game wires this to the CameraRig FOV kick). */
+  onCameraPunch?: (intensity: number) => void;
+
+  /** Combo state for the HUD (null when no chain running). */
+  get comboHud(): { step: number; window: number; counter: boolean } | null {
+    if (this.comboWindowT <= 0 || this.comboStep <= 0) return null;
+    return { step: this.comboStep, window: this.comboWindowT, counter: this.parryCounterT > 0 };
+  }
+
   constructor(
     scene: THREE.Scene,
     player: Player,
@@ -114,6 +142,16 @@ export class CombatSystem {
     this.state = state;
     this.vfx = vfx;
     this.hooks = hooks;
+    // Fase 9 — parry feedback: clang + sparks + counter window. Chain any
+    // callback the Game may have installed (crew stagger, HUD…).
+    const prevOnParry = player.onParry;
+    player.onParry = (fx: number, fz: number) => {
+      prevOnParry?.(fx, fz);
+      this.parryCounterT = 1.35;
+      this.hooks.sound('block');
+      this.onCameraPunch?.(0.55);
+      this.vfx.weaponImpact(new THREE.Vector3(fx, player.position.y + 1.25, fz));
+    };
   }
 
   get equippedId(): string | null {
@@ -211,8 +249,28 @@ export class CombatSystem {
       return;
     }
 
-    // --- Melee charge & release ---
-    if (input.leftPressed && p.attackT === 0 && p.attackRecovery <= 0 && !p.rolling && p.grounded) {
+    // --- Melee charge & release (Fase 9: combo chains) ---
+    // Chain timers
+    if (this.comboWindowT > 0) {
+      this.comboWindowT -= dt;
+      if (this.comboWindowT <= 0) {
+        this.comboStep = 0;
+        this.bufferedNext = false;
+      }
+    }
+    if (this.parryCounterT > 0) this.parryCounterT -= dt;
+
+    const canAct = p.attackT === 0 && !p.rolling && p.grounded;
+    // A click during the swing tail or the recovery queues the chain step
+    if (
+      input.leftPressed && this.comboWindowT > 0 && this.comboStep < 2
+      && (p.attackT > 0.45 || p.attackRecovery > 0)
+    ) {
+      this.bufferedNext = true;
+    }
+    const chainReady = this.bufferedNext && this.comboWindowT > 0 && this.comboStep < 2;
+
+    if (input.leftPressed && canAct && p.attackRecovery <= 0 && !chainReady) {
       this.chargeT = 0;
       this.chargeConsumed = false;
     }
@@ -221,16 +279,28 @@ export class CombatSystem {
       if (this.chargeT >= 0.28) {
         // Held long enough → heavy attack fires immediately
         this.chargeConsumed = true;
-        this.startSwing(weapon, true);
+        this.comboStep = 0;         // a committed heavy resets the chain
+        this.comboWindowT = 0;
+        this.bufferedNext = false;
+        this.startSwing(weapon, true, 0);
         this.chargeT = -1;
       }
     }
     if (this.chargeT >= 0 && !input.leftDown && !this.chargeConsumed) {
-      // Quick click → light attack
+      // Quick click → light attack (chain step if the window is open)
       this.chargeT = -1;
-      this.startSwing(weapon, false);
+      this.startSwing(weapon, false, this.comboWindowT > 0 ? this.comboStep : 0);
     }
     if (!input.leftDown) this.chargeT = -1;
+
+    // Chain execution: the buffered click fires the next step the moment the
+    // previous swing clears (late recovery counts — chains feel fluid)
+    if (chainReady && canAct && p.attackRecovery <= 0.3) {
+      this.bufferedNext = false;
+      const step = this.comboStep + 1;
+      // Step 2 = the cinematic finisher: a heavy blow with extra weight
+      this.startSwing(weapon, step >= 2, step);
+    }
 
     // --- Swing progression ---
     if (p.attackT > 0) {
@@ -242,7 +312,8 @@ export class CombatSystem {
       }
       if (p.attackT >= 1) {
         p.attackT = 0;
-        p.attackRecovery = weapon.recovery;
+        // Chained swings recover faster — the rhythm keeps rolling
+        p.attackRecovery = weapon.recovery * (this.comboStep > 0 && this.comboWindowT > 0 ? 0.5 : 1);
       }
     }
   }
@@ -254,18 +325,42 @@ export class CombatSystem {
 
   // ---------------------------------------------------------------- melee
 
-  private startSwing(weapon: WeaponDef, heavy: boolean): void {
+  private startSwing(weapon: WeaponDef, heavy: boolean, comboStep = 0): void {
     const p = this.player;
     const cost = heavy ? weapon.heavyStamina : weapon.lightStamina;
-    if (p.stamina < cost) return; // too exhausted — no swing
+    if (p.stamina < cost) {
+      // Out of gas: the chain drops
+      this.comboStep = 0;
+      this.comboWindowT = 0;
+      this.bufferedNext = false;
+      return; // too exhausted — no swing
+    }
     p.stamina -= cost;
+    // Fase 9 — combo bookkeeping: damage weight + the chain window
+    const isFinisher = heavy && comboStep >= 2;
+    const counter = this.parryCounterT > 0 && !heavy;
+    this.comboStep = comboStep;
+    this.comboWindowT = 1.05;
+    this.swingIsFinisher = isFinisher || counter;
+    this.pendingDmgMult = 1;
+    if (comboStep === 1) this.pendingDmgMult = 1.1;        // second hit bites deeper
+    if (isFinisher) this.pendingDmgMult = 1.3;             // chain finisher
+    if (counter) {
+      this.pendingDmgMult = 1.6;                           // parry counter!
+      this.parryCounterT = 0;
+      this.onCameraPunch?.(0.7);
+    } else if (isFinisher) {
+      this.onCameraPunch?.(0.45);
+    }
     p.attackDur = heavy ? weapon.heavyDur : weapon.lightDur;
+    if (isFinisher) p.attackDur *= 1.12;                   // weighty finisher
     p.attackT = 0.001;
     this.swingHitDone = false;
     // Animation variant per weapon & swing
     if (weapon.kind === 'axe') p.attackKind = heavy ? 'heavy' : this.altLight();
     else if (weapon.kind === 'spear') p.attackKind = heavy ? 'thrust' : 'thrust';
     else p.attackKind = heavy ? 'heavy' : this.altLight();
+    if (counter) p.attackKind = 'heavy';                   // the riposte reads big
     p.onAttackSwing?.();
   }
 
@@ -279,6 +374,8 @@ export class CombatSystem {
     const p = this.player;
     let dmg = heavy ? weapon.heavyDmg : weapon.lightDmg;
     if (this.state.learnedSkills.has('comb_maestria')) dmg *= 1.15;
+    dmg *= this.pendingDmgMult;      // Fase 9 — combo/counter weight
+    const big = this.swingIsFinisher;
 
     // 1) Dragons — the big game
     const hit = this.hooks.dragonMelee(p.position, p.yaw, weapon.reach, weapon.arc);
@@ -287,11 +384,13 @@ export class CombatSystem {
       this.hooks.damageDragon(hit.dragon, final, heavy);
       this.vfx.weaponImpact(hit.point);
       this.hooks.sound('hit_scale');
+      if (big) this.onCameraPunch?.(0.4);
       return;
     }
     // 2) Boarding pirates
     if (this.hooks.crewHit(p.position, p.yaw, dmg, weapon.reach, weapon.arc)) {
-      this.hooks.sound('damage');
+      this.hooks.sound(big ? 'hit_scale' : 'damage');
+      if (big) this.onCameraPunch?.(0.5);
       return;
     }
     // 3) Training dummy (needs to face it & be close)

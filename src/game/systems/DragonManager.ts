@@ -21,6 +21,9 @@ export interface DragonManagerHooks {
   /** Route damage to the player's ship hull (sea wyvern). */
   shipDamage(dmg: number): void;
   cameraShake(intensity: number): void;
+  /** Fase 9 — a BOSS died: narrative victory cinematic hook (PDF §6.1).
+   *  Drakes and admin spawns do not fire it. */
+  bossDefeated?(d: Dragon): void;
 }
 
 /** Encounter definitions — three bosses + two minor drakes. */
@@ -281,6 +284,13 @@ export class DragonManager {
           : `Recoges escamas y flechas. +${def.xp} XP`,
       );
     }
+    // Fase 9 — the victory cinematic plays for real bosses (not drakes,
+    // not admin conjures) once the death animation has had its beat
+    if (def.boss && !def.id.startsWith('admin_')) {
+      setTimeout(() => {
+        if (this.hooks.bossDefeated) this.hooks.bossDefeated(d);
+      }, 2600);
+    }
     this.hooks.music(0.3, false);
   }
 
@@ -466,8 +476,10 @@ export class DragonManager {
         : playerPos;
       const targetAlive = isSeaTarget ? true : playerAlive;
 
-      // Visibility culling (far dragons freeze + hide)
-      if (dist > 470 && !d.aggro) {
+      // Visibility culling (far dragons freeze + hide).
+      // Fase 9 — giants stay visible much further (a 40 m dragon at 470 m
+      // was still clearly readable before it vanished).
+      if (dist > 780 && !d.aggro) {
         d.group.visible = false;
         d.visibleToPlayer = false;
         continue;
@@ -475,7 +487,7 @@ export class DragonManager {
       d.group.visible = true;
       d.visibleToPlayer = true;
 
-      if (dist > 300 && !d.aggro) {
+      if (dist > 520 && !d.aggro) {
         // Far & calm: update at 2 Hz
         const acc = (this.lodAcc.get(d.def.id) ?? 0) + dt;
         if (acc < 0.5) {
@@ -486,7 +498,7 @@ export class DragonManager {
         d.update(Math.min(acc, 0.5), targetPos, targetAlive, this.terrain, this.dragonHooksFor(d));
         continue;
       }
-      if (dist > 150 && !d.aggro) {
+      if (dist > 260 && !d.aggro) {
         // Mid range: 8 Hz
         const acc = (this.lodAcc.get(d.def.id) ?? 0) + dt;
         if (acc < 0.125) {

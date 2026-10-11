@@ -5,6 +5,7 @@ import { TerrainHeight } from './TerrainHeight';
 import { mulberry32, hash2, clamp } from '../core/MathUtils';
 import { distToRoads } from './WorldConfig';
 import { GrassField } from './GrassField';
+import { FarGrass } from './FarGrass';
 
 /** Shared time uniform injected into all wind-swaying materials. */
 export const windTime = { value: 0 };
@@ -326,6 +327,9 @@ export class VegetationSystem {
   private sceneRef: THREE.Scene;
   /** Fase 6 — el prado de briznas finas que envuelve al jugador. */
   private grassField: GrassField;
+  /** Fase 9 — la pradera lejana del mundo entero (mattas instanciadas
+   *  cubriendo ~0.5 km: el pasto 3D existe en todas las regiones). */
+  private farGrass: FarGrass;
 
   private treeColliderSink?: (x: number, z: number, r: number, key: string) => void;
   private treeColliderRemove?: (prefix: string) => void;
@@ -389,6 +393,13 @@ export class VegetationSystem {
       timeUniform: windTime,
       gustUniform: windGust,
     });
+    // Fase 9 — capa lejana: mattas por todo el mundo visible (misma ventana
+    // de exclusiónes y mismo viento que el prado fino)
+    this.farGrass = new FarGrass(terrain, scene, {
+      density: Math.min(1, grassDensity * 1.1),
+      timeUniform: windTime,
+      gustUniform: windGust,
+    });
   }
 
   setColliderSinks(
@@ -403,6 +414,7 @@ export class VegetationSystem {
     if (Math.abs(d - this.grassDensity) < 0.001) return;
     this.grassDensity = d;
     this.grassField.setDensity(d);
+    this.farGrass.setDensity(Math.min(1, d * 1.1));
   }
 
   /** Fase 6 — el GrassField se autogestiona por frame en update(); esta
@@ -623,6 +635,8 @@ export class VegetationSystem {
       }
       // Fase 6 — el prado sigue al jugador (ventana envolvente de tiles)
       this.grassField.update(px, pz);
+      // Fase 9 — la pradera lejana también (ventana de 1.1 km)
+      this.farGrass.update(px, pz);
     }
   }
 
@@ -643,16 +657,21 @@ export class VegetationSystem {
     this.billboardMat.dispose();
     this.rockMat.dispose();
     this.grassField.dispose();
+    this.farGrass.dispose();
     this.chunkData.clear();
   }
 
-  /** Debug/stats: clusters + el prado de briznas. */
+  /** Debug/stats: clusters + el prado de briznas + la pradera lejana. */
   get stats(): { clusters: number; drawCalls: number; blades: number } {
     let meshes = 0;
     for (const cluster of this.clusters.values()) {
       if (!cluster.meshes) continue;
       meshes += 2 + cluster.meshes.trees.length;
     }
-    return { clusters: this.clusters.size, drawCalls: meshes, blades: this.grassField.stats.blades };
+    return {
+      clusters: this.clusters.size,
+      drawCalls: meshes,
+      blades: this.grassField.stats.blades + this.farGrass.stats.clumps,
+    };
   }
 }

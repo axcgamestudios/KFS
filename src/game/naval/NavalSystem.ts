@@ -3,6 +3,7 @@ import { Ship, type CannonShot, type ShipKind } from './Ship';
 import { CharacterModel, type CharacterPalette } from '../entities/CharacterModel';
 import type { TerrainHeight } from '../world/TerrainHeight';
 import type { WaterSystem } from '../world/WaterSystem';
+import type { ColliderRegistry } from '../systems/ColliderRegistry';
 import type { GameState } from '../systems/GameState';
 import { WIND } from '../world/WorldConfig';
 import { clamp, damp, dampAngle } from '../core/MathUtils';
@@ -30,7 +31,12 @@ export interface NavalCallbacks {
   setFlag: (flag: string) => void;
   lore: (title: string, paragraphs: string[]) => void;
   closeDialogue: () => void;
-  playerDamage: (amount: number, source: string) => void;
+  /** Fase 9 — returns the health actually lost so AI can react to blocks/parries. */
+  playerDamage: (amount: number, source: string) => number;
+  /** Fase 9 — true right after the player parries (attackers stagger). */
+  wasParried: () => boolean;
+  /** Fase 9 — cinematic finisher started: play the hero's execution blow. */
+  onFinisher?: (x: number, y: number, z: number) => void;
   returnPlayerToShip: () => void;
 }
 
@@ -49,6 +55,10 @@ class BoardingCrew {
   attackCd = 0;
   dead = false;
   deathT = 0;
+  /** Fase 9 — stagger timer: > 0 means reeling (no move, no attacks). */
+  hurtT = 0;
+  /** Fase 9 — approach bearing around the player (radians, ship-local). */
+  ringAngle = 0;
 
   constructor(captain: boolean, lx: number, lz: number, palette: CharacterPalette) {
     this.isCaptain = captain;
@@ -82,6 +92,10 @@ class BoardingCrew {
   }
 
   moving = false;
+
+  get hpFrac(): number {
+    return this.hp / this.maxHp;
+  }
 }
 
 interface EnemyBrain {
@@ -187,7 +201,16 @@ export class NavalSystem {
   playerShip: Ship | null = null;
   playerSailing = false;
   enemies: EnemyBrain[] = [];
-  boarding: { brain: EnemyBrain; crew: BoardingCrew[]; done: boolean; endTimer: number } | null = null;
+  boarding: {
+    brain: EnemyBrain;
+    crew: BoardingCrew[];
+    done: boolean;
+    endTimer: number;
+    /** Fase 9 — cinematic finisher in progress (seconds elapsed). */
+    finisherT: number;
+    /** Fase 9 — a finisher already played this boarding (no repeats). */
+    finisherDone: boolean;
+  } | null = null;
   private sinkRespawn: { timer: number } | null = null;
 
   /** Fase 7 — optional GLB hull provider (the repository's pirate_ship.glb).
@@ -207,6 +230,10 @@ export class NavalSystem {
   private barrels: LootBarrel[] = [];
   private t = 0;
   private windBase = 2.4;
+  /** Fase 9 — the game's collision world (solid hulls). */
+  private colliders: ColliderRegistry | null = null;
+  /** Fase 9 — admin/decorative ships (kept for collider sync). */
+  private extraShips: Ship[] = [];
 
   constructor(
     private scene: THREE.Scene,
@@ -232,6 +259,14 @@ export class NavalSystem {
 
   // ------------------------------------------------------------- spawning
 
+  /** Fase 9 — bind the game collision world; every hull becomes solid. */
+  bindColliders(registry: ColliderRegistry): void {
+    this.colliders = registry;
+    this.playerShip?.bindColliderRegistry(registry);
+    for (const brain of this.enemies) brain.ship.bindColliderRegistry(registry);
+    for (const s of this.extraShips) s.bindColliderRegistry(registry);
+  }
+
   /** Launch the repaired Colibrí de Mar near the home dock. */
   spawnPlayerShip(x: number, z: number, heading = Math.PI): Ship {
     if (this.playerShip) return this.playerShip;
@@ -243,6 +278,7 @@ export class NavalSystem {
     ship.frozen = false;
     ship.onCreak = () => this.cb.sound('creak');
     this.scene.add(ship.group);
+    if (this.colliders) ship.bindColliderRegistry(this.colliders);
     this.playerShip = ship;
     this.dressShip(ship);
     this.applyPerks();
@@ -286,6 +322,8 @@ export class NavalSystem {
     });
     ship.anchored = true;
     this.scene.add(ship.group);
+    if (this.colliders) ship.bindColliderRegistry(this.colliders);
+    this.extraShips.push(ship);
     this.dressShip(ship);
     return new THREE.Vector3(bestX, 0, bestZ);
   }
@@ -297,6 +335,7 @@ export class NavalSystem {
       x: -505, z: -378, heading: 2.2, hullHp: 120, cannonCd: 6.5,
     });
     this.scene.add(gaviota.group);
+    if (this.colliders) gaviota.bindColliderRegistry(this.colliders);
     this.dressShip(gaviota);
     this.enemies.push({
       ship: gaviota,
@@ -318,6 +357,7 @@ export class NavalSystem {
       x: 140, z: 520, heading: 0.4, hullHp: 100, cannonCd: 7,
     });
     this.scene.add(zharpa.group);
+    if (this.colliders) zharpa.bindColliderRegistry(this.colliders);
     this.dressShip(zharpa);
     this.enemies.push({
       ship: zharpa,
@@ -461,9 +501,14 @@ export class NavalSystem {
         new BoardingCrew(false, 1.0, 2.2, { ...corsairPalette, tunic: 0x30404a }),
         new BoardingCrew(false, 0, 4.4, corsairPalette),
       ];
+    // Fase 9 — surround bearings: each pirate owns a slice of the ring
+    // around the player instead of stacking into a conga line.
+    crew.forEach((c, i) => {
+      c.ringAngle = (i / crew.length) * Math.PI * 2 + Math.PI / 7;
+    });
     for (const c of crew) this.scene.add(c.group);
 
-    this.boarding = { brain, crew, done: false, endTimer: 0 };
+    this.boarding = { brain, crew, done: false, endTimer: 0, finisherT: 0, finisherDone: false };
     // The player leaves the wheel and jumps onto the enemy deck
     this.playerSailing = false;
     this.cb.sound('grapple');
@@ -506,6 +551,18 @@ export class NavalSystem {
           hitAny = true;
           this.cb.sound('hit_hull');
           this.flashes.spawn(cw.clone().setY(cw.y + 1.2), 0.5, 0.1, 2);
+          // Fase 9 — hit reaction: reel back along the blow direction
+          // (the captain has poise; the corsairs get bullied)
+          if (c.hp > 0) {
+            c.hurtT = Math.max(c.hurtT, c.isCaptain ? 0.28 : 0.5);
+            const klen = Math.hypot(dx, dz) || 1;
+            const push = c.isCaptain ? 0.35 : 0.8;
+            const nlx = c.lx + (dx / klen) * push;
+            const nlz = c.lz + (dz / klen) * push;
+            const b = enemy.deckBounds;
+            c.lx = clamp(nlx, b.minX + 0.2, b.maxX - 0.2);
+            c.lz = clamp(nlz, b.minZ + 0.6, b.maxZ - 0.4);
+          }
           if (c.hp <= 0) {
             c.dead = true;
             c.moving = false;
@@ -518,6 +575,62 @@ export class NavalSystem {
       }
     }
     return hitAny;
+  }
+
+  // ---------------------------------------------- Fase 9: cinematic finisher
+
+  /**
+   * PDF §5 — a weakened IMPORTANT enemy (the boarding captain below 30% HP)
+   * exposes the REMATE. Returns her position when the execution is armed.
+   */
+  finisherTarget(): { name: string; x: number; y: number; z: number } | null {
+    if (!this.boarding || this.boarding.done || this.boarding.finisherDone) return null;
+    if (this.boarding.finisherT > 0) return null;
+    for (const c of this.boarding.crew) {
+      if (c.dead || !c.isCaptain) continue;
+      if (c.hpFrac > 0.3) continue;
+      const w = this.boarding.brain.ship.toWorld(c.lx, 1.2, c.lz);
+      return { name: c.name, x: w.x, y: w.y, z: w.z };
+    }
+    return null;
+  }
+
+  /** Execute the remate: the hero's heavy blow lands as the captain reels. */
+  executeFinisher(): boolean {
+    const target = this.finisherTarget();
+    if (!target) return false;
+    const boarding = this.boarding!;
+    boarding.finisherT = 0.001;
+    boarding.finisherDone = true;
+    // She freezes mid-reel for the killing blow
+    for (const c of boarding.crew) {
+      if (c.isCaptain && !c.dead) c.hurtT = 1.2;
+    }
+    // The hero swings (Game plays the animation + camera work)
+    this.cb.onFinisher?.(target.x, target.y, target.z);
+    return true;
+  }
+
+  private updateFinisher(dt: number): void {
+    const b = this.boarding;
+    if (!b || b.finisherT <= 0) return;
+    b.finisherT += dt;
+    // 0.55 s of wind-up, then the blow lands
+    if (b.finisherT >= 0.55) {
+      b.finisherT = 0;
+      for (const c of b.crew) {
+        if (c.isCaptain && !c.dead) {
+          c.hp = 0;
+          c.dead = true;
+          c.moving = false;
+          const w = b.brain.ship.toWorld(c.lx, 1.1, c.lz);
+          this.flashes.spawn(w.clone().setY(w.y + 0.4), 1.6, 0.16, 3);
+          this.cb.sound('hit_hull');
+          this.cb.notify('quest', '¡REMATE!', `${c.name} cae bajo el golpe del Guardián. La cubierta queda en silencio.`);
+          this.cb.music(0.5);
+        }
+      }
+    }
   }
 
   /** Boarding resolves when every crewman is down. */
@@ -768,6 +881,16 @@ export class NavalSystem {
 
     // --- Cannonballs ---
     this.updateBalls(dt);
+
+    // --- Fase 9 — solid hulls: refresh the collision AABBs of every ship
+    //     near the player (far ships free their cells; sunk ships clear) ---
+    ship?.syncColliders(playerWorld.x, playerWorld.z);
+    for (const brain of this.enemies) {
+      brain.ship.syncColliders(playerWorld.x, playerWorld.z);
+    }
+    for (const s of this.extraShips) {
+      s.syncColliders(playerWorld.x, playerWorld.z);
+    }
 
     // --- Effects ---
     this.splashes.update(dt);
@@ -1060,6 +1183,16 @@ export class NavalSystem {
     const enemy = this.boarding.brain.ship;
     let allDead = true;
 
+    // Fase 9 — cinematic finisher timer
+    this.updateFinisher(dt);
+
+    // Fase 9 — attack token: at most ONE pirate swings at a time (the
+    // captain may always attack). No more getting melted by a blender.
+    let swinging = 0;
+    for (const c of this.boarding.crew) {
+      if (!c.dead && c.attackT > 0) swinging++;
+    }
+
     for (const c of this.boarding.crew) {
       if (c.dead) {
         c.updateAnim(dt);
@@ -1073,31 +1206,72 @@ export class NavalSystem {
       const dz = local.y - c.lz;
       const dist = Math.hypot(dx, dz);
 
+      // Fase 9 — reeling from a hit or a parry: no actions while staggered
+      if (c.hurtT > 0) {
+        c.hurtT -= dt;
+        c.moving = false;
+        c.attackT = 0;
+        const face = Math.atan2(dx, dz);
+        c.yaw = dampAngle(c.yaw, face, 8, dt);
+        const world = enemy.toWorld(c.lx, enemy.deckHeightAt(c.lx, c.lz) ?? 1, c.lz);
+        c.group.position.set(world.x, world.y, world.z);
+        c.group.rotation.y = c.yaw;
+        c.updateAnim(dt);
+        continue;
+      }
+
       const reach = c.isCaptain ? 1.55 : 1.45;
       if (dist > reach) {
+        // Fase 9 — SURROUND: each pirate closes on its own bearing around
+        // the player (ring post 1.1 m out), so a 3v1 reads as a ring of
+        // steel instead of a queue.
+        const ringR = 1.15;
+        const tx = local.x - Math.sin(c.ringAngle) * ringR;
+        const tz = local.y - Math.cos(c.ringAngle) * ringR;
+        const sdx = tx - c.lx;
+        const sdz = tz - c.lz;
+        const sd = Math.hypot(sdx, sdz);
         const spd = c.isCaptain ? 1.5 : 1.8;
-        c.lx += (dx / dist) * spd * dt;
-        c.lz += (dz / dist) * spd * dt;
-        c.moving = true;
+        if (sd > 0.08) {
+          c.lx += (sdx / sd) * spd * dt;
+          c.lz += (sdz / sd) * spd * dt;
+          c.moving = true;
+        } else {
+          // On post: hold ground (shuffling would look nervous)
+          c.moving = false;
+        }
         // Keep aboard
         const b = enemy.deckBounds;
         c.lx = clamp(c.lx, b.minX + 0.2, b.maxX - 0.2);
         c.lz = clamp(c.lz, b.minZ + 0.6, b.maxZ - 0.4);
       } else {
         c.moving = false;
-        // Attack cycle
+        // Attack cycle (Fase 9: needs the token when a mate is mid-swing)
+        const tokenFree = swinging === 0 || c.isCaptain;
         if (c.attackT === 0) {
-          c.attackCd -= dt;
-          if (c.attackCd <= 0) {
-            c.attackT = 0.001;
-            c.attackCd = c.isCaptain ? 1.5 : 1.9;
+          if (tokenFree) {
+            c.attackCd -= dt;
+            if (c.attackCd <= 0) {
+              c.attackT = 0.001;
+              c.attackCd = c.isCaptain ? 1.5 : 1.9;
+              swinging++;
+            }
           }
         } else {
           c.attackT += dt / 0.55;
           if (c.attackT >= 0.5 && c.attackT < 0.55) {
             // Strike lands once mid-swing if still in range
             if (dist < reach + 0.7) {
-              this.cb.playerDamage(c.isCaptain ? 15 : 9, 'pirate');
+              const lost = this.cb.playerDamage(c.isCaptain ? 15 : 9, 'pirate');
+              // Fase 9 — PARRIED: the perfect block staggers the attacker
+              // wide open (1.5 s) and knocks them back a full pace.
+              if (lost <= 0 && this.cb.wasParried()) {
+                c.hurtT = 1.5;
+                const klen = Math.hypot(dx, dz) || 1;
+                const b = enemy.deckBounds;
+                c.lx = clamp(c.lx - (dx / klen) * 1.3, b.minX + 0.2, b.maxX - 0.2);
+                c.lz = clamp(c.lz - (dz / klen) * 1.3, b.minZ + 0.6, b.maxZ - 0.4);
+              }
             }
             c.attackT = 0.56;
           }

@@ -58,6 +58,8 @@ export function armDownQuaternion(
   handBone: THREE.Object3D,
   sideOut: number,
 ): void {
+  const parent = armBone.parent;
+  if (!parent) return;
   armBone.updateWorldMatrix(true, true);
   const shoulder = new THREE.Vector3().setFromMatrixPosition(armBone.matrixWorld);
   const hand = new THREE.Vector3().setFromMatrixPosition(handBone.matrixWorld);
@@ -67,7 +69,7 @@ export function armDownQuaternion(
   const delta = new THREE.Quaternion().setFromUnitVectors(cur, target);
   const worldQ = armBone.getWorldQuaternion(new THREE.Quaternion());
   const newWorldQ = delta.multiply(worldQ);
-  const parentQ = armBone.parent.getWorldQuaternion(new THREE.Quaternion());
+  const parentQ = parent.getWorldQuaternion(new THREE.Quaternion());
   armBone.quaternion.copy(parentQ.invert().multiply(newWorldQ));
   armBone.updateMatrix();
 }
@@ -94,6 +96,8 @@ export class VillagerModelGLB implements CharacterVisual {
   private glanceYaw = 0;
   private handSlot: THREE.Group | null = null;
   private body: THREE.Group | null = null;
+  /** Root-space Y where the scaled soles rest on the origin (feet offset). */
+  private baseY = 0;
 
   constructor(deps: VillagerVisualDeps) {
     // async body; the group stays empty until the shared model arrives
@@ -128,11 +132,25 @@ export class VillagerModelGLB implements CharacterVisual {
       }
     }
 
-    // --- normalise: raw export is in centimetres (bbox 180 = 1.8 m) ---
-    const height = 1.68 + r(5) * 0.16;           // personal build variety
+    // --- normalise to a real human height -------------------------------
+    // Fase 9 ROOT FIX: the export's Sketchfab_model node carries a weird
+    // 0.01651 normalisation scale (NOT the cm→m 0.01), so the rendered
+    // skeleton stands ~2.99 m tall (head_end at y=2.974 in raw world units)
+    // — the "giant villagers" bug. Measure the REAL height and scale from
+    // that, targeting the 1.60–1.85 m human band with personal variety.
+    // ⚠ The SkeletonUtils clone ships STALE world matrices — Box3 would
+    // measure garbage (~0.5 m) and scale ×6 too big. Update first!
+    scene.updateMatrixWorld(true);
+    const rawBox = new THREE.Box3().setFromObject(scene);
+    const rawH = Math.max(0.5, rawBox.max.y - rawBox.min.y); // ≈ 2.99 for this GLB
+    const height = 1.6 + r(5) * 0.25;            // 1.60 – 1.85 m (PDF spec)
     const build = 0.94 + r(1) * 0.12;
-    const scale = height / 1.80;
+    const scale = height / rawH;
     this.inner.scale.setScalar(scale);
+    // Feet on the ground: the raw model's soles sit at rawBox.min.y — lift
+    // the body so the scaled soles land exactly on the root origin.
+    this.baseY = -rawBox.min.y * scale;
+    this.inner.position.y = this.baseY;
 
     // --- materials: clone + per-NPC tint (they are shared across clones!) ---
     const tint = new THREE.Color();
@@ -306,12 +324,14 @@ export class VillagerModelGLB implements CharacterVisual {
     const amp = 0.5 + runK * 0.35;
     const legL = Math.sin(ph);
     const legR = Math.sin(ph + Math.PI);
-    // legs (mixamo legs point down: +X rotation swings back, −X forward)
-    t.upLegR = [this.rz('upLegR', -legR * amp), this.ry('upLegR', 0), this.rz('upLegR', 0)];
-    t.upLegL = [this.rz('upLegL', -legL * amp), this.ry('upLegL', 0), this.rz('upLegL', 0)];
-    // knees bend on the passing phase
-    t.legR = [this.rz('legR', Math.max(0, -Math.sin(ph + Math.PI - 0.65)) * (0.6 + runK * 0.4)), 0, 0];
-    t.legL = [this.rz('legL', Math.max(0, -Math.sin(ph - 0.65)) * (0.6 + runK * 0.4)), 0, 0];
+    // legs — Fase 9 ROOT FIX: the X channel used to be fed the REST-Z value
+    // (±π on Mixamo UpLeg bones — the "legs upside down" bug). The swing
+    // lives on the X channel (rest.x ≈ 0); the π flip must stay on Z.
+    t.upLegR = [this.rx('upLegR', -legR * amp), this.ry('upLegR', 0), this.rz('upLegR', 0)];
+    t.upLegL = [this.rx('upLegL', -legL * amp), this.ry('upLegL', 0), this.rz('upLegL', 0)];
+    // knees bend on the passing phase (flexion only — never hyperextends)
+    t.legR = [this.rx('legR', Math.max(0, -Math.sin(ph + Math.PI - 0.65)) * (0.6 + runK * 0.4)), 0, this.rz('legR', 0)];
+    t.legL = [this.rx('legL', Math.max(0, -Math.sin(ph - 0.65)) * (0.6 + runK * 0.4)), 0, this.rz('legL', 0)];
     // counter arm swing around the arms-down rest pose
     const armAmp = 0.3 + runK * 0.3;
     t.armR = [this.rx('armR', legR * armAmp), this.ry('armR', 0), this.rz('armR', 0)];
@@ -326,8 +346,9 @@ export class VillagerModelGLB implements CharacterVisual {
     t.chest = [chest[0], chest[1] - Math.sin(ph) * 0.05, chest[2]];
     const head = t.head ?? [0, 0, 0];
     t.head = [head[0] - 0.03 - runK * 0.05, head[1], head[2]];
-    // vertical bob through the inner wrapper (scaled space)
-    this.inner.position.y = Math.abs(Math.sin(ph)) * 0.028 * (0.5 + runK);
+    // vertical bob through the inner wrapper (root-space metres, on top of
+    // the feet offset so walking never sinks the soles)
+    this.inner.position.y = this.baseY + Math.abs(Math.sin(ph)) * 0.028 * (0.5 + runK);
   }
 
   /** rest-pose accessors (fall back to 0 when a bone is missing) */

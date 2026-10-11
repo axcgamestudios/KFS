@@ -20,6 +20,7 @@ import { VfxSystem } from './systems/VfxSystem';
 import { CombatSystem, WEAPONS } from './systems/CombatSystem';
 import { DragonManager } from './systems/DragonManager';
 import type { Dragon } from './entities/Dragon';
+import { CinematicSystem, type CineShot } from './systems/CinematicSystem';
 import { MountSystem } from './systems/MountSystem';
 import { EndingSystem, ENDINGS, type EndingId } from './systems/EndingSystem';
 import { PostFX } from './world/PostFX';
@@ -83,6 +84,12 @@ export class Game {
   private dragons?: DragonManager;
   private mounts?: MountSystem;
   private endings?: EndingSystem;
+  /** Fase 9 — in-game narrative cinematics (dragon victories, chapters). */
+  private cinematics = new CinematicSystem();
+  /** Fase 9 — chapter cinematic waiting for the closing dialogue to end. */
+  private pendingChapter: { n: number; title: string; sub: string } | null = null;
+  /** Fase 9 — quest ids already seen completed (chapter detection). */
+  private lastCompletedIds = new Set<string>();
   private postfx?: PostFX;
   /** Fase 4 — ambient music bed from the asset repository (MP3). */
   private musicEl: HTMLAudioElement | null = null;
@@ -175,7 +182,7 @@ export class Game {
     // Fase 8 — boot-time quality ladder (fog · water detail · NPC distance)
     const q0 = this.engine.quality;
     world.sky.qualityFogMul = q0.fogMul;
-    world.water.setDetail(q0.waterSegments, q0.waveMotionRadius);
+    world.water.setDetail(q0.waterSegments, q0.waveMotionRadius, q0.waterRefl);
     this.npcAnimDistance = q0.npcAnimDistance;
 
     // Fase 4 — cinematic post chain (Ultra), attached to the engine loop
@@ -240,14 +247,24 @@ export class Game {
         setFlag: (flag) => this.state.setFlag(flag),
         lore: (title, paragraphs) => this.dialogue.startLore(title, paragraphs),
         closeDialogue: () => this.dialogue.close(),
-        playerDamage: (amount, source) => {
-          // Routed through the block/i-frame system (Fase 3)
-          this.applyPlayerDamage(amount, undefined, undefined, source ?? 'naval');
+        playerDamage: (amount, source) => this.applyPlayerDamage(amount, undefined, undefined, source ?? 'naval'),
+        wasParried: () => (this.player?.parryT ?? 0) > 0,
+        onFinisher: (x, y, z) => {
+          // Fase 9 — the hero's execution blow: face the target, swing heavy
+          const p = this.player!;
+          p.yaw = Math.atan2(x - p.position.x, z - p.position.z);
+          p.attackKind = 'heavy';
+          p.attackDur = 0.85;
+          p.attackT = 0.001;
+          this.rig?.punch(0.85);
+          this.audio.playEvent('hit_scale');
         },
         returnPlayerToShip: () => this.takeHelm(),
       },
     );
     this.naval.dockSpawn = world.dockSpawn;
+    // Fase 9 — every hull is solid: no walking through ships, real bulwarks
+    this.naval.bindColliders(this.colliders);
 
     // Fase 7 — every ship wears the repository's pirate_ship.glb hull
     // (caravels are re-canvassed to warm cream, pirates keep the black sails)
@@ -293,6 +310,10 @@ export class Game {
     this.combat.dragonHitRef = (pos, radius) =>
       this.dragons ? this.dragons.projectileHitTest(pos, radius) : null;
     this.combat.terrainHeightRef = (x, z) => world.terrainHeight.height(x, z);
+    // Fase 9 — combat camera punch: parries/counters/finishers kick the FOV
+    this.combat.onCameraPunch = (i) => this.rig?.punch(i);
+    // Fase 9 — cinematic store sync (letterbox + title cards)
+    this.cinematicsPlaySetup();
     this.dragons = new DragonManager(
       this.engine.scene, world.terrainHeight, this.state, this.vfx,
       {
@@ -311,6 +332,7 @@ export class Game {
           this.naval?.playerShip?.applyDamage(dmg);
         },
         cameraShake: (i) => { this.shakeT = Math.max(this.shakeT, i); },
+        bossDefeated: (d) => this.playBossVictoryCinematic(d),
       },
       world.assets,
     );
@@ -1408,6 +1430,27 @@ export class Game {
       return;
     }
 
+    // --- Fase 9 — narrative cinematics (PDF §6) ---
+    // A pending chapter card waits for the closing dialogue to finish.
+    if (
+      this.pendingChapter && !dialogueActive && !this.cinematics.active
+      && !naval.boardingActive && !this.dead
+    ) {
+      const ch = this.pendingChapter;
+      this.pendingChapter = null;
+      this.playChapterCinematic(ch);
+    }
+    if (this.cinematics.active) {
+      // Skip after the opening beat (Space / Enter / E)
+      if (
+        this.cinematics.elapsed > 0.8 &&
+        (this.input.pressed('jump') || this.input.anyPressed('Enter') || this.input.anyPressed('KeyE'))
+      ) {
+        this.cinematics.skip();
+      }
+    }
+    const cine = this.cinematics.active;
+
     // --- Naval layer: wind, fleets, cannonballs, boarding, effects ---
     const sailingHud: SailingHud | null = naval.update(dt, p.position);
 
@@ -1455,11 +1498,11 @@ export class Game {
     if (sailing && !naval.boardingActive) {
       // ================= SAILING MODE — the player holds the wheel =================
       const ship = naval.playerShip!;
-      rig.handleInput(this.input, dt);
+      if (!cine) rig.handleInput(this.input, dt);
       // No personal weapons while steering — the cannons are the weapon
       p.blocking = false;
       p.bowDraw = -1;
-      if (!dialogueActive) {
+      if (!dialogueActive && !cine) {
         // Sails: W raises, S furls
         if (this.input.anyPressed('KeyW')) {
           naval.setSailState(Math.min(2, ship.sailState + 1) as 0 | 1 | 2);
@@ -1493,12 +1536,12 @@ export class Game {
     } else {
       // ================= FOOT MODE — normal third-person play =================
       // Camera input & combat (Fase 3) before physics so anims stay in sync
-      rig.handleInput(this.input, dt);
+      if (!cine) rig.handleInput(this.input, dt);
 
       if (riding) {
         // --- Fase 4: MOUNTED — the horse carries the player ---
         const mountHud = this.mounts!.update(
-          dt, this.input, p.position, !dialogueActive && !this.dead,
+          dt, this.input, p.position, !dialogueActive && !this.dead && !cine,
           (x, z) => w.water.waveHeightAt(x, z),
         );
         this.ridingGait = mountHud ? mountHud.gait : '';
@@ -1516,9 +1559,16 @@ export class Game {
           });
         }
         // Whistle brings the horse if dismounted far away — but not now
-        if (!dialogueActive && this.input.anyPressed('KeyH') && !this.mounts!.ridingId) {
+        if (!dialogueActive && !cine && this.input.anyPressed('KeyH') && !this.mounts!.ridingId) {
           this.mounts!.whistle(p.position);
         }
+      } else if (cine) {
+        // Fase 9 — the hero holds a heroic stillness while the camera works:
+        // physics and combat are suspended, the body keeps breathing.
+        this.mounts?.update(dt, this.input, p.position, false, (x, z) => w.water.waveHeightAt(x, z));
+        this.ridingGait = '';
+        p.blocking = false;
+        p.model.update({ dt, speed: 0, moving: false, grounded: true, swimming: false, attackT: p.attackT });
       } else {
         this.mounts?.update(dt, this.input, p.position, false, (x, z) => w.water.waveHeightAt(x, z));
         this.ridingGait = '';
@@ -1553,24 +1603,29 @@ export class Game {
       }
 
       // --- Lantern ---
-      if (!dialogueActive && this.input.pressed('lantern')) {
+      if (!dialogueActive && !cine && this.input.pressed('lantern')) {
         p.toggleLantern();
         this.audio.playEvent('pickup');
       }
     }
 
     // --- Camera ---
-    const sprinting = this.input.isDown('sprint') && !dialogueActive;
-    rig.update(dt, p.position, sprinting, w.terrainHeight, this.colliders);
+    if (cine) {
+      // Fase 9 — the narrative sequence drives the camera directly
+      this.cinematics.update(dt);
+    } else {
+      const sprinting = this.input.isDown('sprint') && !dialogueActive;
+      rig.update(dt, p.position, sprinting, w.terrainHeight, this.colliders);
 
-    // Impact camera shake (Fase 3)
-    if (this.shakeT > 0.002) {
-      const cam = this.engine.camera;
-      const s = this.shakeT;
-      cam.position.x += (Math.random() - 0.5) * s * 0.55;
-      cam.position.y += (Math.random() - 0.5) * s * 0.45;
-      cam.position.z += (Math.random() - 0.5) * s * 0.55;
-      this.shakeT = Math.max(0, this.shakeT - dt * 1.9);
+      // Impact camera shake (Fase 3)
+      if (this.shakeT > 0.002) {
+        const cam = this.engine.camera;
+        const s = this.shakeT;
+        cam.position.x += (Math.random() - 0.5) * s * 0.55;
+        cam.position.y += (Math.random() - 0.5) * s * 0.45;
+        cam.position.z += (Math.random() - 0.5) * s * 0.55;
+        this.shakeT = Math.max(0, this.shakeT - dt * 1.9);
+      }
     }
 
     // --- World systems ---
@@ -1625,17 +1680,24 @@ export class Game {
     // NPC updates (Fase 8 — pose animation culled by distance/quality;
     // far villagers keep their schedule but stop animating, so distant
     // streets stop saturating the frame)
+    // Fase 9 — beyond ~260 m a villager is a handful of pixels: hide the
+    // body outright (draw calls saved; schedule keeps running; they pop
+    // back in well inside the fog so it's never visible)
     for (const npc of this.npcs) {
-      const near = npc.position.distanceToSquared(p.position) < this.npcAnimDistance * this.npcAnimDistance;
+      const d2 = npc.position.distanceToSquared(p.position);
+      const near = d2 < this.npcAnimDistance * this.npcAnimDistance;
+      npc.group.visible = d2 < 260 * 260;
       npc.update(dt, w.sky.dayFraction, w.terrainHeight, this.colliders, p.position, near);
     }
 
     // --- Interaction scan ---
-    this.updateInteractions(store, dialogueActive);
+    if (!cine) {
+      this.updateInteractions(store, dialogueActive);
+    }
 
     // --- Discoveries ---
     this.discoveryTimer -= dt;
-    if (this.discoveryTimer <= 0) {
+    if (!cine && this.discoveryTimer <= 0) {
       this.discoveryTimer = 0.5;
       this.checkDiscoveries(store);
     }
@@ -1713,6 +1775,9 @@ export class Game {
       // Fase 3 combat HUD
       store.setWeaponSlots(this.combat!.slots());
       store.setBowDraw(p.bowDraw);
+      // Fase 9 — melee combo chain indicator
+      const comboHud = this.combat!.comboHud;
+      store.setCombo(comboHud ? { step: comboHud.step, counter: comboHud.counter } : null);
       this.pollQuestEvents();
     }
 
@@ -1832,6 +1897,17 @@ export class Game {
       } else if (navalPrompt) {
         best = { prompt: navalPrompt.prompt, run: navalPrompt.run };
         bestDist = 0;
+      } else if (this.naval?.boardingActive) {
+        // Fase 9 — cinematic finisher (PDF §5): a weakened captain exposes
+        // the REMATE. E executes the killing blow.
+        const fin = this.naval.finisherTarget();
+        if (fin) {
+          best = {
+            prompt: `¡REMATE! Ejecutar a ${fin.name}`,
+            run: () => { this.naval!.executeFinisher(); },
+          };
+          bestDist = 0;
+        }
       } else if (!this.naval?.playerSailing) {
         // Fase 4 — mount prompts (mount / buy) compete with world prompts
         const mountPrompt = this.mounts?.interactionPrompt(p.position) ?? null;
@@ -2082,7 +2158,7 @@ export class Game {
       //   grass density · water detail & wave-motion radius · fog · NPC pose
       const q = this.engine.quality;
       this.world?.vegetation.setGrassDensity(q.grassDensity);
-      this.world?.water.setDetail(q.waterSegments, q.waveMotionRadius);
+      this.world?.water.setDetail(q.waterSegments, q.waveMotionRadius, q.waterRefl);
       if (this.world) this.world.sky.qualityFogMul = q.fogMul;
       this.npcAnimDistance = q.npcAnimDistance;
       // Rebuild the grass ring at the new density right away
@@ -2162,11 +2238,169 @@ export class Game {
 
   private lastQuestCount = -1;
 
+  /** Fase 9 — wire the cinematic camera driver once (shots steer the real
+   *  camera through the rig's manual mode). */
+  private cinematicsPlaySetup(): void {
+    this.cinematicDrive = (pos, look, fov) => {
+      this.rig?.setManual(pos, look, fov);
+    };
+  }
+
+  private cinematicDrive: ((pos: THREE.Vector3, look: THREE.Vector3, fov?: number) => void) | null = null;
+
+  /**
+   * Fase 9 (PDF §6.1) — EPIC VICTORY cinematic after a boss dragon falls.
+   * Shot on the real corpse with the real hero; the world keeps breathing
+   * (sky, sea, death animation) around the camera. Skippable.
+   */
+  private playBossVictoryCinematic(d: Dragon): void {
+    if (!this.world || !this.player) return;
+    if (this.cinematics.active) return;
+    if (this.endings?.isPlaying) return;
+    if (this.naval?.boardingActive) return;
+    if (this.dead) return;
+    const w = this.world;
+    const p = this.player;
+    const dp = d.pos;                       // live corpse anchor
+    const R = Math.max(16, d.bodyRadius * 2.0);
+    const firstEver = !this.state.hasFlag('cine_first_dragon');
+    if (firstEver) this.state.setFlag('cine_first_dragon');
+    this.audio.bossIntensity = 0;
+    this.musicIntensityTarget = 0.28;
+
+    const groundClamp = (x: number, y: number, z: number): THREE.Vector3 => {
+      const g = w.terrainHeight.height(x, z);
+      return new THREE.Vector3(x, Math.max(y, g + 1.7), z);
+    };
+    const corpseCenter = () => new THREE.Vector3(dp.x, dp.y + d.bodyRadius * 0.25, dp.z);
+    const a0 = Math.random() * Math.PI * 2;
+
+    const shots: CineShot[] = [
+      // 1 — the beast falls: a low quarter-orbit around the dying dragon
+      {
+        dur: 3.4,
+        fromPos: groundClamp(dp.x + Math.cos(a0) * R, dp.y + 3.4, dp.z + Math.sin(a0) * R),
+        toPos: groundClamp(dp.x + Math.cos(a0 + 1.35) * R, dp.y + 4.6, dp.z + Math.sin(a0 + 1.35) * R),
+        fromLook: corpseCenter,
+        toLook: corpseCenter,
+        fov: 46,
+        title: firstEver ? 'PRIMER DRAGÓN ABATIDO' : undefined,
+        subtitle: firstEver ? 'las canciones aún no se atreven a contarlo' : undefined,
+      },
+      // 2 — the hero: over-the-shoulder of the knight, dragon beyond
+      {
+        dur: 2.5,
+        fromPos: () => {
+          const toD = new THREE.Vector3(dp.x - p.position.x, 0, dp.z - p.position.z).normalize();
+          const side = new THREE.Vector3(-toD.z, 0, toD.x);
+          return groundClamp(
+            p.position.x - toD.x * 2.4 + side.x * 1.9,
+            p.position.y + 2.1,
+            p.position.z - toD.z * 2.4 + side.z * 1.9,
+          );
+        },
+        fromLook: () => new THREE.Vector3(
+          p.position.x + (dp.x - p.position.x) * 0.4,
+          p.position.y + 1.5,
+          p.position.z + (dp.z - p.position.z) * 0.4,
+        ),
+        fov: 40,
+      },
+      // 3 — the world breathes: wide establishing shot + title card
+      {
+        dur: 3.1,
+        fromPos: groundClamp(dp.x - R * 1.25, dp.y + d.bodyRadius * 0.9 + 7.5, dp.z - R * 1.25),
+        toPos: groundClamp(dp.x - R * 1.05, dp.y + d.bodyRadius * 0.7 + 6.2, dp.z - R * 1.05),
+        fromLook: corpseCenter,
+        toLook: corpseCenter,
+        fov: 52,
+        title: `${d.def.name.toUpperCase()} HA CAÍDO`,
+        subtitle: d.def.title ?? 'la leyenda de las mareas',
+      },
+    ];
+
+    this.cinematics.play(shots, {
+      drive: (pos, look, fov) => this.cinematicDrive?.(pos, look, fov),
+      onState: (s) => useGameStore.getState().setCinematic(
+        s ? { title: s.title, subtitle: s.subtitle, progress: s.progress, shot: s.shot, total: s.total } : null,
+      ),
+      onDone: () => {
+        this.musicIntensityTarget = 0.45;
+        // Smooth handoff: the rig snaps behind the hero
+        this.rig?.snapBehind(p.position);
+      },
+    });
+  }
+
+  /** Fase 9 (PDF §6.2) — chapter milestone cinematic (short panoramic card). */
+  private playChapterCinematic(ch: { n: number; title: string; sub: string }): void {
+    if (!this.world || !this.player) return;
+    if (this.cinematics.active || this.endings?.isPlaying) return;
+    const p = this.player;
+    const w = this.world;
+    const flag = `cine_chapter_${ch.n}`;
+    if (this.state.hasFlag(flag)) return;
+    this.state.setFlag(flag);
+
+    const groundClamp = (x: number, y: number, z: number): THREE.Vector3 => {
+      const g = w.terrainHeight.height(x, z);
+      return new THREE.Vector3(x, Math.max(y, g + 1.7), z);
+    };
+    const yaw = this.rig?.yaw ?? 0;
+    const back = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
+    const shots: CineShot[] = [
+      // 1 — rise from the hero toward the horizon
+      {
+        dur: 2.6,
+        fromPos: groundClamp(p.position.x + back.x * 4.2, p.position.y + 1.8, p.position.z + back.z * 4.2),
+        toPos: groundClamp(p.position.x + back.x * 7.5, p.position.y + 6.5, p.position.z + back.z * 7.5),
+        fromLook: () => new THREE.Vector3(p.position.x, p.position.y + 1.4, p.position.z),
+        toLook: () => new THREE.Vector3(p.position.x - back.x * 14, p.position.y + 2.2, p.position.z - back.z * 14),
+        fov: 48,
+      },
+      // 2 — the milestone card: slow orbit around the hero
+      {
+        dur: 3.2,
+        fromPos: groundClamp(p.position.x + back.x * 5.4 + 2.6, p.position.y + 2.6, p.position.z + back.z * 5.4 - 2.6),
+        toPos: groundClamp(p.position.x + back.x * 5.4 - 2.6, p.position.y + 3.2, p.position.z + back.z * 5.4 + 2.6),
+        fromLook: () => new THREE.Vector3(p.position.x, p.position.y + 1.35, p.position.z),
+        toLook: () => new THREE.Vector3(p.position.x, p.position.y + 1.35, p.position.z),
+        fov: 44,
+        title: ch.title,
+        subtitle: ch.sub,
+      },
+      // 3 — settle behind the hero for a seamless handoff
+      {
+        dur: 1.6,
+        fromPos: groundClamp(p.position.x + back.x * 5.2, p.position.y + 2.4, p.position.z + back.z * 5.2),
+        toPos: groundClamp(p.position.x + back.x * 4.6, p.position.y + 1.9, p.position.z + back.z * 4.6),
+        fromLook: () => new THREE.Vector3(p.position.x, p.position.y + 1.4, p.position.z),
+        toLook: () => new THREE.Vector3(p.position.x, p.position.y + 1.4, p.position.z),
+        fov: 54,
+      },
+    ];
+
+    this.musicIntensityTarget = 0.5;
+    this.cinematics.play(shots, {
+      drive: (pos, look, fov) => this.cinematicDrive?.(pos, look, fov),
+      onState: (s) => useGameStore.getState().setCinematic(
+        s ? { title: s.title, subtitle: s.subtitle, progress: s.progress, shot: s.shot, total: s.total } : null,
+      ),
+      onDone: () => {
+        this.rig?.snapBehind(p.position);
+      },
+    });
+  }
+
   /** Detect newly completed quests → notify + autosave (polled from HUD sync). */
   pollQuestEvents(): void {
-    const completed = [...this.state.questStates.entries()]
-      .filter(([, s]) => s.status === 'completed').length;
-    if (this.lastQuestCount >= 0 && completed > this.lastQuestCount) {
+    const completedIds = new Set<string>();
+    for (const [id, s] of this.state.questStates.entries()) {
+      if (s.status === 'completed') completedIds.add(id);
+    }
+    const newly = [...completedIds].filter((id) => !this.lastCompletedIds.has(id));
+    const completed = completedIds.size;
+    if (this.lastQuestCount >= 0 && newly.length > 0) {
       const store = useGameStore.getState();
       store.notify('quest', 'Misión completada', 'Consulta tu diario (J) para saber más.');
       this.audio.playEvent('quest');
@@ -2174,7 +2408,20 @@ export class Game {
       this.autosave();
       // Level-up check
       this.syncProgression();
+      // Fase 9 — chapter milestone cinematics (PDF §6.2). Wait for any open
+      // dialogue to close so the letterbox never fights a conversation.
+      const CHAPTER_FINAL: Record<string, { n: number; title: string; sub: string }> = {
+        q3_chest: { n: 1, title: 'CAPÍTULO I COMPLETO', sub: 'el legado de Eirik' },
+        q5_raven: { n: 2, title: 'CAPÍTULO II COMPLETO', sub: 'los mares olvidados' },
+        q9_ancestro: { n: 3, title: 'CAPÍTULO III COMPLETO', sub: 'el rumor de las alas' },
+        q12_acero: { n: 4, title: 'CAPÍTULO IV COMPLETO', sub: 'la corona hundida' },
+      };
+      for (const id of newly) {
+        const ch = CHAPTER_FINAL[id];
+        if (ch && !this.pendingChapter) this.pendingChapter = ch;
+      }
     }
+    this.lastCompletedIds = completedIds;
     this.lastQuestCount = completed;
   }
 

@@ -70,8 +70,8 @@ export class WaterSystem {
         uSunColor: { value: new THREE.Color(1, 0.95, 0.85) },
         uSkyColor: { value: new THREE.Color(0.55, 0.7, 0.85) },
         uHorizonColor: { value: new THREE.Color(0.8, 0.85, 0.9) },
-        uDeepColor: { value: new THREE.Color(0.035, 0.13, 0.16) },
-        uShallowColor: { value: new THREE.Color(0.1, 0.38, 0.38) },
+        uDeepColor: { value: new THREE.Color(0.012, 0.085, 0.145) },
+        uShallowColor: { value: new THREE.Color(0.07, 0.34, 0.35) },
         uFoamColor: { value: new THREE.Color(0.92, 0.95, 0.94) },
         uNightFactor: { value: 0 },
         uHeightMap: { value: heightTex },
@@ -79,6 +79,10 @@ export class WaterSystem {
         uCameraPos: { value: new THREE.Vector3() },
         /** Fase 8 — radius (m) around the camera where waves still move. */
         uWaveMotion: { value: 2000.0 },
+        /** Fase 9 — 1 = procedural sky/sun reflection (Ultra/Alto),
+         *  0 = cheap flat sky mix (Medio/Bajo/MBajo). The depth absorption
+         *  and Schlick fresnel apply on every profile. */
+        uReflQuality: { value: 1 },
       },
       vertexShader: /* glsl */ `
         uniform float uTime;
@@ -166,6 +170,7 @@ export class WaterSystem {
         uniform float uNightFactor;
         uniform vec3 uCameraPos;
         uniform float uTime;
+        uniform float uReflQuality;
         varying vec3 vWorldPos;
         varying vec3 vNormal;
         varying float vShore;
@@ -182,6 +187,16 @@ export class WaterSystem {
                      mix(hash(i + vec2(0,1)), hash(i + vec2(1,1)), f.x), f.y);
         }
 
+        /** Fase 9 — procedural sky on the reflected ray: gradient + sun glow.
+         *  Reads as the real sky mirrored on the water (Ultra/Alto). */
+        vec3 skyReflection(vec3 rDir, vec3 sunDir, vec3 sunColor, vec3 sky, vec3 horizon) {
+          float up = clamp(rDir.y, 0.0, 1.0);
+          vec3 col = mix(horizon, sky, pow(up, 0.62));
+          float sd = max(dot(rDir, sunDir), 0.0);
+          col += sunColor * (pow(sd, 240.0) * 2.6 + pow(sd, 12.0) * 0.3);
+          return col;
+        }
+
         void main() {
           vec3 viewDir = normalize(uCameraPos - vWorldPos);
           vec3 n = normalize(vNormal);
@@ -194,23 +209,40 @@ export class WaterSystem {
           float rip3 = noise(vWorldPos.xz * 5.6 + drift * 2.6) - 0.5;
           n = normalize(n + vec3(rip + rip3 * 0.55, 0.0, rip2 + rip3 * 0.4) * 0.42);
 
-          float fres = pow(1.0 - max(dot(viewDir, n), 0.0), 3.0);
-          fres = clamp(fres, 0.04, 1.0);
+          // --- Fase 9 — optical depth (Beer-Lambert): the ray crosses more
+          // water when grazing, so distance darkens/blues like a real sea.
+          float depth = max(0.0, -vShore);                       // water column
+          float grazing = 1.0 - clamp(viewDir.y, 0.0, 1.0);      // 0 overhead → 1 grazing
+          float viewLen = distance(uCameraPos, vWorldPos);
+          float opticalDepth = depth * (1.0 + grazing * 1.6) + viewLen * 0.014 * grazing;
+          vec3 transmit = exp(-opticalDepth * vec3(0.36, 0.15, 0.115));
 
-          // Water body color by shore depth
-          float shallowT = smoothstep(-6.0, -0.4, vShore);
+          // Water body: turquoise shore → deep blue offshore (exp transition)
+          float shallowT = clamp(transmit.g, 0.0, 1.0);
           vec3 body = mix(uDeepColor, uShallowColor, shallowT);
+          body *= 0.72 + 0.28 * transmit.r;   // deep water drops red → richer blue
 
-          // Sky reflection
-          vec3 refl = mix(uHorizonColor, uSkyColor, 0.5);
-          vec3 col = mix(body, refl, fres * 0.85);
+          // --- Schlick fresnel (F0 = 0.02 agua): reflejo fuerte al ras,
+          // cuerpo azul dominante mirando desde arriba — nunca un espejo.
+          float fres = 0.02 + 0.98 * pow(1.0 - max(dot(viewDir, n), 0.0), 5.0);
+          fres = clamp(fres, 0.02, 0.85);
+
+          vec3 sunDir = normalize(uSunDir);
+          vec3 refl;
+          if (uReflQuality > 0.5) {
+            vec3 rDir = reflect(-viewDir, n);
+            rDir.y = abs(rDir.y) * 0.96 + 0.04;   // the sea mirrors the sky above
+            refl = skyReflection(rDir, sunDir, uSunColor, uSkyColor, uHorizonColor);
+          } else {
+            refl = mix(uHorizonColor, uSkyColor, 0.5);
+          }
+          vec3 col = mix(body, refl, fres);
 
           // Sun specular glint (not underwater)
-          vec3 sunDir = normalize(uSunDir);
           vec3 halfV = normalize(viewDir + sunDir);
           float upK = gl_FrontFacing ? 1.0 : 0.0;
           float spec = pow(max(dot(n, halfV), 0.0), 260.0);
-          col += uSunColor * spec * 1.6 * upK;
+          col += uSunColor * spec * 1.7 * upK;
           // Broad glitter path with sparkle noise
           float glit = pow(max(dot(n, halfV), 0.0), 24.0);
           float sparkle = noise(vWorldPos.xz * 7.0 + uTime * 1.4);
@@ -245,7 +277,9 @@ export class WaterSystem {
             col = mix(col, col * vec3(0.35, 0.5, 0.55), 0.75);
           }
 
-          float alpha = mix(0.86, 0.62, shallowT);
+          // Fase 9 — alpha follows absorption: deep sea reads opaque,
+          // the shore stays transparent so the sand shows through
+          float alpha = mix(0.92, 0.62, shallowT);
           alpha = mix(alpha, 0.95, foam);
           gl_FragColor = vec4(col, alpha);
         }
@@ -274,9 +308,12 @@ export class WaterSystem {
    * Fase 8 — quality ladder: rebuild the sea mesh at a new segment count
    * (96 on Ultra-Bajo → 148k triangles saved vs 384) and set the radius
    * around the camera within which waves actually move.
+   * Fase 9 — reflQuality 1 enables the procedural sky/sun reflection
+   * (Ultra/Alto); lower profiles keep the cheap flat sky mix.
    */
-  setDetail(segments: number, waveMotionRadius: number): void {
+  setDetail(segments: number, waveMotionRadius: number, reflQuality = 1): void {
     this.material.uniforms.uWaveMotion.value = Math.max(20, waveMotionRadius);
+    this.material.uniforms.uReflQuality.value = reflQuality > 0.5 ? 1 : 0;
     const seg = Math.max(48, Math.min(384, Math.round(segments)));
     const params = this.mesh.geometry as THREE.PlaneGeometry;
     if (params.parameters?.widthSegments === seg) return; // same detail

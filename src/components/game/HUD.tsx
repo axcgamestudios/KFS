@@ -435,6 +435,7 @@ export default function HUD() {
   const atHelm = useGameStore((s) => s.atHelm);
   const mount = useGameStore((s) => s.mount);
   const hurtFlash = useGameStore((s) => s.hurtFlash);
+  const combo = useGameStore((s) => s.combo);
   const staminaOut = useRef(false);
   if (stamina <= 0.5 && !staminaOut.current) staminaOut.current = true;
   if (stamina > 8 && staminaOut.current) staminaOut.current = false;
@@ -458,6 +459,21 @@ export default function HUD() {
 
       {/* --- Boss health bar --- */}
       {boss && <BossBar b={boss} />}
+
+      {/* --- Fase 9 — combo chain indicator (cinematic combat) --- */}
+      {combo && !atHelm && (
+        <div className="absolute left-1/2 top-[64px] -translate-x-1/2 text-center">
+          <p
+            className="kotfs-title text-lg tracking-[0.24em] text-[color:#e8c96a]"
+            style={{ textShadow: '0 1px 10px rgba(0,0,0,0.85)' }}
+          >
+            {combo.counter ? '¡CONTRAATAQUE!' : `CADENA ×${combo.step + 1}`}
+          </p>
+          <p className="text-[0.58rem] tracking-[0.3em] text-[color:var(--kotfs-parchment-dim)] uppercase">
+            {combo.counter ? 'golpea ahora — daño ×1.6' : combo.step >= 1 ? 'sigue — remate a la tercera' : 'encadena' }
+          </p>
+        </div>
+      )}
 
       {/* --- Top right: quest tracker scroll --- */}
       {questTracker && (

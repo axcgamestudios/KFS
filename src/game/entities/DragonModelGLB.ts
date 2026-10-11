@@ -59,7 +59,8 @@ export class DragonModelGLB {
     loadNow: () => Promise<{ scene: THREE.Object3D; clips: THREE.AnimationClip[] }>,
   ) {
     // Fire glow follows the mouth even before the mesh arrives
-    this.mouthLight = new THREE.PointLight(0xff7a2a, 0, 30, 1.8);
+    // (Fase 9 — 60 m range: the giants are 3× bigger, the glow must reach)
+    this.mouthLight = new THREE.PointLight(0xff7a2a, 0, 60, 1.8);
     this.mouthAnchor.add(this.mouthLight);
     const c = document.createElement('canvas');
     c.width = c.height = 64;

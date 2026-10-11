@@ -7,6 +7,7 @@ import LoadingScreen from './LoadingScreen';
 import MainMenu from './MainMenu';
 import IntroCinematic from './IntroCinematic';
 import EndingOverlay from './EndingOverlay';
+import CinematicOverlay from './CinematicOverlay';
 import HUD from './HUD';
 import AdminPanel from './AdminPanel';
 import DialogueBox from './DialogueBox';
@@ -91,6 +92,7 @@ export default function GameRoot() {
           )}
           {phase === 'intro' && <IntroCinematic />}
           <EndingOverlay />
+          <CinematicOverlay />
           {(phase === 'playing' || phase === 'paused') && (
             <>
               <HUD />

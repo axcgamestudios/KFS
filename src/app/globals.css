@@ -1183,3 +1183,23 @@
   background: radial-gradient(circle at 35% 30%, #ffe9a6, #c9a227 60%, #6b5416);
   border: 1px solid rgba(0, 0, 0, 0.7);
 }
+
+/* ============================================================
+   FASE 9 — Narrative cinematics (letterbox + title cards)
+   ============================================================ */
+.kotfs-cine-bar {
+  transition: transform 0.85s cubic-bezier(0.22, 0.9, 0.24, 1);
+}
+.kotfs-cine-bar[data-active='on'] {
+  transform: translateY(0) !important;
+}
+.kotfs-cine-title {
+  animation: kotfs-cine-in 1.05s ease both;
+}
+.kotfs-cine-sub {
+  animation: kotfs-cine-in 1.3s ease 0.22s both;
+}
+@keyframes kotfs-cine-in {
+  from { opacity: 0; transform: translateY(12px); letter-spacing: 0.42em; }
+  to   { opacity: 1; transform: none; }
+}

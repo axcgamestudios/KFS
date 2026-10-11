@@ -102,6 +102,10 @@ interface GameStore {
   /** Fase 4 — ending cinematic state. */
   endingActive: boolean;
   endingCard: EndingCard | null;
+  /** Fase 9 — in-game narrative cinematic (letterbox + cards). */
+  cinematic: { title: string; subtitle: string; progress: number; shot: number; total: number } | null;
+  /** Fase 9 — melee combo chain indicator (null when no chain). */
+  combo: { step: number; counter: boolean } | null;
   // Progression
   level: number;
   xp: number;
@@ -131,6 +135,8 @@ interface GameStore {
   setMount: (m: MountHud | null) => void;
   setEndingActive: (v: boolean) => void;
   setEndingCard: (c: EndingCard | null) => void;
+  setCinematic: (c: GameStore['cinematic']) => void;
+  setCombo: (c: GameStore['combo']) => void;
   triggerHurtFlash: () => void;
   setDialogue: (d: DialogueState | null) => void;
   setDiscovery: (d: { title: string; sub: string } | null) => void;
@@ -165,6 +171,8 @@ export const useGameStore = create<GameStore>((set) => ({
   mount: null,
   endingActive: false,
   endingCard: null,
+  cinematic: null,
+  combo: null,
   weaponSlots: [],
   bowDraw: -1,
   atHelm: false,
@@ -192,6 +200,8 @@ export const useGameStore = create<GameStore>((set) => ({
   setMount: (m) => set({ mount: m }),
   setEndingActive: (v) => set({ endingActive: v }),
   setEndingCard: (c) => set({ endingCard: c }),
+  setCinematic: (c) => set({ cinematic: c }),
+  setCombo: (c) => set({ combo: c }),
   setWeaponSlots: (s) => set({ weaponSlots: s }),
   setBowDraw: (v) => set({ bowDraw: v }),
   triggerHurtFlash: () => set((s) => ({ hurtFlash: s.hurtFlash + 1 })),

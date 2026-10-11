@@ -338,15 +338,16 @@ export class Ship {
     model.scale.multiplyScalar(s);
 
     // 4. Align: centre on X/Z and put the export's DESIGNED WATERLINE at the
-    //    buoyancy surface (y ≈ 0). Measured offline from the GLB: the dark
-    //    anti-fouling hull (Main/Mat.1/Mat.5) spans raw Y -1080..-60, so the
-    //    designed waterline sits at raw Y ≈ -60; the deck plane lands ≈1 m
-    //    above the sea at the 17.2 m normalisation — matching DECK_Y.
+    //    buoyancy surface (y ≈ 0). Measured offline (Fase 9, world-space
+    //    vertex probe): the deck plane — where Mat.6/Mat.7 furniture sits —
+    //    lands at raw Y ≈ 128 and the keel at −649. The old −60 waterline
+    //    left only 0.68 m of freeboard: the ships rode badly sunken.
+    //    −149 restores a seamanlike 1.1 m freeboard / 1.83 m draft.
     wrap.updateWorldMatrix(true, true);
     const box = new THREE.Box3().setFromObject(model);
     const center = box.getCenter(new THREE.Vector3());
     model.position.set(0, 0, 0);
-    const WATERLINE_RAW = -60; // top of the dark underwater hull
+    const WATERLINE_RAW = -149; // deck furniture raw 128 − 1.0 m / s
     wrap.position.set(-center.x, -WATERLINE_RAW * s, -center.z);
 
     // 5. Retire the procedural body & sails — keep cannons, wheel, smoke, foam
@@ -487,7 +488,9 @@ export class Ship {
       const hPort = water.waveHeightAt(pPort.x, pPort.z);
       const hStar = water.waveHeightAt(pStar.x, pStar.z);
       const avg = (hBow + hStern + hPort + hStar) / 4;
-      this.group.position.y = damp(this.group.position.y, avg + 0.12, 5, dt);
+      // Fase 9 — rides a touch high: +0.2 m keeps the scuppers clear of the
+      // swell crests (the sunken-ship look was mostly water burying the deck)
+      this.group.position.y = damp(this.group.position.y, avg + 0.2, 5, dt);
       const targetPitch = Math.atan2(hStern - hBow, 12.8);
       const targetRoll = Math.atan2(hPort - hStar, 3.8) + this.rudder * clamp(this.speed / this.maxSpeed, 0, 1) * 0.09;
       this.hull.rotation.x = dampAngle(this.hull.rotation.x, targetPitch, 4, dt);
@@ -591,6 +594,111 @@ export class Ship {
     };
   }
 
+  // ---------------------------------------------------------- collisions
+
+  /**
+   * Fase 9 — solid hull: an AABB composition that follows the ship.
+   *
+   * The PDF demanded real collisions: no walking through the hull, no
+   * swimming through it, deck still walkable. The volumes mirror the hull
+   * shape in 6 local boxes (port/starboard bulwarks in two segments so the
+   * tapered bow is respected, bow cap, stern cap) — all of them OUTSIDE the
+   // walkable deck bounds so boarding/crew combat is untouched.
+   *
+   * Re-sync only when the ship moved ≥ 0.35 m or turned ≥ 1.5° (and only
+   * when a listener is within 140 m) — the registry update is not free.
+   */
+  private static readonly COLLIDER_PARTS: Array<{ x0: number; x1: number; z0: number; z1: number }> = [
+    // port side, stern half (widest)
+    { x0: 1.5, x1: 2.35, z0: -8.1, z1: 0.4 },
+    // port side, bow half (tapered)
+    { x0: 1.5, x1: 2.35, z0: 0.4, z1: 5.6 },
+    // starboard mirror
+    { x0: -2.35, x1: -1.5, z0: -8.1, z1: 0.4 },
+    { x0: -2.35, x1: -1.5, z0: 0.4, z1: 5.6 },
+    // bow cap (curved stem approximated)
+    { x0: -1.35, x1: 1.35, z0: 5.6, z1: 8.4 },
+    // stern cap (transom)
+    { x0: -1.5, x1: 1.5, z0: -8.4, z1: -8.1 },
+  ];
+
+  private colReg: ColliderRegistry | null = null;
+  private colSynced = false;
+  private lastColX = NaN;
+  private lastColZ = NaN;
+  private lastColHeading = NaN;
+  private lastColY = NaN;
+
+  /** Bind the game's collision world (called once by the NavalSystem). */
+  bindColliderRegistry(registry: ColliderRegistry): void {
+    this.colReg = registry;
+    this.colSynced = false;
+    this.lastColX = NaN;
+  }
+
+  /**
+   * Refresh the hull AABBs when (and only when) the ship moved enough.
+   * @param refX/refZ listener position (player) — far ships skip the sync.
+   */
+  syncColliders(refX: number, refZ: number): void {
+    if (!this.colReg || this.sinking > 0 || this.sunk) {
+      if (this.colSynced) this.clearColliders();
+      return;
+    }
+    const dx = this.pos.x - refX;
+    const dz = this.pos.z - refZ;
+    const far = dx * dx + dz * dz > 140 * 140;
+    if (far) {
+      if (this.colSynced) this.clearColliders(); // out of range: free the cells
+      return;
+    }
+    const moved = !this.colSynced
+      || Math.abs(this.pos.x - this.lastColX) > 0.35
+      || Math.abs(this.pos.z - this.lastColZ) > 0.35
+      || Math.abs(this.heading - this.lastColHeading) > 0.026
+      || Math.abs(this.group.position.y - this.lastColY) > 0.5;
+    if (!moved) return;
+
+    this.clearColliders();
+    const gy = this.group.position.y;
+    const y0 = gy - 1.15;               // below the waterline: swimmers bump it
+    const y1 = gy + DECK_Y + 0.72;      // bulwark/rail height
+    const sinH = Math.sin(this.heading);
+    const cosH = Math.cos(this.heading);
+    for (let i = 0; i < Ship.COLLIDER_PARTS.length; i++) {
+      const p = Ship.COLLIDER_PARTS[i];
+      // local → world for the 4 corners, then take the AABB
+      let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+      for (const [lx, lz] of [
+        [p.x0, p.z0], [p.x1, p.z0], [p.x0, p.z1], [p.x1, p.z1],
+      ] as Array<[number, number]>) {
+        // toWorld(): x' = x·cos + z·sin, z' = −x·sin + z·cos
+        const wx = this.pos.x + lx * cosH + lz * sinH;
+        const wz = this.pos.z - lx * sinH + lz * cosH;
+        if (wx < minX) minX = wx;
+        if (wx > maxX) maxX = wx;
+        if (wz < minZ) minZ = wz;
+        if (wz > maxZ) maxZ = wz;
+      }
+      this.colReg.add(`ship_${this.id}_${i}`, {
+        kind: 'box', minX, maxX, minZ, maxZ, minY: y0, maxY: y1,
+      });
+    }
+    this.colSynced = true;
+    this.lastColX = this.pos.x;
+    this.lastColZ = this.pos.z;
+    this.lastColHeading = this.heading;
+    this.lastColY = gy;
+  }
+
+  private clearColliders(): void {
+    if (!this.colReg) return;
+    for (let i = 0; i < Ship.COLLIDER_PARTS.length; i++) {
+      this.colReg.remove(`ship_${this.id}_${i}`);
+    }
+    this.colSynced = false;
+  }
+
   deserialize(d: ReturnType<Ship['serialize']>): void {
     this.pos.set(d.x, 0, d.z);
     this.heading = d.heading;
@@ -606,6 +714,7 @@ export class Ship {
   }
 
   dispose(): void {
+    this.clearColliders(); // Fase 9 — free the hull AABBs
     this.group.parent?.remove(this.group);
     this.group.traverse((obj) => {
       if ((obj as THREE.Mesh).isMesh) {

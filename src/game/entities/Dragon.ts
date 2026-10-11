@@ -70,6 +70,11 @@ const tmpA = new THREE.Vector3();
 const tmpB = new THREE.Vector3();
 const tmpC = new THREE.Vector3();
 
+/** Fase 9 — ÉPICA: the dragons read as overgrown lizards; every species is
+ *  now 3× bigger. The multiplier is applied to the whole envelope (model,
+ *  hit spheres, leg height, melee/fire reach) so a giant still fights like one. */
+export const DRAGON_SIZE_MULT = 3;
+
 /**
  * One dragon creature: AI state machine + locomotion (ground walk with
  * terrain clamping, 3D flight with terrain avoidance) + attack execution
@@ -113,6 +118,19 @@ export class Dragon {
     seed: number,
     glbLoader?: () => Promise<{ scene: THREE.Object3D; clips: THREE.AnimationClip[] }>,
   ) {
+    this.def = def;
+    this.hp = def.maxHp;
+    // Fase 9 — triple size: scale the def copy so model, hit spheres, ranges
+    // and leg height all grow together. Speeds get a gentler boost (×1.5) so
+    // the giants still feel ponderous instead of teleporting.
+    def = {
+      ...def,
+      scale: def.scale * DRAGON_SIZE_MULT,
+      meleeRange: def.meleeRange * DRAGON_SIZE_MULT,
+      fireRange: def.fireRange * DRAGON_SIZE_MULT,
+      speedGround: def.speedGround * 1.5,
+      speedFly: def.speedFly * 1.5,
+    };
     this.def = def;
     this.hp = def.maxHp;
     this.model = def.useGlbModel && glbLoader
@@ -664,14 +682,18 @@ export class Dragon {
       this.steerFlight(dt, tmpA, speed, terrain, true);
     } else {
       // Orbit at attack altitude while the breath recharges
-      const orbitR = 26 * (def.boss ? 1.4 : 1);
+      // Fase 9 — the orbit widens with the giant body so the wings read
+      // clearly instead of scraping the target.
+      const orbitR = 62 * (def.boss ? 1.4 : 1);
       const spin = this.rng() < 0.5 ? 1 : -1;
       this.patrolAngle += dt * spin * (enraged ? 0.55 : 0.4);
-      const altBand = def.id === 'skarnvind' ? 12 : this.phase >= 2 ? 14 : 22;
+      // Fase 9 — giant dragons need more sky: altitude bands doubled so the
+      // wings never scrape the terrain while orbiting.
+      const altBand = def.id === 'skarnvind' ? 26 : this.phase >= 2 ? 30 : 46;
       const desiredAlt = Math.max(terrain.height(this.pos.x, this.pos.z), 0) + altBand;
       tmpA.set(
         targetPos.x + Math.cos(this.patrolAngle) * orbitR,
-        Math.max(desiredAlt, targetPos.y + 12),
+        Math.max(desiredAlt, targetPos.y + 26),
         targetPos.z + Math.sin(this.patrolAngle) * orbitR,
       );
       this.anim.mode = 'glide';

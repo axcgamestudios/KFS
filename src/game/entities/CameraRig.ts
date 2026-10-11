@@ -20,11 +20,19 @@ export class CameraRig {
   private currentPos = new THREE.Vector3(0, 30, 60);
   private lookAt = new THREE.Vector3();
   private fov = 62;
+  /** Fase 9 — combat camera punch: quick FOV kick, decays fast. */
+  private fovKick = 0;
   /** While sailing the rig orbits the ship instead of the player. */
   shipTarget: Ship | null = null;
   private savedDistance = 4.6;
 
   constructor(private camera: THREE.PerspectiveCamera) {}
+
+  /** Fase 9 — cinematic combat feedback: parries, counters and finishers
+   *  land with a short FOV punch (never a disorienting shake). */
+  punch(intensity: number): void {
+    this.fovKick = Math.min(15, this.fovKick + intensity * 9);
+  }
 
   handleInput(input: Input, dt: number): void {
     if (!input.pointerLocked) return;
@@ -120,8 +128,9 @@ export class CameraRig {
     this.camera.position.copy(this.currentPos);
     this.camera.lookAt(this.lookAt);
 
-    // FOV kick while sprinting
-    const targetFov = sprinting ? 70 : 62;
+    // FOV kick while sprinting (+ Fase 9 combat punch decay)
+    this.fovKick = damp(this.fovKick, 0, 7, dt);
+    const targetFov = (sprinting ? 70 : 62) + this.fovKick;
     this.fov = damp(this.fov, targetFov, 5, dt);
     if (Math.abs(this.camera.fov - this.fov) > 0.05) {
       this.camera.fov = this.fov;
@@ -215,9 +224,10 @@ export class CameraRig {
     this.camera.position.copy(this.currentPos);
     this.camera.lookAt(this.lookAt);
 
-    // Speed FOV
+    // Speed FOV (+ Fase 9 combat punch decay)
+    this.fovKick = damp(this.fovKick, 0, 7, dt);
     const fast = ship.speed / Math.max(1, ship.maxSpeed) > 0.72;
-    const targetFov = fast ? 72 : 62;
+    const targetFov = (fast ? 72 : 62) + this.fovKick;
     this.fov = damp(this.fov, targetFov, 4, dt);
     if (Math.abs(this.camera.fov - this.fov) > 0.05) {
       this.camera.fov = this.fov;
@@ -226,10 +236,14 @@ export class CameraRig {
   }
 
   /** Used by cinematics to drive the camera directly. */
-  setManual(position: THREE.Vector3, lookAt: THREE.Vector3): void {
+  setManual(position: THREE.Vector3, lookAt: THREE.Vector3, fov?: number): void {
     this.camera.position.copy(position);
     this.camera.lookAt(lookAt);
     this.currentPos.copy(position);
+    if (fov !== undefined && Math.abs(this.camera.fov - fov) > 0.05) {
+      this.camera.fov = fov;
+      this.camera.updateProjectionMatrix();
+    }
   }
 
   yawDelta(d: number): void {

@@ -39,6 +39,10 @@ export class Player {
   /** Block pose blend target (RMB). */
   blocking = false;
   blockT = 0;
+  /** Fase 9 — seconds since the block pose snapped up (parry window clock). */
+  blockAge = 99;
+  /** Fase 9 — > 0 while the parry flash glows (attackers can check this). */
+  parryT = 0;
   /** Dodge roll in progress (0..1). */
   rollT = 0;
   readonly rollDir = new THREE.Vector3(0, 0, -1);
@@ -72,6 +76,8 @@ export class Player {
   onAttackSwing?: () => void;
   onDamaged?: (amount: number, reason: string) => void;
   onBlockSparks?: (pos: THREE.Vector3) => void;
+  /** Fase 9 — a hit was PARRIED (perfect block): attackers stagger. */
+  onParry?: (fromX: number, fromZ: number) => void;
   /** Fase 4 — fired when the body enters/leaves the water (splash VFX+SFX). */
   onWaterEvent?: (kind: 'enter' | 'exit', speed: number) => void;
 
@@ -168,6 +174,20 @@ export class Player {
         facing = Math.abs(d) < 1.05;
       }
       if (facing) {
+        // Fase 9 — PARRY: the block snapped up within the last 0.19 s →
+        // perfect defense. Zero damage, zero stamina, the attacker staggers
+        // and a counterattack window opens (CombatSystem reads parryT).
+        if (this.blockAge <= 0.19) {
+          this.parryT = 0.55;
+          this.invulnT = 0.35;
+          this.model.blockImpact?.();
+          if (fromX !== undefined && fromZ !== undefined) {
+            this.onParry?.(fromX, fromZ);
+          } else {
+            this.onParry?.(this.position.x + Math.sin(this.yaw), this.position.z + Math.cos(this.yaw));
+          }
+          return 0;
+        }
         const reduce = this.hasShieldEquipped ? 0.82 : 0.5;
         const blocked = damage * reduce;
         // Blocking drains stamina instead of most health
@@ -189,8 +209,24 @@ export class Player {
     this.health = Math.max(0, this.health - damage);
     this.invulnT = 0.7;
     this.model.flash();
+    // Fase 9 — hit reaction: a light knockback impulse away from the source
+    if (fromX !== undefined && fromZ !== undefined) {
+      const dx = this.position.x - fromX;
+      const dz = this.position.z - fromZ;
+      const len = Math.hypot(dx, dz);
+      if (len > 0.01) {
+        this.knockX = (dx / len) * 3.1;
+        this.knockZ = (dz / len) * 3.1;
+        this.knockT = 0.22;
+      }
+    }
     return damage;
   }
+
+  /** Fase 9 — knockback impulse state (decays fast, read by the mover). */
+  knockX = 0;
+  knockZ = 0;
+  knockT = 0;
 
   update(dt: number, input: Input, cameraYaw: number, terrain: TerrainHeight, colliders: ColliderRegistry, dialogueActive: boolean): void {
     // --- Input direction (camera relative) ---
@@ -287,6 +323,13 @@ export class Player {
     }
     const accel = this.vaultT > 0 ? 0.15 : this.grounded || this.swimming ? 12 : 4;
     if (this.vaultT > 0) this.vaultT = Math.max(0, this.vaultT - dt);
+    // Fase 9 — hit knockback: brief impulse added on top of the movement
+    if (this.knockT > 0) {
+      this.knockT = Math.max(0, this.knockT - dt);
+      const k = this.knockT / 0.22;
+      targetVX += this.knockX * k;
+      targetVZ += this.knockZ * k;
+    }
     this.velocity.x = damp(this.velocity.x, targetVX, accel, dt);
     this.velocity.z = damp(this.velocity.z, targetVZ, accel, dt);
 
@@ -458,6 +501,14 @@ export class Player {
     if (this.attackRecovery > 0) this.attackRecovery -= dt;
     // Block pose blend
     const blockTarget = this.blocking && this.grounded && this.rollT === 0 && this.attackT === 0 ? 1 : 0;
+    // Fase 9 — parry clock: time since the guard snapped up
+    if (blockTarget === 1 && this.blockT > 0.5) {
+      this.blockAge += dt;
+    } else if (blockTarget === 0) {
+      this.blockAge = 0;
+    }
+    // Parry flash decay
+    if (this.parryT > 0) this.parryT = Math.max(0, this.parryT - dt);
     this.blockT = damp(this.blockT, blockTarget, 14, dt);
     // Movement multiplier from context
     let mm = 1;
