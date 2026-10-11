@@ -1,0 +1,28 @@
+{
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "message": {
+        "content": "1) No hay hoguera encendida.\n2) El texto \"Eldol\" y un indicador de progreso (un diamante dorado y tres vacíos).\n3) El entorno es casi totalmente negro; solo se distinguen vagas siluetas de rocas o dunas y el cielo estrellado.\n4) No se ve al caballero ni ninguna antorcha.",
+        "role": "assistant"
+      }
+    }
+  ],
+  "created": 1791687693,
+  "id": "202610111101313ec180f1df37481a",
+  "model": "glm-5v-turbo",
+  "object": "chat.completion",
+  "request_id": "202610111101313ec180f1df37481a",
+  "usage": {
+    "completion_tokens": 86,
+    "completion_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "prompt_tokens": 997,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "total_tokens": 1083
+  }
+}

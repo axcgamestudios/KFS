@@ -1,0 +1,28 @@
+{
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "message": {
+        "content": "1) **NARANJAS/ROJAS** realistas (con núcleo amarillo/blanco intenso en la base, pero tono general cálido).\n2) **Sí**, presentan formas orgánicas y dinámicas, no geométricas ni estáticas.\n3) **Sí**, proyecta una iluminación cálida (amarilla/naranja) sobre la armadura del personaje y el suelo inmediato, creando contraste con la oscuridad nocturna.\n4) **7/10** – Buen comportamiento de luz y color para un entorno de juego; pierde puntos por cierta baja resolución/textura visible en las llamas y falta de partículas de humillo o chispas que elevarían el realismo.",
+        "role": "assistant"
+      }
+    }
+  ],
+  "created": 1791687796,
+  "id": "2026101111031110e57717af134556",
+  "model": "glm-5v-turbo",
+  "object": "chat.completion",
+  "request_id": "2026101111031110e57717af134556",
+  "usage": {
+    "completion_tokens": 169,
+    "completion_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "prompt_tokens": 976,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "total_tokens": 1145
+  }
+}

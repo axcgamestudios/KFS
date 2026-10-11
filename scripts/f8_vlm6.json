@@ -1,0 +1,28 @@
+{
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "message": {
+        "content": "1) **Sí**, los brazos del aldeano cuelgan relajados a los lados en una postura neutral.\n2) **Sí**, su apariencia es creíble: lleva túnica larga, capa sobre los homblos y pelo rubio corto, acorde con un habitante de pueblo medieval.\n3) **Sí**, el tamaño es correcto; la altura del aldeano es ligeramente inferior o similar a la del caballero (que lleva armadura y casco), manteniendo proporciones humanas realistas.\n4) **No** se observan glitches visuales evidentes en el modelo del NPC ni en su entorno inmediato.",
+        "role": "assistant"
+      }
+    }
+  ],
+  "created": 1791686488,
+  "id": "2026101110412453f6ab98f05c4378",
+  "model": "glm-5v-turbo",
+  "object": "chat.completion",
+  "request_id": "2026101110412453f6ab98f05c4378",
+  "usage": {
+    "completion_tokens": 151,
+    "completion_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "prompt_tokens": 1150,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "total_tokens": 1301
+  }
+}

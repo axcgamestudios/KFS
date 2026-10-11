@@ -1,0 +1,28 @@
+{
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "message": {
+        "content": "1) **No.** No se ve una hoguera con fuego grande y vivo.\n2) **Sí.** El entorno es extremadamente oscuro y no hay llamas naranjas visibles ni de 1-2 metros ni de ningún otro tamaño; el \"fuego\" es inexistente o apenas perceptible si acaso hay algún punto de luz lejano.\n3) En el centro de la imagen se ve el texto **\"Eldor\"** (aparentemente un menú de selección de personaje o nivel), seguido de iconos de diamantes (uno dorado y tres grises) y el texto \"SALTAR — ESPACIO\".\n4) **No.** La noche no es jugable en el sentido de que el entorno es casi completamente negro, con muy poca distinción del terreno o la playa, salvo por algunas luces lejanas que parecen un pueblo y un cielo estrellado con nubes.",
+        "role": "assistant"
+      }
+    }
+  ],
+  "created": 1791687299,
+  "id": "20261011105455f4f75a8c53a146b3",
+  "model": "glm-5v-turbo",
+  "object": "chat.completion",
+  "request_id": "20261011105455f4f75a8c53a146b3",
+  "usage": {
+    "completion_tokens": 205,
+    "completion_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "prompt_tokens": 996,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "total_tokens": 1201
+  }
+}

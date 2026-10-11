@@ -1,0 +1,28 @@
+{
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "message": {
+        "content": "1) **Sí**, se ve una antorcha con llama blanca/amarillenta a la derecha de la escena que emite luz, aunque **no** está en la mano del jugador (no hay personaje visible).\n2) La noche es **visible para jugar**: el entorno (montañas, cielo estrellado) se distingue claramente gracias a la iluminación ambiental y la antorcha.\n3) La llama se ve **artificial/blanca** (con un fuerte núcleo blanco brillante), no tiene el tono naranja cálido realista descrito.",
+        "role": "assistant"
+      }
+    }
+  ],
+  "created": 1791686850,
+  "id": "20261011104726a187413902374e83",
+  "model": "glm-5v-turbo",
+  "object": "chat.completion",
+  "request_id": "20261011104726a187413902374e83",
+  "usage": {
+    "completion_tokens": 129,
+    "completion_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "prompt_tokens": 1194,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "total_tokens": 1323
+  }
+}

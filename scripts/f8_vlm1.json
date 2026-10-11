@@ -1,0 +1,28 @@
+{
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "message": {
+        "content": "1) Sí, se ven aldeanos humanoides con cuerpo, cabeza, brazos y piernas.\n2) Están extendidos en T (pose de T).\n3) El tamaño es realista respecto al caballero del primer plano.\n4) La ropa es de colores variados (túnicas blancas/oscuras).\n5) Sí, presentan glitch: están en pose de T (brazos extendidos horizontalmente), lo cual es una postura de referencia o \"bind pose\" no natural para un personaje en reposo.",
+        "role": "assistant"
+      }
+    }
+  ],
+  "created": 1791685235,
+  "id": "20261011102030d3462268d845480d",
+  "model": "glm-5v-turbo",
+  "object": "chat.completion",
+  "request_id": "20261011102030d3462268d845480d",
+  "usage": {
+    "completion_tokens": 118,
+    "completion_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "prompt_tokens": 1037,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "total_tokens": 1155
+  }
+}

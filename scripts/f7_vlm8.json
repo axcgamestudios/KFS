@@ -1,0 +1,28 @@
+{
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "message": {
+        "content": "1) El casco está **completamente fuera del agua** (flota sobre la superficie sin sumergirse).\n2) La cubierta está a una altura **demasiada alta** respecto al nivel del mar.\n3) **No**, no se ven cañones negros asomando en los costados.\n4) **No**, el barco se ve desproporcionado y mal integrado, como si estuviera \"posado\" encima del agua en lugar de navegar.",
+        "role": "assistant"
+      }
+    }
+  ],
+  "created": 1791678081,
+  "id": "202610110821195897964d101147ca",
+  "model": "glm-5v-turbo",
+  "object": "chat.completion",
+  "request_id": "202610110821195897964d101147ca",
+  "usage": {
+    "completion_tokens": 106,
+    "completion_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "prompt_tokens": 1213,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "total_tokens": 1319
+  }
+}

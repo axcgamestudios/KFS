@@ -1,0 +1,28 @@
+{
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "message": {
+        "content": "1) **BLANCA/artificial** (parece una fuente de luz puntual o un sprite brillante, no tiene el tono anaranjado/rojizo del fuego real).\n2) **Blob difuso/humo** (carece de forma de llamas o lengüetas; es una mancha luminosa estática y borrosa).\n3) **Sí**, ilumina la armadura con un tono cálido/dorado, aunque la fuente en sí es demasiado blanca para ser realista.",
+        "role": "assistant"
+      }
+    }
+  ],
+  "created": 1791687065,
+  "id": "20261011105101b452d72a887f4c2c",
+  "model": "glm-5v-turbo",
+  "object": "chat.completion",
+  "request_id": "20261011105101b452d72a887f4c2c",
+  "usage": {
+    "completion_tokens": 111,
+    "completion_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "prompt_tokens": 1175,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "total_tokens": 1286
+  }
+}

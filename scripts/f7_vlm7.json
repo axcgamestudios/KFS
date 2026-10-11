@@ -1,0 +1,28 @@
+{
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "message": {
+        "content": "1) El casco toca el agua (no hay hueco de aire visible).\n2) Mástiles desnudos (sin velas).\n3) Sí, se ve un muelle de madera.\n4) Barco mediano (o gran navío en construcción).",
+        "role": "assistant"
+      }
+    }
+  ],
+  "created": 1791678031,
+  "id": "202610110820302c00a092b8c84dc3",
+  "model": "glm-5v-turbo",
+  "object": "chat.completion",
+  "request_id": "202610110820302c00a092b8c84dc3",
+  "usage": {
+    "completion_tokens": 58,
+    "completion_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "prompt_tokens": 1189,
+    "prompt_tokens_details": {
+      "cached_tokens": 2
+    },
+    "total_tokens": 1247
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "message": {
+        "content": "*   **Brazos:** Siguen en **T-pose** (extendidos horizontalmente). No cuelgan de forma natural.\n*   **Apariencia:** El personaje se ve **mal**. La ropa y el modelo están claramente en una pose de referencia por defecto, no en una postura de reposo natural.\n*   **Glitches:** **Sí**, es un glitch grave de animación/esqueleto. Los personajes NPC no tienen asignada la animación de \"idle\" (reposo) y se quedan atrapados en la T-pose base.",
+        "role": "assistant"
+      }
+    }
+  ],
+  "created": 1791686074,
+  "id": "20261011103430703e8c83f71c4869",
+  "model": "glm-5v-turbo",
+  "object": "chat.completion",
+  "request_id": "20261011103430703e8c83f71c4869",
+  "usage": {
+    "completion_tokens": 127,
+    "completion_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "prompt_tokens": 941,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "total_tokens": 1068
+  }
+}

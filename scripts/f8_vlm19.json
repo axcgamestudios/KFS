@@ -1,0 +1,28 @@
+{
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "message": {
+        "content": "1) **Sí**, se ven aldeanos NPC con aspecto humano realista (no bloques) caminando y de pie.\n2) **Sí**, el caballero jugador se ve bien, con las manos vacías y sin armas.\n3) **Parcialmente**, hay edificios y antorchas encendidas, pero no se aprecia un mercado activo ni mucha actividad; se ve algo vacío para ser una plaza principal.\n4) **No** se observan glitches visuales graves; la iluminación es consistente y los modelos son estables.",
+        "role": "assistant"
+      }
+    }
+  ],
+  "created": 1791688696,
+  "id": "20261011111813a81405ef561b42f6",
+  "model": "glm-5v-turbo",
+  "object": "chat.completion",
+  "request_id": "20261011111813a81405ef561b42f6",
+  "usage": {
+    "completion_tokens": 125,
+    "completion_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "prompt_tokens": 986,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "total_tokens": 1111
+  }
+}

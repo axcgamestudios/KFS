@@ -1,0 +1,28 @@
+{
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "message": {
+        "content": "1) **En T extendidos.** Los brazos del aldeano están completamente horizontales, formando una \"T\" con el cuerpo (pose de referencia o \"T-pose\").\n2) **Sí.** Viste túnica/manto claro y pantalones oscuros, con apariencia de civil.\n3) **Sí.** La escala es correcta y proporcional al caballero y al entorno.\n4) **Sí.** El glitch principal es la **\"T-pose\"** (falta de animación de brazos). También se observa un barril flotando en el aire a la izquierda y otro ligeramente hundido en el suelo a la derecha.",
+        "role": "assistant"
+      }
+    }
+  ],
+  "created": 1791685373,
+  "id": "20261011102249952da134f5d2424f",
+  "model": "glm-5v-turbo",
+  "object": "chat.completion",
+  "request_id": "20261011102249952da134f5d2424f",
+  "usage": {
+    "completion_tokens": 152,
+    "completion_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "prompt_tokens": 988,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "total_tokens": 1140
+  }
+}

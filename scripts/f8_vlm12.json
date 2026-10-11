@@ -1,0 +1,28 @@
+{
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "message": {
+        "content": "Basándome en la imagen proporcionada (que muestra una interfaz de usuario de videojuego con barras de salud y resistencia, pero **no contiene una hoguera ni antorchas** visibles):\n\n1.  **No aplicable:** La imagen no muestra llamas, solo una interfaz de usuario sobre fondo negro.\n2.  **No aplicable:** No hay fuego visible para determinar el color.\n3.  **No aplicable:** No hay fuente de luz de fuego visible en la imagen.\n4.  **N/A (0/10):** No se puede puntuar el realismo de un elemento que no está presente en la imagen proporcionada.\n\n**Nota:** Si pretendías adjuntar una imagen diferente con una escena nocturna medieval que incluyera fuego, por favor sube esa imagen específica para poder evaluar los efectos de iluminación y las partículas de las llamas.",
+        "role": "assistant"
+      }
+    }
+  ],
+  "created": 1791687543,
+  "id": "20261011105859a2d600f82e7c42cd",
+  "model": "glm-5v-turbo",
+  "object": "chat.completion",
+  "request_id": "20261011105859a2d600f82e7c42cd",
+  "usage": {
+    "completion_tokens": 195,
+    "completion_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "prompt_tokens": 414,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "total_tokens": 609
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "message": {
+        "content": "1) **Cortado.** La parte superior del título está cortada por el borde de la pantalla (solo se ve \"FORGOTTEN SEAS\").\n2) **No.** No se lee completo; falta la primera parte (\"KINGDOMS OF THE\").\n3) **No se ven.** En la imagen no aparecen botones de menú visibles (como \"Jugar\", \"Opciones\", etc.), solo el título, el fondo y el crédito del estudio en la parte inferior.",
+        "role": "assistant"
+      }
+    }
+  ],
+  "created": 1791687904,
+  "id": "2026101111050281955d476c4e454a",
+  "model": "glm-5v-turbo",
+  "object": "chat.completion",
+  "request_id": "2026101111050281955d476c4e454a",
+  "usage": {
+    "completion_tokens": 108,
+    "completion_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "prompt_tokens": 984,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "total_tokens": 1092
+  }
+}

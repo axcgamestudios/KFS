@@ -1,0 +1,28 @@
+{
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "message": {
+        "content": "1) **Sí.** El panel es oscuro con bordes dorados/latón y contiene los botones **BARCO**, **CABALLO** y **DRAKELING**.\n2) **Sí.** Hay una sección \"DRAGONES CONCRETOS\" (Drakeling de la Vigilias, Vaelthara, etc.) y un control de **MODO VUELO: APAGADO**.\n3) **Sí.** Existe un deslizador de **HORA DEL DÍA** (medianoche a mediodía).\n4) **Sí.** La interfaz se ve profesional, con tipografía clara, iconos distintivos y una estética medieval coherente y legible.",
+        "role": "assistant"
+      }
+    }
+  ],
+  "created": 1791686637,
+  "id": "202610111043163d7a08e48bb24df0",
+  "model": "glm-5v-turbo",
+  "object": "chat.completion",
+  "request_id": "202610111043163d7a08e48bb24df0",
+  "usage": {
+    "completion_tokens": 161,
+    "completion_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "prompt_tokens": 1171,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "total_tokens": 1332
+  }
+}

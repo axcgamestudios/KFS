@@ -188,3 +188,32 @@ Stage Summary:
 - Mar épico Gerstner con física somera corregida (3.18 m abierto / 0.52 m puerto).
 - Menú del repositorio con botones AAA animados + música.
 - Capturas: final_mar_epico.jpg, final_prado_caballero.jpg, fix_knight_ok.png, menu_v3b.png, menu_hover.png, grass_final2.jpg, grass_mediodia.jpg.
+
+---
+Task ID: 8
+Agent: Super Z (main agent)
+Task: Fase 7+8 — modelos GLB completos (aldeano real, barcos, dragones), panel admin U+I+O, gráficos Ultra Bajo, antorcha nocturna, fuego realista, misión inicial fácil, día largo y fixes visuales.
+
+Work Log:
+- FASE 7 (pendiente de commit): espada/escudo solo al equipar (estatua = fallback), blockImpact con retroceso, aldeanos/barcos/dragones GLB, FlameFX (fuego shader), HUD AAA, AssetSystem.loadAnimatedModelShared (clones comparten GPU).
+- ALDEANO REAL (fuse_civilian_2.glb, nuevo del repo): VillagerModelGLB con esqueleto Mixamo animado proceduralmente (idle respiración/glances, walk piernas+brazos contrarios+bob, talk gestos). BUGS ENCONTRADOS: (1) GLTFLoader quita los ':' de los nombres → mapa usa 'mixamorigHips_01' etc. (2) bones Map se llenaba con el nombre mixamo como clave en vez de la clave semántica → applyArmsDown/poses no encontraban huesos. (3) el eje local Z no baja los brazos en este rig → armDownQuaternion(): arco corto mundo (dir brazo→abajo) convertido a quaternion local, inmune a convenciones de ejes. Tints de ropa por paleta + pelo/barba seedeado + herramientas por rol + build personal. Fallback procedural si el GLB falla.
+- PANEL ADMIN (U+I+O, AdminPanel.tsx + api adminSpawn/adminFly/adminSetTime): spawn barco (anclado, sin IA, en el agua más cercana), caballo (paleta aleatoria, domado), 6 especies de dragón (specimens extra con ids únicos), modo vuelo (WASD + ESPACIO sube + E baja + MAYÚS acelera, gravedad/colisiones suspendidas), slider de hora. Pista discreta abajo.
+- GRÁFICOS ULTRA BAJO (xlow): pixelRatio 0.62, sin sombras, chunks r=2, grass 0, niebla ×3.4, agua 96 seg (−148k tris), olas solo a 55m, NPCs animan a 28m. Ladder completa por preset: fogMul, waterSegments, waveMotionRadius, npcAnimDistance, streamDistance.
+- OLEAJE OPTIMIZADO TODOS LOS PRESETS: uWaveMotion en el vertex shader — la amplitud Gerstner se desvanece por distancia a cámara (mar lejano plano, sin popping de fase al acercarse). Ultra 2000m / high 520 / medium 260 / low 130 / xlow 55.
+- NPC CULLING: model.update solo dentro de npcAnimDistance (lejanos mantienen horario, congelan pose).
+- ANTORCHA NOCTURNA: al anochecer (nightFactor>0.5) el escudo se cambia por una antorcha (palo + llama FlameFX adjunta que sigue el antebrazo + PointLight parpadeante); al amanecer se apaga y vuelve el escudo. Notificación "Cae la noche".
+- NOCHE MÁS LUMINOSA: luna 0.4→1.05, hemi noche 0.32→0.62, paleta nocturna más clara.
+- DÍA MÁS LARGO: reloj asimétrico en SkySystem.tick — el día avanza ×0.55 (dura casi el doble) y la noche profunda ×1.9 (pasa rápido).
+- PRIMERA MISIÓN FÁCIL: 5 pétalos de marfil alrededor del pueblo (plaza, prado norte, camino al muelle; 6 a <60m) + texto de diario actualizado; 3 extra lejanos para curiosos.
+- DRAGONES: plano del suelo del GLB (Plane_Material_0) eliminado + luces/cámaras del export; tamaño 7.5→10.5m de base (jefes 12-18m); legHeight 1.28→1.8; rangos melee ajustados.
+- FUEGO REALISTA (retune II): rampa rojo brasa→naranja→ámbar con techo duro naranja (1.0, 0.64, 0.22) — nada blanco; erosión más agresiva (pow 1.62) para lengüetas nítidas; embers ámbar más pequeños; aliento con menos llamas y menor opacidad (sin cono lechoso). VLM: 1/10 → 7/10.
+- MENÚ: título del key art ya NO se corta — object-cover object-top (antes object-center recortaba arriba) + kenburns con transform-origin 50% 18% y zoom 1.0→1.06.
+- E2E navegador (f8): 22/22 PASS — aldeanos 9/9 Mixamo con brazos abajo y esqueleto propio, panel U+I+O abre y spawnea (caballo+dragón+vuelo sube Δy>0.5), xlow aplica (niebla/agua/olas/sombras), antorcha noche/día ciclo, dragones sin plano, pétalos 6 cerca, barcos GLB 2/2, fuego naranja con lengüetas, título completo, intro saltable.
+- Verificación VLM: aldeano civil creíble con brazos caídos ✓, panel admin profesional ✓, antorcha ilumina ✓, hoguera naranja 7/10 ✓, dragón sobre terreno sin disco ✓, menú título completo ✓, plaza con NPCs humanos ✓.
+
+Stage Summary:
+- Los 5 GLB del repo ya viven en el juego: caballero (jugador), civil (9 NPCs), pirata (todos los barcos), dragón negro (todas las especies, tintadas), más kits/props/árbol/estatua.
+- Panel admin U+I+O completo (spawns + vuelo + hora).
+- Escalera de optimización real en 5 presets, Ultra Bajo incluido.
+- Noche jugable: más luz + antorcha automática; el día dura casi el doble.
+- Primera misión de recolección a un paseo del pueblo.
