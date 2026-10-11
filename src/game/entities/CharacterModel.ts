@@ -80,12 +80,16 @@ export interface AnimParams {
   swimming: boolean;
   attackT: number;      // 0 = idle, 0..1 during swing
   talking?: boolean;
-  /** Attack animation variant (Fase 3). Default keeps the classic diagonal slash. */
-  attackKind?: 'light1' | 'light2' | 'heavy' | 'thrust' | 'bowRelease';
+  /** Attack animation variant (Fase 3). Default keeps the classic diagonal slash.
+   *  Fase 11 adds the cinematic set: spin / uppercut / plunge / aircut. */
+  attackKind?: 'light1' | 'light2' | 'heavy' | 'thrust' | 'bowRelease'
+    | 'spin' | 'uppercut' | 'plunge' | 'aircut';
   /** Block pose blend 0..1. */
   blockT?: number;
   /** Dodge roll progress 0..1 (drives the whole-body forward roll). */
   rollT?: number;
+  /** Fase 11 — quickstep dodge (low dash pose instead of the somersault tuck). */
+  dodgeStep?: boolean;
   /** Bow draw blend 0..1 (aim pose while drawing). */
   bowDraw?: number;
   /** Fase 4 — riding pose on horseback (legs bent around the saddle, reins). */

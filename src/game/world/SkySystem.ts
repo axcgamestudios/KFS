@@ -152,25 +152,92 @@ export class SkySystem {
             }
           }
 
-          // Drifting clouds projected on a virtual plane
-          if (dir.y > 0.015) {
-            vec2 cuv = dir.xz / (dir.y + 0.18);
-            vec2 drift = vec2(uTime * 0.006, uTime * 0.0023);
-            float cl = fbm(cuv * 0.55 + drift);
-            float cl2 = fbm(cuv * 1.35 - drift * 1.7 + 50.0);
-            // uCloudCover (Fase 4 weather) lowers the coverage threshold
-            float thLo = mix(0.55, 0.30, uCloudCover);
-            float thHi = mix(0.80, 0.58, uCloudCover);
-            float cover = smoothstep(thLo, thHi, cl * 0.72 + cl2 * 0.38);
-            float fade = smoothstep(0.015, 0.16, dir.y); // fade at horizon
-            // Cloud lighting: warm toward the sun, dark at night / storms
-            float sunLit = pow(max(sd, 0.0), 3.0);
-            vec3 cloudCol = mix(vec3(0.92, 0.94, 0.96), uSunColor * 1.05 + vec3(0.25), sunLit * 0.8);
-            cloudCol = mix(cloudCol * 0.35, cloudCol, 1.0 - uNight * 0.72);
-            // Storm clouds lose their silver lining
-            cloudCol = mix(cloudCol, vec3(0.24, 0.26, 0.30), uCloudDark * 0.85);
-            col = mix(col, cloudCol, cover * fade * 0.82);
+        // ------------------------------------------------------------------
+        // Fase 11 — CLOUDS, rebuilt from scratch.
+        // The old single fbm plane stretched into weird bands near the
+        // horizon and read as a flat decal. The new set:
+        //  · THREE real layers at different virtual altitudes (fair-weather
+        //    cumulus, an altocumulus deck, thin cirrus near the zenith)
+        //  · domain warping — fbm is fed through another fbm, so shapes
+        //    curl and cauilflower like real convection instead of blobs
+        //  · perspective-correct mapping (each layer fades at its own
+        //    horizon so nothing stretches into arcs)
+        //  · sun-side silver lining + depth shading (sampling toward the
+        //    sun fakes self-shadowing inside each mass)
+        //  · storm coverage keeps its role; night keeps the moonlit blue
+        // ------------------------------------------------------------------
+        if (dir.y > 0.008) {
+          vec3 sun = normalize(uSunDir);
+          float sunAmt = max(dot(dir, sun), 0.0);
+          vec3 cloudCol = mix(vec3(0.90, 0.93, 0.97), uSunColor * 1.05 + vec3(0.28), pow(sunAmt, 2.6) * 0.9);
+          cloudCol = mix(cloudCol * 0.34, cloudCol, 1.0 - uNight * 0.74);
+          // storm decks lose the silver and go bruised
+          cloudCol = mix(cloudCol, vec3(0.23, 0.25, 0.30), uCloudDark * 0.85);
+
+          // domain-warped value noise: q warps r, r warps the field
+          vec2 drift = vec2(uTime * 0.0065, uTime * 0.0024);
+          float skyMix = 0.0;   // accumulated cloud opacity
+
+          // ---- LAYER 1 — cumulus, the hero deck (virtual h ~ 1.4 km) ----
+          // Final form: NO domain warping (the warp read as painted smoke —
+          // the exact complaint about the old weird dragon clouds). Instead:
+          // a two-scale plain fbm (big rounded masses with fine cauliflower
+          // grain) + strong directional self-shadow. Plain fbm at the right
+          // scale is what reads as CLOUD; warp reads as ink.
+          {
+            float h = 0.16;
+            vec2 cuv = dir.xz / (dir.y * h + 0.14) * 0.34 + drift * 0.6;
+            float f = fbm(cuv * 0.5 + 11.3) * 0.72 + fbm(cuv * 1.9 + 31.7) * 0.28;
+            float thLo = mix(0.60, 0.30, uCloudCover);
+            float thHi = mix(0.82, 0.56, uCloudCover);
+            float m = smoothstep(thLo, thHi, f);
+            // soft rounded edge: the mass feather is wider than the threshold
+            m = m * (0.72 + 0.28 * smoothstep(thLo, thHi + 0.12, f));
+            // depth toward the sun: denser between us and the light = darker
+            vec2 towardSun = sun.xz * 0.5;
+            float f2 = fbm((cuv + towardSun) * 0.5 + 11.3) * 0.72 + fbm((cuv + towardSun) * 1.9 + 31.7) * 0.28;
+            float denser = clamp((f - f2) * 2.4, -0.3, 0.85);
+            vec3 lc = cloudCol * (1.0 - max(0.0, denser) * 1.1);
+            lc += cloudCol * pow(sunAmt, 6.0) * 0.35;      // rim light
+            float horizonFade = smoothstep(0.008, 0.12, dir.y);
+            skyMix += m * horizonFade * 0.9;
+            col = mix(col, lc, m * horizonFade * 0.9);
           }
+
+          // ---- LAYER 2 — altocumulus deck: a clearly SEPARATE stratum ----
+          // Plain fbm (no warp — warp reads as ink), small cellular scale,
+          // cooler tint, own band above the cumulus.
+          {
+            vec2 cuv = dir.xz / (dir.y * 0.42 + 0.10) * 0.21 - drift * 1.15 + 77.0;
+            float f = fbm(cuv * 1.7 + 3.1) * 0.75 + fbm(cuv * 3.4 + 5.3) * 0.25;
+            float thLo = mix(0.62, 0.32, uCloudCover);
+            float m = smoothstep(thLo, thLo + 0.18, f);
+            // only the upper sky: this deck lives above the cumulus
+            float band = smoothstep(0.14, 0.38, dir.y) * (1.0 - smoothstep(0.78, 0.99, dir.y) * 0.7);
+            vec3 lc = cloudCol * 0.88 - vec3(0.0, 0.01, 0.02); // a hair cooler
+            skyMix += m * band * 0.40;
+            col = mix(col, lc, m * band * 0.40);
+          }
+
+          // ---- LAYER 3 — cirrus filaments, ONLY near the zenith ----
+          // Retune: sharper anisotropy (longer, thinner), weaker warp and a
+          // higher band so the mid sky belongs to the cumulus.
+          {
+            vec2 cuv = dir.xz / (dir.y * 0.8 + 0.22) * 0.13 + drift * 1.8;
+            // stretched noise = long thin strands
+            float f = fbm(cuv * vec2(2.2, 0.18) + 19.0);
+            float m = smoothstep(mix(0.68, 0.42, uCloudCover), mix(0.68, 0.42, uCloudCover) + 0.12, f);
+            float band = smoothstep(0.42, 0.68, dir.y);
+            vec3 lc = mix(cloudCol, uSunColor * 1.1 + vec3(0.3), pow(sunAmt, 3.0) * 0.75);
+            skyMix += m * band * 0.30;
+            col = mix(col, lc, m * band * 0.30);
+          }
+
+          // unified horizon haze where all layers thin out — keeps the
+          // skyline clean instead of stacked cut-offs
+          float haze = smoothstep(0.008, 0.05, dir.y) * (1.0 - smoothstep(0.05, 0.16, dir.y));
+          col = mix(col, mix(uHorizon, cloudCol * 0.94, clamp(skyMix, 0.0, 0.7)), haze * 0.35 * clamp(uCloudCover * 2.2, 0.18, 0.8));
+        }
 
           gl_FragColor = vec4(col, 1.0);
         }

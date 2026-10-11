@@ -28,6 +28,16 @@ export interface EndingShot {
   fov?: number;
   /** Epilogue card shown from this shot on (index into epilogue). */
   card?: number;
+  /** Fase 11 — LIVE camera providers (evaluated per frame; they override
+   *  the statics when present, so a shot can TRACK a moving ship or a
+   *  walking hero instead of a fixed landmark). */
+  fromFn?: () => [number, number, number];
+  toFn?: () => [number, number, number];
+  lookFromFn?: () => [number, number, number];
+  lookToFn?: () => [number, number, number];
+  /** Fase 11 — acting hook: real performances under the camera (the hero
+   *  walks, salutes, takes the wheel; ships actually sail). */
+  action?: (k: number, dt: number) => void;
 }
 
 export interface EndingDef {
@@ -157,13 +167,17 @@ export class EndingSystem {
   private state: GameState;
   /** Fase 10 — admin preview: play the film, keep the world untouched. */
   private preview = false;
+  /** Fase 11 — shot overrides for THIS playback (live cameras + acting). */
+  private liveShots: EndingShot[] | null = null;
 
   constructor(state: GameState) {
     this.state = state;
   }
 
-  /** Begin an ending sequence (called once the choice flag is set). */
-  play(id: EndingId, onFinished: () => void, preview = false): boolean {
+  /** Begin an ending sequence (called once the choice flag is set).
+   *  Fase 11 — `extras` merges per-shot live camera providers and acting
+   *  hooks into the definition (sparse, by index). */
+  play(id: EndingId, onFinished: () => void, preview = false, extras?: Array<Partial<EndingShot>>): boolean {
     const def = ENDINGS[id];
     if (!def) return false;
     this.active = def;
@@ -174,6 +188,9 @@ export class EndingSystem {
     this.done = false;
     this.preview = preview;
     this.onFinished = onFinished;
+    this.liveShots = extras && extras.length
+      ? def.shots.map((s, i) => ({ ...s, ...(extras[i] ?? {}) }))
+      : null;
     const store = useGameStore.getState();
     store.setEndingActive(true);
     if (!preview) store.notify('quest', def.subtitle, def.title);
@@ -190,7 +207,7 @@ export class EndingSystem {
     if (!def || this.done) return;
     this.t += dt;
 
-    const shots = def.shots;
+    const shots = this.liveShots ?? def.shots;
     let t0 = 0;
     let idx = 0;
     for (let i = 0; i < shots.length; i++) {
@@ -244,17 +261,24 @@ export class EndingSystem {
       finalCard: this.t > total - 8,
     });
 
-    // Camera flight
+    // Fase 11 — the actors play first: their positions feed the live camera
     const k = Math.min(1, Math.max(0, localT / s.dur));
+    s.action?.(k, dt);
+
+    // Camera flight (live providers override the statics)
     const ease = k * k * (3 - 2 * k);
+    const from = s.fromFn ? s.fromFn() : s.from;
+    const to = s.toFn ? s.toFn() : s.to;
+    const lookFrom = s.lookFromFn ? s.lookFromFn() : s.lookFrom;
+    const lookTo = s.lookToFn ? s.lookToFn() : s.lookTo;
     camera.position.set(
-      s.from[0] + (s.to[0] - s.from[0]) * ease,
-      s.from[1] + (s.to[1] - s.from[1]) * ease,
-      s.from[2] + (s.to[2] - s.from[2]) * ease,
+      from[0] + (to[0] - from[0]) * ease,
+      from[1] + (to[1] - from[1]) * ease,
+      from[2] + (to[2] - from[2]) * ease,
     );
-    const lx = s.lookFrom[0] + (s.lookTo[0] - s.lookFrom[0]) * ease;
-    const ly = s.lookFrom[1] + (s.lookTo[1] - s.lookFrom[1]) * ease;
-    const lz = s.lookFrom[2] + (s.lookTo[2] - s.lookFrom[2]) * ease;
+    const lx = lookFrom[0] + (lookTo[0] - lookFrom[0]) * ease;
+    const ly = lookFrom[1] + (lookTo[1] - lookFrom[1]) * ease;
+    const lz = lookFrom[2] + (lookTo[2] - lookFrom[2]) * ease;
     camera.lookAt(lx, ly, lz);
     if (s.fov !== undefined) {
       camera.fov = s.fov;
@@ -275,6 +299,7 @@ export class EndingSystem {
     const def = this.active;
     if (!def || this.done) return;
     this.done = true;
+    this.liveShots = null;
     const store = useGameStore.getState();
     if (!this.preview) {
       // Consequences persist

@@ -10,6 +10,7 @@ import { SaveSystem, type SaveData, type Settings } from './systems/SaveSystem';
 import { Player } from './entities/Player';
 import { KnightModelGLB } from './entities/KnightModelGLB';
 import { KitSystem } from './world/KitSystem';
+import { buildHeroSword } from './world/HeroSword';
 import { CameraRig } from './entities/CameraRig';
 import { NPC } from './entities/NPC';
 import { villagerPalette, VillagerModel, type CharacterVisual } from './entities/CharacterModel';
@@ -22,11 +23,12 @@ import { DragonManager } from './systems/DragonManager';
 import { BanditSystem } from './systems/BanditSystem';
 import type { Dragon } from './entities/Dragon';
 import { CinematicSystem, type CineShot } from './systems/CinematicSystem';
+import { walkActor, heroSalute, idleActor, faceTarget } from './systems/CineActors';
 import { MountSystem } from './systems/MountSystem';
-import { EndingSystem, ENDINGS, type EndingId } from './systems/EndingSystem';
+import { EndingSystem, ENDINGS, type EndingId, type EndingShot } from './systems/EndingSystem';
 import { PostFX } from './world/PostFX';
 import { windTime, windGust } from './world/VegetationSystem';
-import { POIS } from './world/WorldConfig';
+import { POIS, WIND } from './world/WorldConfig';
 import { ITEMS } from './data/items';
 import { QUESTS, MAIN_QUEST_ORDER, SIDE_QUESTS } from './data/quests';
 import { LORE } from './data/dialogues';
@@ -209,7 +211,12 @@ export class Game {
       const knightScene = await world.assets.loadModel('knight_rigged.glb');
       playerVisual = new KnightModelGLB({
         scene: knightScene,
-        weaponFactory: (kind) => kits.weapon(kind),
+        // Fase 11 — the player's sword is the master-forged HeroSword (real
+        // steel/gold/leather/gem materials + rune glow by forge tier); every
+        // other weapon keeps its kit model.
+        weaponFactory: (kind) => kind === 'sword'
+          ? buildHeroSword({ tier: this.state?.swordTier ?? 0 })
+          : kits.weapon(kind),
         shieldFactory: () => kits.create('shield_02'),
       });
       playerVisual.root.scale.setScalar(1.0);
@@ -262,7 +269,7 @@ export class Game {
           this.rig?.punch(0.85);
           this.audio.playEvent('hit_scale');
         },
-        returnPlayerToShip: () => this.takeHelm(),
+        returnPlayerToShip: (ship) => this.takeHelm(ship),
       },
     );
     this.naval.dockSpawn = world.dockSpawn;
@@ -316,6 +323,13 @@ export class Game {
         this.bandits?.damage(bandit, amount, heavy);
         this.musicIntensityTarget = Math.max(this.musicIntensityTarget, 0.55);
       },
+      // Fase 11 — multi-target sweeps (spin finishers) + radial AoE (plunge)
+      banditMeleeMulti: (origin, yaw, reach, arc, max) =>
+        this.bandits ? this.bandits.meleeHitCheckMulti(origin, yaw, reach, arc, max) : [],
+      banditMeleeRadius: (center, radius, max) =>
+        this.bandits ? this.bandits.meleeHitCheckRadius(center, radius, max) : [],
+      // Fase 11 — a whiff: nearby bandits snap into a weapon-up guard
+      onWhiff: (pos) => this.bandits?.onPlayerWhiff(pos),
     });
     this.combat.dragonHitRef = (pos, radius) =>
       this.dragons ? this.dragons.projectileHitTest(pos, radius) : null;
@@ -328,6 +342,9 @@ export class Game {
     this.combat.terrainHeightRef = (x, z) => world.terrainHeight.height(x, z);
     // Fase 9 — combat camera punch: parries/counters/finishers kick the FOV
     this.combat.onCameraPunch = (i) => this.rig?.punch(i);
+    // Fase 11 — hit-stop (a slow-mo beat on decisive blows) + HUD fight labels
+    this.combat.onHitStop = (dur) => { this.hitStopT = Math.max(this.hitStopT, dur); };
+    this.combat.onCombatEvent = (label) => this.combat?.flashEvent(label);
     // Fase 9 — cinematic store sync (letterbox + title cards)
     this.cinematicsPlaySetup();
     this.dragons = new DragonManager(
@@ -417,13 +434,15 @@ export class Game {
     this.bandits = new BanditSystem(
       this.engine.scene, world.terrainHeight, world.assets, world.kits,
       {
-        playerDamage: (dmg, fromX, fromZ, reason) => this.applyPlayerDamage(dmg, fromX, fromZ, reason ?? 'bandit'),
+        playerDamage: (dmg, fromX, fromZ, reason, opts) => this.applyPlayerDamage(dmg, fromX, fromZ, reason ?? 'bandit', opts),
         sound: (kind) => this.audio.playEvent(kind),
         notify: (kind, title, body) => useGameStore.getState().notify(kind, title, body),
         giveXp: (xp) => this.state.giveXp(xp),
         addCoins: (n) => this.state.addItem('coin', n),
         weaponImpact: (pos) => this.vfx?.weaponImpact(pos),
+        blockSparks: (pos) => this.vfx?.blockSparks(pos),
         cameraShake: (i) => { this.shakeT = Math.max(this.shakeT, i); },
+        hitStop: (dur) => { this.hitStopT = Math.max(this.hitStopT, dur); },
       },
     );
 
@@ -1093,29 +1112,40 @@ export class Game {
 
   // -------------------------------------------------------- helm helpers
 
-  /** Attach the player to the wheel of their ship (sailing mode). */
-  private takeHelm(): void {
+  /** Attach the player to a wheel (Fase 11: ANY ship's — the Colibrí or an
+   *  anchored vessel the player walked up to). */
+  private takeHelm(ship?: import('./naval/Ship').Ship): void {
     const naval = this.naval;
-    const ship = naval?.playerShip;
-    if (!naval || !ship || ship.sunk || ship.sinking > 0) return;
-    naval.playerBoardsHelm();
-    this.attachPlayerToWheel();
-    this.rig!.setShipMode(ship);
+    if (!naval) return;
+    const target = ship && !ship.sunk && ship.sinking === 0
+      ? ship
+      : naval.helmCandidate(this.player!.position);
+    if (!target || target.sunk || target.sinking > 0) return;
+    naval.takeHelmAt(target);
+    this.attachPlayerToWheel(target);
+    this.rig!.setShipMode(target);
+    this.player!.platformProbe = (x, z) => {
+      const local = target.toLocal(x, z);
+      return target.deckHeightAt(local.x, local.y);
+    };
     if (!this.state.hasFlag('tut_sailing')) {
       this.state.setFlag('tut_sailing');
       useGameStore.getState().notify(
         'info',
-        'Al timón del Colibrí',
+        `Al timón del ${target.name}`,
         'W/S velas · A/D timón · Espacio fondear · Clic izq./der. bordadas · E desembarcar o abordar',
       );
+    } else {
+      useGameStore.getState().notify('info', `Al timón del ${target.name}`, 'W/S velas · A/D timón · Espacio fondear · E bordadas.');
     }
   }
 
-  private attachPlayerToWheel(): void {
-    const ship = this.naval!.playerShip!;
-    const wheel = ship.wheelWorld;
+  private attachPlayerToWheel(ship?: import('./naval/Ship').Ship): void {
+    const target = ship ?? this.naval!.activeShip ?? this.naval!.playerShip;
+    if (!target) return;
+    const wheel = target.wheelWorld;
     this.player!.teleport(wheel.x, wheel.y, wheel.z);
-    this.player!.yaw = ship.heading;
+    this.player!.yaw = target.heading;
     this.player!.velocity.set(0, 0, 0);
   }
 
@@ -1295,10 +1325,11 @@ export class Game {
     this.player.platformProbe = undefined;
     this.rig!.setShipMode(null);
     this.rig!.setMountMode(false);
-    if (this.naval.playerSailing && this.naval.playerShip) {
+    const restored = this.naval.playerSailing ? (this.naval.activeShip ?? this.naval.playerShip) : null;
+    if (restored) {
       this.naval.playerBoardsHelm();
-      this.attachPlayerToWheel();
-      this.rig!.setShipMode(this.naval.playerShip);
+      this.attachPlayerToWheel(restored);
+      this.rig!.setShipMode(restored);
     }
 
     // Fase 4: mounts & weather restoration
@@ -1385,11 +1416,21 @@ export class Game {
 
   // ------------------------------------------------------------- main loop
 
-  private update(dt: number): void {
+  /** Fase 11 — hit-stop: a slow-motion beat on decisive blows (parries,
+   *  ripostes, finishers, remates). The world crawls at 15% for a few
+   *  hundred milliseconds — impacts land HEAVY without stealing control. */
+  hitStopT = 0;
+
+  private update(rawDt: number): void {
     if (!this.world || !this.player || !this.rig) return;
     const store = useGameStore.getState();
     const w = this.world;
     const p = this.player;
+    let dt = rawDt;
+    if (this.hitStopT > 0) {
+      this.hitStopT = Math.max(0, this.hitStopT - rawDt);
+      dt = rawDt * 0.15;
+    }
     windTime.value += dt;
 
     switch (store.phase) {
@@ -1495,9 +1536,9 @@ export class Game {
   }
 
   /** Central player-damage router (dragons, fire, …) with block support. */
-  private applyPlayerDamage(dmg: number, fromX?: number, fromZ?: number, reason?: string): number {
+  private applyPlayerDamage(dmg: number, fromX?: number, fromZ?: number, reason?: string, opts?: { unblockable?: boolean }): number {
     const p = this.player!;
-    const lost = p.takeHit(dmg, fromX, fromZ);
+    const lost = p.takeHit(dmg, fromX, fromZ, opts);
     if (lost > 0) {
       this.audio.playEvent('damage');
       useGameStore.getState().triggerHurtFlash();
@@ -1513,7 +1554,7 @@ export class Game {
     const rig = this.rig!;
     const naval = this.naval!;
     const dialogueActive = !!store.dialogue;
-    const sailing = naval.playerSailing && !!naval.playerShip;
+    const sailing = naval.playerSailing && !!naval.activeShip;
     const riding = !!this.mounts?.ridingId;
 
     // Fase 10 — conversations get the cinematic lens (tighter FOV + closer)
@@ -1528,6 +1569,7 @@ export class Game {
       w.water.setSky(w.sky.sunDir, w.sky.sunColor, w.sky.zenithColor, w.sky.horizonColor, w.sky.nightFactor);
       w.terrain.update(p.position.x, p.position.z);
       w.vegetation.update(p.position.x, p.position.z);
+      w.gulls.update(dt);
       return;
     }
 
@@ -1558,13 +1600,19 @@ export class Game {
     // --- Fase 3: dragons + combat VFX (both on foot and at sea) ---
     this.dragons?.update(
       dt, p.position, !this.dead, sailing,
-      sailing && naval.playerShip ? naval.playerShip.pos : null,
+      sailing && naval.activeShip ? naval.activeShip.pos : null,
     );
     this.vfx?.update(dt);
 
     // --- Fase 10: red knight bandits (AI frozen during cinematics/dialogue) ---
     if (!cine && !this.endings?.isPlaying) {
       this.bandits?.update(dt, p.position, !this.dead && !dialogueActive && !sailing);
+    }
+
+    // --- Fase 11 — combat framing: the rig widens while enemies are hot ---
+    {
+      const heat = (this.bandits?.combatHeat(p.position) ?? 0) + (naval.boardingActive ? 2 : 0);
+      this.rig?.setCombatFraming(!sailing && heat > 0 && !cine);
     }
 
     // --- Death / respawn ---
@@ -1609,7 +1657,7 @@ export class Game {
 
     if (sailing && !naval.boardingActive) {
       // ================= SAILING MODE — the player holds the wheel =================
-      const ship = naval.playerShip!;
+      const ship = naval.activeShip ?? naval.playerShip!;
       if (!cine) rig.handleInput(this.input, dt);
       // No personal weapons while steering — the cannons are the weapon
       p.blocking = false;
@@ -1773,8 +1821,8 @@ export class Game {
 
     w.water.update(dt, this.engine.camera);
     w.water.setSky(w.sky.sunDir, w.sky.sunColor, w.sky.zenithColor, w.sky.horizonColor, w.sky.nightFactor);
-    const focusX = sailing ? naval.playerShip!.pos.x : p.position.x;
-    const focusZ = sailing ? naval.playerShip!.pos.z : p.position.z;
+    const focusX = sailing ? (naval.activeShip ?? naval.playerShip)!.pos.x : p.position.x;
+    const focusZ = sailing ? (naval.activeShip ?? naval.playerShip)!.pos.z : p.position.z;
     w.terrain.update(focusX, focusZ);
     w.vegetation.update(focusX, focusZ);
     this.refreshGrass(focusX, focusZ);
@@ -1825,8 +1873,8 @@ export class Game {
 
     // --- Audio ambience ---
     const terrainHNow = w.terrainHeight.height(
-      sailing ? naval.playerShip!.pos.x : p.position.x,
-      sailing ? naval.playerShip!.pos.z : p.position.z,
+      sailing ? (naval.activeShip ?? naval.playerShip)!.pos.x : p.position.x,
+      sailing ? (naval.activeShip ?? naval.playerShip)!.pos.z : p.position.z,
     );
     this.audio.update(dt, {
       altitude: Math.max(0, p.position.y),
@@ -1854,6 +1902,23 @@ export class Game {
         x: p.position.x, y: p.position.y, z: p.position.z,
       };
       const tracker = this.state.currentTracker();
+      // Fase 11 — the señálero: live distance + bearing + in-world beacon
+      const questPos = tracker ? this.resolveQuestTarget() : null;
+      let marker: { dist: number; bearing: number } | null = null;
+      if (tracker && questPos) {
+        const dx = questPos.x - p.position.x;
+        const dz = questPos.z - p.position.z;
+        const dist = Math.hypot(dx, dz);
+        if (dist > 2.5) {
+          let rel = Math.atan2(dx, dz) - rig.yaw;
+          while (rel > Math.PI) rel -= Math.PI * 2;
+          while (rel < -Math.PI) rel += Math.PI * 2;
+          marker = { dist: Math.round(dist), bearing: Math.round(rel * 10) / 10 };
+        }
+        this.updateQuestBeacon(questPos, !!marker);
+      } else {
+        this.updateQuestBeacon(null, false);
+      }
       const clickHint =
         !this.input.pointerLocked && !dialogueActive
           ? 'Haz clic para tomar el control'
@@ -1865,7 +1930,7 @@ export class Game {
         maxStamina: p.stats.maxStamina,
         clock: formatClock(w.sky.dayFraction),
         dayCount: w.sky.dayCount,
-        questTracker: tracker,
+        questTracker: tracker ? { ...tracker, marker } : null,
         fps: this.engine.fps,
         prompt: clickHint ?? store.prompt,
         sailing: sailingHud,
@@ -1887,11 +1952,20 @@ export class Game {
       // Fase 3 combat HUD
       store.setWeaponSlots(this.combat!.slots());
       store.setBowDraw(p.bowDraw);
-      // Fase 9 — melee combo chain indicator
+      // Fase 9 — melee combo chain indicator (+ Fase 11 fight labels:
+      // GIRO 360°, ¡CONTRAATAQUE!, ¡ESQUIVA PERFECTA!, ¡COLAPSO!...)
       const comboHud = this.combat!.comboHud;
-      store.setCombo(comboHud ? { step: comboHud.step, counter: comboHud.counter } : null);
+      const evLabel = this.combat!.eventLabel;
+      store.setCombo(
+        (comboHud || evLabel)
+          ? { step: comboHud?.step ?? 0, counter: comboHud?.counter ?? false, label: comboHud?.label ?? evLabel ?? undefined }
+          : null,
+      );
       this.pollQuestEvents();
     }
+
+    // --- Fase 11 — quest beacon life (spin + bob), every frame ---
+    this.tickQuestBeacon(dt);
 
     // --- Map exploration ---
     this.mapTimer -= dt;
@@ -1945,11 +2019,7 @@ export class Game {
           this.endingPlayed = true;
           this.audio.playEvent('ending');
           this.input.releaseLock();
-          this.endings?.play(choice, () => {
-            // After the cinematic: continue playing in the transformed world
-            this.input.requestLock();
-            this.autosave();
-          });
+          this.launchEndingCinematic(choice, false);
         }
       }
       // Ambient MP3 music bed: soft during peace, ducked by combat intensity
@@ -2021,43 +2091,68 @@ export class Game {
           bestDist = 0;
         }
       } else if (!this.naval?.playerSailing) {
-        // Fase 4 — mount prompts (mount / buy) compete with world prompts
-        const mountPrompt = this.mounts?.interactionPrompt(p.position) ?? null;
-        if (mountPrompt) {
+        // Fase 11 — bandit REMATES: a weakened red knight (under 30% HP,
+        // 35% for captains) can be finished with E — hit-stop, a heavy hero
+        // swing as the killing blow, clean kill + loot.
+        const bFin = this.bandits?.finisherTarget(p.position) ?? null;
+        if (bFin && !this.dead) {
+          const isCaptain = (bFin as { captain?: boolean }).captain === true;
           best = {
-            prompt: mountPrompt.prompt,
+            prompt: `¡REMATE! Ejecutar al ${isCaptain ? 'capitán bandido' : 'bandido'}`,
             run: () => {
-              mountPrompt.run();
-              if (this.mounts?.ridingId) this.rig!.setMountMode(true);
+              // the hero's heavy swing IS the execution (visual only — the
+              // damage comes from executeFinisher below)
+              const pc = this.player!;
+              if (pc.attackT === 0 && !pc.rolling) {
+                pc.attackKind = 'heavy';
+                pc.attackDur = 0.62;
+                pc.attackT = 0.001;
+                pc.blocking = false;
+                pc.onAttackSwing?.();
+              }
+              this.bandits!.executeFinisher(bFin);
             },
           };
-          bestDist = 0.5;
-        }
-        for (const it of w.interactables) {
-          if (it.available && !it.available()) continue;
-          const d = it.pos.distanceTo(p.position);
-          if (d < it.radius && d < bestDist) {
-            const prompt = typeof it.prompt === 'string' ? it.prompt : it.prompt;
-            if (!prompt) continue;
-            bestDist = d;
-            best = { prompt, run: it.run };
-          }
-        }
-        // NPCs
-        for (const npc of this.npcs) {
-          const d = npc.position.distanceTo(p.position);
-          if (d < 2.6 && d < bestDist) {
-            bestDist = d;
+          bestDist = 0;
+        } else {
+          // Fase 4 — mount prompts (mount / buy) compete with world prompts
+          const mountPrompt = this.mounts?.interactionPrompt(p.position) ?? null;
+          if (mountPrompt) {
             best = {
-              prompt: `Hablar con ${npc.name}`,
+              prompt: mountPrompt.prompt,
               run: () => {
-                npc.talkTo(p.position);
-                if (!this.dialogue.start(npc.def.dialogueId)) {
-                  this.dialogue.startLore(npc.name, ['…']);
-                }
-                this.audio.playUi('click');
+                mountPrompt.run();
+                if (this.mounts?.ridingId) this.rig!.setMountMode(true);
               },
             };
+            bestDist = 0.5;
+          }
+          for (const it of w.interactables) {
+            if (it.available && !it.available()) continue;
+            const d = it.pos.distanceTo(p.position);
+            if (d < it.radius && d < bestDist) {
+              const prompt = typeof it.prompt === 'string' ? it.prompt : it.prompt;
+              if (!prompt) continue;
+              bestDist = d;
+              best = { prompt, run: it.run };
+            }
+          }
+          // NPCs
+          for (const npc of this.npcs) {
+            const d = npc.position.distanceTo(p.position);
+            if (d < 2.6 && d < bestDist) {
+              bestDist = d;
+              best = {
+                prompt: `Hablar con ${npc.name}`,
+                run: () => {
+                  npc.talkTo(p.position);
+                  if (!this.dialogue.start(npc.def.dialogueId)) {
+                    this.dialogue.startLore(npc.name, ['…']);
+                  }
+                  this.audio.playUi('click');
+                },
+              };
+            }
           }
         }
       }
@@ -2070,6 +2165,158 @@ export class Game {
     if (best && !dialogueActive && this.input.pressed('interact') && !interactHandled) {
       best.run();
     }
+  }
+
+  // Fase 11 — quest señálero ------------------------------------------------
+
+  /** The in-world beacon (gold diamond + light shaft + ground ring). */
+  private questBeacon?: THREE.Group;
+  private questBeaconTarget?: THREE.Vector3;
+
+  private ensureQuestBeacon(): THREE.Group {
+    if (this.questBeacon) return this.questBeacon;
+    const g = new THREE.Group();
+    g.name = 'quest_beacon';
+    const diamond = new THREE.Mesh(
+      new THREE.OctahedronGeometry(0.34, 0),
+      new THREE.MeshBasicMaterial({
+        color: 0xe8c96a, transparent: true, opacity: 0.95, depthTest: false,
+      }),
+    );
+    diamond.name = 'diamond';
+    diamond.renderOrder = 999;
+    diamond.position.y = 3.2;
+    g.add(diamond);
+    const shaft = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.045, 0.045, 2.7, 6, 1, true),
+      new THREE.MeshBasicMaterial({
+        color: 0xe8c96a, transparent: true, opacity: 0.3,
+        depthTest: false, blending: THREE.AdditiveBlending,
+      }),
+    );
+    shaft.renderOrder = 998;
+    shaft.position.y = 1.75;
+    g.add(shaft);
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(0.55, 0.78, 24),
+      new THREE.MeshBasicMaterial({
+        color: 0xe8c96a, transparent: true, opacity: 0.28, depthTest: false,
+        side: THREE.DoubleSide, blending: THREE.AdditiveBlending,
+      }),
+    );
+    ring.rotation.x = -Math.PI / 2;
+    ring.renderOrder = 998;
+    ring.position.y = 0.06;
+    g.add(ring);
+    g.visible = false;
+    this.engine.scene.add(g);
+    this.questBeacon = g;
+    return g;
+  }
+
+  /** Move/hide the beacon; the spin + bob runs every frame (below). */
+  private updateQuestBeacon(target: THREE.Vector3 | null, show: boolean): void {
+    const g = this.ensureQuestBeacon();
+    if (!show || !target) {
+      g.visible = false;
+      this.questBeaconTarget = undefined;
+      return;
+    }
+    if (!this.questBeaconTarget) this.questBeaconTarget = new THREE.Vector3();
+    this.questBeaconTarget.copy(target);
+    g.position.set(target.x, 0, target.z);
+    g.position.y = this.world!.terrainHeight.height(target.x, target.z);
+    g.visible = true;
+  }
+
+  /** Per-frame beacon life (spin + bob + ring pulse). */
+  private tickQuestBeacon(dt: number): void {
+    const g = this.questBeacon;
+    if (!g || !g.visible) return;
+    const diamond = g.getObjectByName('diamond') as THREE.Mesh | undefined;
+    if (diamond) {
+      diamond.rotation.y += dt * 2.2;
+      diamond.position.y = 3.2 + Math.sin(performance.now() * 0.0021) * 0.22;
+    }
+    g.scale.setScalar(0.94 + Math.sin(performance.now() * 0.0031) * 0.05);
+  }
+
+  /**
+   * Fase 11 — resolve the CURRENT objective of the active quest to a world
+   * position (talk → the NPC, interact → the interactable, collect → a
+   * known source, flag → a hand-mapped landmark). Returns null when the
+   * step has no meaningful place (read a letter, wait states...).
+   */
+  private resolveQuestTarget(): THREE.Vector3 | null {
+    const w = this.world;
+    if (!w) return null;
+    const state = this.state;
+    // find the active quest + its first undone objective
+    for (const qid of [...MAIN_QUEST_ORDER, ...SIDE_QUESTS]) {
+      const st = state.questStates?.get?.(qid);
+      if (!st || (st as { status?: string }).status !== 'active') continue;
+      const def = QUESTS[qid];
+      if (!def) continue;
+      const obj = def.objectives.find((o) => !st.objectives.has(o.id));
+      if (!obj) continue;
+      return this.objectiveWorldPos(obj, qid);
+    }
+    return null;
+  }
+
+  private objectiveWorldPos(
+    obj: { type: string; target: string; text: string },
+    qid: string,
+  ): THREE.Vector3 | null {
+    const w = this.world!;
+    const state = this.state;
+    const t = obj.target;
+    // 1) interactables by id (skip consumed/unavailable ones)
+    for (const it of w.interactables) {
+      if (it.id !== t) continue;
+      if (it.available && !it.available()) break; // not currently reachable
+      return it.pos.clone();
+    }
+    // 2) NPCs by dialogue id (talk objectives)
+    for (const npc of this.npcs) {
+      if (npc.def.dialogueId === t || npc.def.id === t) {
+        return npc.position.clone();
+      }
+    }
+    // 3) known NPC names used as talk targets
+    const byName: Record<string, string> = {
+      maren: 'Maren', rosa: 'Rosa', bram: 'Bram', aldric: 'Aldric', tom: 'Tom',
+    };
+    for (const npc of this.npcs) {
+      if (byName[t] && npc.name.toLowerCase().includes(byName[t].toLowerCase())) {
+        return npc.position.clone();
+      }
+    }
+    // 4) collect items → known source areas
+    const SOURCES: Record<string, [number, number]> = {
+      petalo: [22, 158],        // plaza + prado norte (the mission text)
+      madera: [14, 252],        // Bram's stamped crates — the dock first
+      lona: [26, 170],          // Rosa prepares the canvas (market row)
+      cuerda: [34, 176],        // Tom has the hemp rope (market row)
+      sello: [-505, -378],      // aboard the Gaviota Sangrienta
+      escama: [40, -320],       // the dragons of the frozen peaks
+    };
+    if (obj.type === 'collect' && SOURCES[t]) {
+      return new THREE.Vector3(SOURCES[t][0], 0, SOURCES[t][1]);
+    }
+    // 5) flag objectives → hand-mapped landmarks
+    const FLAGS: Record<string, [number, number]> = {
+      reached_crow: [-560, -420],   // Crow Isle waters
+      morwen_defeated: [-505, -378],
+      maren_herbs_done: [26, 170],
+      read_letter: [20, 150],
+    };
+    if (obj.type === 'flag' && FLAGS[t]) {
+      return new THREE.Vector3(FLAGS[t][0], 0, FLAGS[t][1]);
+    }
+    void qid;
+    void state;
+    return null;
   }
 
   private checkDiscoveries(store: ReturnType<typeof useGameStore.getState>): void {
@@ -2401,7 +2648,9 @@ export class Game {
         title: firstEver ? 'PRIMER DRAGÓN ABATIDO' : undefined,
         subtitle: firstEver ? 'las canciones aún no se atreven a contarlo' : undefined,
       },
-      // 2 — the hero: over-the-shoulder of the knight, dragon beyond
+      // 2 — the hero: over-the-shoulder of the knight, dragon beyond.
+      //    Fase 11 — REAL ACTING: the vow over the fallen beast — the blade
+      //    rises slowly to the sky while the camera frames the living hero.
       {
         dur: 2.5,
         fromPos: () => {
@@ -2419,6 +2668,9 @@ export class Game {
           p.position.z + (dp.z - p.position.z) * 0.4,
         ),
         fov: 40,
+        fx: {
+          update: (k, dt) => heroSalute(p.model).update?.(k, dt),
+        },
       },
       // 3 — the world breathes: wide establishing shot + title card
       {
@@ -2552,14 +2804,174 @@ export class Game {
       if (!ENDINGS[id]) return false;
       this.audio.playEvent('ending');
       this.input.releaseLock();
-      this.endings?.play(id, () => {
-        // Preview over: hand the camera back to the player
-        this.input.requestLock();
-        this.rig?.snapBehind(this.player!.position);
-      }, true);
+      this.launchEndingCinematic(id, true);
       return true;
     }
     return false;
+  }
+
+  /**
+   * Fase 11 — endings with REAL ACTING (the Halo note): the hero walks,
+   * salutes, takes the wheel; for Final III the Colibrí genuinely SAILS
+   * with the hero at the helm while live cameras track her. The acting
+   * layer + live camera providers ride on EndingSystem's shots.
+   */
+  private launchEndingCinematic(id: EndingId, preview: boolean): void {
+    if (!this.world || !this.player) return;
+    const w = this.world;
+    const p = this.player;
+    const terrain = w.terrainHeight;
+    const ship = this.naval?.playerShip ?? null;
+    const extras: Array<Partial<EndingShot>> = [];
+
+    // The hero's head as a live look-target (cameras frame the ACTOR)
+    const heroHead = (): [number, number, number] => [
+      p.position.x, p.position.y + 1.62, p.position.z,
+    ];
+
+    // ---- Shared beat 1: the vow at the altar (shots 1-2) ----
+    // Shot 2 (idx 1): the salute — the blade rises to the sky, slowly.
+    extras[1] = {
+      lookFromFn: heroHead,
+      lookToFn: heroHead,
+      action: (k, dt) => {
+        heroSalute(p.model).update?.(k, dt);
+      },
+    };
+
+    // ---- Guardian & Crown: the watcher walks to the cliff ----
+    if (id === 'guardian' || id === 'crown') {
+      // During shots 5-6 (idx 4-5) the hero walks from the altar to the
+      // cliff lookout — a real walk cycle, terrain-fitted, facing travel.
+      // The walk's k is remapped across BOTH shots so it always completes:
+      // idx4 covers 0→0.55, idx5 closes 0.55→1 (idx6 catches up if skipped).
+      const cliff = new THREE.Vector3(25, 0, -291);
+      cliff.y = terrain.height(cliff.x, cliff.z);
+      const walk = walkActor({
+        actor: p.group,
+        model: p.model,
+        from: new THREE.Vector3(p.position.x, p.position.y, p.position.z),
+        to: cliff,
+        terrain,
+        speed: 1.0,
+      });
+      extras[4] = { action: (k, dt) => walk.update?.(k * 0.55, dt) };
+      extras[5] = { action: (k, dt) => walk.update?.(0.55 + k * 0.45, dt) };
+      // Shot 7 (idx 6): the silhouette — guardian holds a breathing vigil,
+      // the sovereign raises the blade to the realm. If the walk was cut
+      // short (fast-forward/skip timing), finish the last stretch first.
+      const atCliff = () => Math.hypot(p.position.x - cliff.x, p.position.z - cliff.z) < 1.2;
+      if (id === 'guardian') {
+        const idle = idleActor(p.model);
+        const faceSea = faceTarget(p.group, () => new THREE.Vector3(p.position.x, p.position.y, p.position.z - 40));
+        extras[6] = {
+          lookFromFn: heroHead,
+          lookToFn: heroHead,
+          action: (k, dt) => {
+            if (!atCliff()) walk.update?.(1, dt);
+            faceSea.update?.(k, dt);
+            idle.update?.(k, dt);
+          },
+        };
+      } else {
+        const salute = heroSalute(p.model, { repeat: true });
+        extras[6] = {
+          lookFromFn: heroHead,
+          lookToFn: heroHead,
+          action: (k, dt) => {
+            if (!atCliff()) walk.update?.(1, dt);
+            salute.update?.(k, dt);
+          },
+        };
+      }
+    }
+
+    // ---- Free: the Colibrí truly sails, hero at the wheel ----
+    if (id === 'free' && ship) {
+      // shots 7-9 (idx 6-8): setup rides on idx 6's first frame (the screen
+      // is black at the cut — the perfect moment to move a ship).
+      let started = false;
+      const startSail = () => {
+        if (started) return;
+        started = true;
+        ship.pos.set(170, 0, 505);
+        ship.heading = Math.atan2(90, 115); // bearing toward the open east
+        ship.speed = 2.2;
+        ship.sailState = 2;
+        ship.anchored = false;
+        ship.grappled = false;
+        ship.frozen = false;
+        ship.rudderInput = 0.14;
+        ship.syncTransform();
+        const wheel = ship.wheelWorld;
+        p.teleport(wheel.x, wheel.y, wheel.z);
+        p.yaw = ship.heading;
+      };
+      const glueToWheel = (dt: number) => {
+        // hero rides the wheel: physics are suspended during endings
+        ship.update(dt, w.water, terrain, WIND.dir);
+        const wheel = ship.wheelWorld;
+        p.group.position.set(wheel.x, wheel.y, wheel.z);
+        p.group.rotation.y = ship.heading;
+        p.model.update({
+          dt, speed: 0, moving: false, grounded: true, swimming: false,
+          attackT: 0, blockT: 0, rollT: 0, bowDraw: -1,
+        });
+      };
+      // idx 6: the ship comes alive (camera still on the wild sea shot)
+      extras[6] = {
+        action: (k, dt) => { startSail(); glueToWheel(dt); },
+      };
+      // idx 7: the chase — LIVE camera tracking the moving ship
+      const shipMast = (): [number, number, number] => [
+        ship.pos.x, ship.group.position.y + 4.2, ship.pos.z + 6,
+      ];
+      extras[7] = {
+        fromFn: () => [ship.pos.x - 26, ship.group.position.y + 14, ship.pos.z - 30],
+        toFn: () => [ship.pos.x - 10, ship.group.position.y + 7, ship.pos.z - 14],
+        lookFromFn: shipMast,
+        lookToFn: shipMast,
+        action: (k, dt) => glueToWheel(dt),
+      };
+      // idx 8: the FIN card — she sails into the light, camera drifting up
+      extras[8] = {
+        fromFn: () => [ship.pos.x - 34, ship.group.position.y + 18, ship.pos.z - 38],
+        toFn: () => [ship.pos.x - 42, ship.group.position.y + 26, ship.pos.z - 48],
+        lookFromFn: shipMast,
+        lookToFn: shipMast,
+        action: (k, dt) => glueToWheel(dt),
+      };
+    }
+
+    this.endings?.play(id, () => {
+      // ---- the handoff: continue playing in the transformed world ----
+      this.input.requestLock();
+      if (preview) {
+        // Preview: put the hero and the ship back where they were
+        const altarY = Math.max(terrain.height(20, -302), 2);
+        p.teleport(20, altarY, -302);
+        p.yaw = Math.PI;
+        this.rig?.snapBehind(p.position);
+        if (ship) {
+          ship.pos.set(this.naval!.dockSpawn.x, 0, this.naval!.dockSpawn.z);
+          ship.heading = this.naval!.dockSpawn.heading;
+          ship.anchored = true;
+          ship.sailState = 0;
+          ship.speed = 0;
+          ship.syncTransform();
+        }
+        return;
+      }
+      if (id === 'free' && ship) {
+        // the hero stays at the helm — the Colibrí is mid-sea, sails full
+        this.naval?.resumeHelm(ship);
+        this.rig?.setShipMode(ship);
+        this.attachPlayerToWheel(ship);
+      } else {
+        this.rig?.snapBehind(p.position);
+      }
+      this.autosave();
+    }, preview, extras);
   }
 
   /** The 4-shot intro, rebuilt as a skippable in-game cinematic. */

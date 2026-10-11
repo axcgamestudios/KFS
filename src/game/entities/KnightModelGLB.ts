@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { type AnimParams, type CharacterVisual, type WeaponKind } from './CharacterModel';
 import { damp } from '../core/MathUtils';
 import { getFlameFX, type PersistentFlameHandle } from '../world/FlameFX';
+import { applyHeroSwordTier } from '../world/HeroSword';
 
 /**
  * Fase 5 — KnightModelGLB.
@@ -239,6 +240,13 @@ export class KnightModelGLB implements CharacterVisual {
   private applyWeaponGlow(): void {
     const w = this.activeWeapon ?? this.swordProp;
     if (!w) return;
+    // Fase 11 — the master-forged sword carries its own rune-glow materials
+    if (w.userData?.heroSword) {
+      applyHeroSwordTier(w, this.weaponTier, false);
+      const s = 1 + this.weaponTier * 0.05;
+      w.scale.set(s, s, s);
+      return;
+    }
     const glows = [null, 0xff9a3c, 0xe8c96a, 0x7ec8ff] as const;
     const glow = glows[this.weaponTier];
     w.traverse((o) => {
@@ -556,37 +564,44 @@ export class KnightModelGLB implements CharacterVisual {
 
     // ---- global overrides, in priority order ----
     const rollT = p.rollT ?? 0;
-    if (rollT > 0) { this.poseRoll(target, rollT, moving, ph); this.apply(target, dt, true); this.post(p); return; }
+    if (rollT > 0) { this.poseRoll(target, rollT, moving, ph, p.dodgeStep === true); this.apply(target, dt, true); this.post(p); return; }
     if (p.swimming) { this.poseSwim(target, ph, p); this.apply(target, dt, true); this.post(p); return; }
     if (p.riding) { this.poseRide(target, p); this.apply(target, dt, true); this.post(p); return; }
-    if (!p.grounded) { this.poseAir(target, this.airT); this.apply(target, dt, true); this.post(p); return; }
 
-    // ---- base locomotion ----
-    this.poseLocomotion(target, p, moving, ph);
+    // ---- Fase 11 — LAYERED base: air OR locomotion (no early return any
+    // more: the attack/block overlays now layer over the airborne pose too,
+    // which is what makes mid-air slashes and plunges readable) ----
+    if (!p.grounded) {
+      this.poseAir(target, this.airT);
+    } else {
+      this.poseLocomotion(target, p, moving, ph);
+    }
 
-    // ---- landing absorb ----
-    if (this.landT > 0) {
-      const k = this.landT / 0.34;
-      const e = k * k;
-      target.j_kneeR = [target.j_kneeR[0] + 0.85 * e, 0, 0];
-      target.j_kneeL = [target.j_kneeL[0] + 0.85 * e, 0, 0];
-      target.j_hipR = [target.j_hipR[0] - 0.5 * e, 0, 0];
-      target.j_hipL = [target.j_hipL[0] - 0.5 * e, 0, 0];
-      target.j_torso = [target.j_torso[0] + 0.28 * e, target.j_torso[1], 0];
-      this.inner.position.y = -0.09 * e;
-    } else if (p.grounded && this.inner.position.y !== 0) {
-      this.inner.position.y = damp(this.inner.position.y, 0, 10, dt);
+    // ---- landing absorb (grounded only) ----
+    if (p.grounded) {
+      if (this.landT > 0) {
+        const k = this.landT / 0.34;
+        const e = k * k;
+        target.j_kneeR = [target.j_kneeR[0] + 0.85 * e, 0, 0];
+        target.j_kneeL = [target.j_kneeL[0] + 0.85 * e, 0, 0];
+        target.j_hipR = [target.j_hipR[0] - 0.5 * e, 0, 0];
+        target.j_hipL = [target.j_hipL[0] - 0.5 * e, 0, 0];
+        target.j_torso = [target.j_torso[0] + 0.28 * e, target.j_torso[1], 0];
+        this.inner.position.y = -0.09 * e;
+      } else if (this.inner.position.y !== 0) {
+        this.inner.position.y = damp(this.inner.position.y, 0, 10, dt);
+      }
     }
 
     // ---- bow aim (overrides arms) ----
     const bowDraw = p.bowDraw ?? 0;
     if (bowDraw > 0) this.poseBowAim(target, p, bowDraw, moving, ph);
 
-    // ---- block overlay ----
+    // ---- block overlay (grounded stance only) ----
     const blockT = p.blockT ?? 0;
-    if (blockT > 0) this.poseBlock(target, blockT, this.activeShield !== null || (!!this.shieldProp && this.shieldProp.visible));
+    if (blockT > 0 && p.grounded) this.poseBlock(target, blockT, this.activeShield !== null || (!!this.shieldProp && this.shieldProp.visible));
 
-    // ---- attack overlays (timed curves — applied directly) ----
+    // ---- attack overlays (timed curves — ground OR air) ----
     if (p.attackT > 0) {
       this.poseAttack(target, p.attackT, p.attackKind ?? 'light1', bowDraw);
       this.apply(target, dt, true);
@@ -718,7 +733,27 @@ export class KnightModelGLB implements CharacterVisual {
     this.inner.position.y = 0;
   }
 
-  private poseRoll(t: PoseTarget, rollT: number, moving: boolean, ph: number): void {
+  private poseRoll(t: PoseTarget, rollT: number, moving: boolean, ph: number, step = false): void {
+    if (step) {
+      // Fase 11 — QUICKSTEP: a low lateral dash. No tuck, no spin — the
+      // body coils toward the dash side: deep lunge on the leading leg,
+      // trailing leg extended, torso banked, sword arm trailing for balance.
+      const k = Math.sin(rollT * Math.PI); // 0→1→0 arc through the dash
+      t.j_hipR = [-0.95 * k - 0.2, 0, 0];
+      t.j_hipL = [0.55 * k, 0, 0];
+      t.j_kneeR = [1.35 * k + 0.25, 0, 0];
+      t.j_kneeL = [0.12, 0, 0];
+      t.j_ankleR = [0.35, 0, 0];
+      t.j_ankleL = [0.3, 0, 0];
+      t.j_shoulderR = [-0.5 - k * 0.5, 0, -0.5 * k];
+      t.j_shoulderL = [-0.2 + k * 0.7, 0, 0.45 * k + 0.1];
+      t.j_elbowR = [-0.6, 0, 0];
+      t.j_elbowL = [-0.35, 0, 0];
+      t.j_torso = [0.42 * k, -0.3 * k, 0];
+      t.j_head = [-0.2 * k, 0.24 * k, 0];
+      this.inner.position.y = -0.26 * k;
+      return;
+    }
     // full-body somersault around the model root (Player adds the roll pose
     // through model.root — here we tuck the limbs)
     t.j_hipR = [-1.9, 0, 0];
@@ -944,6 +979,111 @@ export class KnightModelGLB implements CharacterVisual {
     if (kind === 'light1' || kind === 'light2') {
       t.j_hipL = [0.1, 0, 0];
       t.j_kneeL = [0.12, 0, 0];
+    }
+    // ----------------------------------------------------------- Fase 11
+    // — the cinematic set —
+    if (kind === 'spin') {
+      // 360° horizontal sweep: coil left (0..0.3), whip around
+      // (0.3..0.72 — the torso drives the turn), settle the follow-through
+      if (k < 0.3) {
+        const u = ease(k / 0.3);
+        t.j_shoulderR = [L(0, -1.15, u), 0, L(0, 1.05, u)];
+        t.j_elbowR = [-0.2, 0, 0];
+        t.j_torso = [0.06, L(0, 0.85, u), 0];
+        t.j_hipR = [0.12, 0, 0];
+        t.j_hipL = [-0.18, 0, 0];
+        this.inner.position.y = -0.05 * u;
+      } else if (k < 0.72) {
+        const u = ease((k - 0.3) / 0.42);
+        t.j_shoulderR = [L(-1.15, -1.05, u), 0, L(1.05, -1.15, u)];
+        t.j_elbowR = [L(-0.2, -0.08, u), 0, 0];
+        t.j_torso = [0.1, L(0.85, -0.95, u), 0];
+        t.j_head = [0, L(0.5, -0.55, u), 0];
+        t.j_hipR = [0.1, L(0.3, -0.35, u), 0];
+        t.j_hipL = [-0.1, L(-0.3, 0.35, u), 0];
+        t.j_kneeR = [0.35, 0, 0];
+        this.inner.position.y = -0.09;
+      } else {
+        const u = (k - 0.72) / 0.28;
+        t.j_shoulderR = [L(-1.05, -0.2, u), 0, L(-1.15, -0.1, u)];
+        t.j_elbowR = [L(-0.08, -0.25, u), 0, 0];
+        t.j_torso = [L(0.1, 0.03, u), L(-0.95, 0, u), 0];
+        t.j_head = [0, L(-0.55, 0, u), 0];
+        t.j_hipR = [0, L(-0.35, 0, u), 0];
+        this.inner.position.y = -0.09 * (1 - u);
+      }
+      t.j_shoulderL = [-0.75, 0, 0.5];
+      t.j_elbowL = [-0.7, 0, 0];
+    } else if (kind === 'uppercut') {
+      // rising slash: coil low (0..0.38), launch upward (0.38..0.66),
+      // the body rides the rising blade
+      if (k < 0.38) {
+        const u = ease(k / 0.38);
+        t.j_shoulderR = [L(0, -0.9, u), 0, L(0, 0.85, u)];
+        t.j_elbowR = [L(0, -1.5, u), 0, 0];
+        t.j_torso = [L(0, 0.5, u), L(0, 0.55, u), 0];
+        t.j_kneeR = [0.85 * u, 0, 0];
+        t.j_kneeL = [0.7 * u, 0, 0];
+        this.inner.position.y = -0.22 * u;
+      } else if (k < 0.66) {
+        const u = ease((k - 0.38) / 0.28);
+        t.j_shoulderR = [L(-0.9, -2.6, u), 0, L(0.85, -0.15, u)];
+        t.j_elbowR = [L(-1.5, -0.12, u), 0, 0];
+        t.j_torso = [L(0.5, -0.38, u), L(0.55, -0.5, u), 0];
+        t.j_head = [L(0, -0.4, u), 0, 0];
+        t.j_hipR = [L(0, -0.3, u), 0, 0];
+        this.inner.position.y = L(-0.22, 0.1, u);
+      } else {
+        const u = (k - 0.66) / 0.34;
+        t.j_shoulderR = [L(-2.6, -0.3, u), 0, L(-0.15, -0.06, u)];
+        t.j_elbowR = [L(-0.12, -0.3, u), 0, 0];
+        t.j_torso = [L(-0.38, 0.04, u), L(-0.5, 0, u), 0];
+        t.j_head = [L(-0.4, 0, u), 0, 0];
+        this.inner.position.y = L(0.1, 0, u);
+      }
+      t.j_shoulderL = [-0.4, 0, 0.35];
+      t.j_elbowL = [-0.8, 0, 0];
+    } else if (kind === 'plunge') {
+      // the falling spear: sword aimed straight down, body arched above it.
+      // (Player drives the dive; this pose sells the read from any angle)
+      const u = Math.min(1, k * 3);
+      t.j_shoulderR = [L(0, -2.9, u), 0, 0];
+      t.j_elbowR = [L(0, -0.06, u), 0, 0];
+      t.j_shoulderL = [L(0, -1.4, u), 0, 0.55];
+      t.j_elbowL = [L(0, -1.1, u), 0, 0];
+      t.j_torso = [L(0, -0.24, u), 0, 0];
+      t.j_head = [L(0, 0.5, u), 0, 0];
+      t.j_hipR = [-0.5, 0, 0];
+      t.j_hipL = [-0.35, 0, 0];
+      t.j_kneeR = [1.15, 0, 0];
+      t.j_kneeL = [0.9, 0, 0];
+      t.j_ankleR = [0.5, 0, 0];
+      this.inner.position.y = 0.06 * u;
+    } else if (kind === 'aircut') {
+      // floating air slash: a tight horizontal figure-eight — quick out,
+      // quick back, body banked like it is carving the air
+      if (k < 0.3) {
+        const u = ease(k / 0.3);
+        t.j_shoulderR = [L(0, -2.3, u), 0, L(0, -0.7, u)];
+        t.j_elbowR = [-0.3, 0, 0];
+        t.j_torso = [0.1, L(0, -0.5, u), 0];
+      } else if (k < 0.68) {
+        const u = ease((k - 0.3) / 0.38);
+        t.j_shoulderR = [L(-2.3, 0.35, u), 0, L(-0.7, 0.85, u)];
+        t.j_elbowR = [L(-0.3, -0.1, u), 0, 0];
+        t.j_torso = [0.14, L(-0.5, 0.55, u), 0];
+        t.j_head = [0, L(0, 0.2, u), 0];
+        t.j_hipR = [-0.25 * u, 0, 0];
+        t.j_kneeR = [0.4 * u, 0, 0];
+      } else {
+        const u = (k - 0.68) / 0.32;
+        t.j_shoulderR = [L(0.35, -0.2, u), 0, L(0.85, -0.08, u)];
+        t.j_elbowR = [L(-0.1, -0.25, u), 0, 0];
+        t.j_torso = [L(0.14, 0.04, u), L(0.55, 0, u), 0];
+      }
+      t.j_shoulderL = [-0.45, 0, 0.4];
+      t.j_elbowL = [-0.6, 0, 0];
+      t.j_kneeL = [0.2, 0, 0];
     }
   }
 

@@ -30,8 +30,21 @@ export class Player {
   flying = false;
 
   // ---- Fase 3 combat state (driven by CombatSystem, read for animation) ----
-  /** Current attack animation variant. */
-  attackKind: 'light1' | 'light2' | 'heavy' | 'thrust' | 'bowRelease' = 'light1';
+  /** Current attack animation variant. Fase 11 adds the cinematic set:
+   *  spin (360 sweep), uppercut (launcher), plunge (air dive) and
+   *  aircut (floating air slash). */
+  attackKind: 'light1' | 'light2' | 'heavy' | 'thrust' | 'bowRelease'
+    | 'spin' | 'uppercut' | 'plunge' | 'aircut' = 'light1';
+  /** Fase 11 — a plunge is in flight: extra gravity until the ground, then
+   *  onPlungeImpact fires the AoE. */
+  plunging = false;
+  onPlungeImpact?: () => void;
+  /** Fase 11 — an incoming hit was dodged with i-frames (perfect dodge):
+   *  CombatSystem opens a counter window. */
+  onPerfectDodge?: () => void;
+  /** Fase 11 — dodge style: 'roll' = full somersault (forward),
+   *  'step' = quick low dash (side/back). Set by CombatSystem. */
+  dodgeStyle: 'roll' | 'step' = 'roll';
   /** Duration of the current swing (heavy attacks are slower). */
   attackDur = 0.5;
   /** Recovery gate after a swing before the next may start. */
@@ -65,7 +78,8 @@ export class Player {
   private lanternLight: THREE.PointLight;
   private lanternFlame: THREE.Sprite;
   private wasGrounded = true;
-  private airTime = 0;
+  /** Seconds since the body left the ground (Fase 11: air-combat windows read it). */
+  airTime = 0;
   private speedSm = 0;
   /** Fase 4 — water-vault lunge window: horizontal damping disabled. */
   private vaultT = 0;
@@ -146,13 +160,17 @@ export class Player {
 
   // ---------------------------------------------------------------- combat
 
-  /** Start a dodge roll toward a world-space direction (length-irrelevant). */
-  beginRoll(dirX: number, dirZ: number): void {
+  /** Start a dodge toward a world-space direction (length-irrelevant).
+   *  Fase 11: style 'roll' (forward) keeps the somersault; 'step' is a fast
+   *  low dash used for side/back — different feel, same i-frames. */
+  beginRoll(dirX: number, dirZ: number, style: 'roll' | 'step' = 'roll'): void {
     const len = Math.hypot(dirX, dirZ);
     if (len > 0.001) this.rollDir.set(dirX / len, 0, dirZ / len);
     else this.rollDir.set(-Math.sin(this.yaw), 0, -Math.cos(this.yaw)); // backward
+    this.dodgeStyle = style;
     this.rollT = 0.001;
     this.attackT = 0;
+    this.plunging = false;
     this.bowDraw = -1;
   }
 
@@ -168,11 +186,18 @@ export class Player {
    * Central damage entry — applies i-frames, block reduction and stamina
    * drain. Returns the health actually lost (0 when fully avoided/blocked)
    * so callers can spawn the right VFX.
+   * Fase 11: `opts.unblockable` (captain heavy blows) bypasses the guard —
+   * the hit must be DODGED; and a hit absorbed by roll i-frames near the
+   * moment of impact reports a PERFECT DODGE (counter window opens).
    */
-  takeHit(damage: number, fromX?: number, fromZ?: number): number {
-    if (this.invulnerable) return 0;
+  takeHit(damage: number, fromX?: number, fromZ?: number, opts?: { unblockable?: boolean }): number {
+    if (this.invulnerable) {
+      // rolling THROUGH a blow that would have connected = perfect dodge
+      if (this.rollT > 0 && this.rollT < 0.8) this.onPerfectDodge?.();
+      return 0;
+    }
     // Blocking: absorb if the source is roughly in front (±60°)
-    if (this.blockT > 0.5) {
+    if (this.blockT > 0.5 && !opts?.unblockable) {
       let facing = true;
       if (fromX !== undefined && fromZ !== undefined) {
         const toSrc = Math.atan2(fromX - this.position.x, fromZ - this.position.z);
@@ -213,6 +238,12 @@ export class Player {
         }
         return through;
       }
+    }
+    // Fase 11 — an UNBLOCKABLE blow met with a raised guard: the stance
+    // shatters (extra stamina cost, guard-break recoil)
+    if (this.blockT > 0.5 && opts?.unblockable) {
+      this.stamina = Math.max(0, this.stamina - damage * 0.8);
+      this.model.blockImpact?.();
     }
     this.health = Math.max(0, this.health - damage);
     this.invulnT = 0.7;
@@ -467,10 +498,28 @@ export class Player {
         }
       }
     } else {
+      // Fase 11 — aircut hover: an air slash carries the knight (anime float)
+      if (
+        this.attackT > 0 && this.attackKind === 'aircut'
+        && this.verticalVel < 1.5 && this.airTime < 1.1
+      ) {
+        this.verticalVel = Math.max(this.verticalVel, 1.5);
+      }
+      // Fase 11 — plunge dive: heavy gravity, hard horizontal brake
+      if (this.plunging) {
+        this.verticalVel -= 30 * dt;
+        this.velocity.x = damp(this.velocity.x, this.rollDir.x * 2.2, 10, dt);
+        this.velocity.z = damp(this.velocity.z, this.rollDir.z * 2.2, 10, dt);
+      }
       this.verticalVel -= 19 * dt;
       this.position.y += this.verticalVel * dt;
       const groundY = groundH;
       if (this.position.y <= groundY) {
+        // Fase 11 — the plunge lands: hand the impact to CombatSystem
+        if (this.plunging) {
+          this.plunging = false;
+          this.onPlungeImpact?.();
+        }
         // Landing
         if (!this.wasGrounded && this.airTime > 0.35) {
           const fallSpeed = -this.verticalVel;
@@ -512,9 +561,10 @@ export class Player {
     this.group.rotation.y = this.yaw;
 
     // --- Swim pitch (lean body forward in water) + whole-body spins ---
-    // The dodge roll and the double-jump marometa rotate the model root a
-    // full 2π forward; everything else eases back to the swim lean.
-    const spinT = this.rollT > 0 ? this.rollT : this.flipT;
+    // The dodge ROLL and the double-jump marometa rotate the model root a
+    // full 2π forward; the Fase 11 side/back quickstep never spins (it is a
+    // low dash — the limbs sell it, not the body rotation).
+    const spinT = this.rollT > 0 && this.dodgeStyle === 'roll' ? this.rollT : this.flipT;
     if (spinT > 0) {
       this.model.root.rotation.x = spinT * Math.PI * 2;
     } else {
@@ -524,7 +574,8 @@ export class Player {
 
     // --- Combat timers (Fase 3) ---
     if (this.rollT > 0) {
-      this.rollT += dt / 0.55;
+      // a quickstep recovers faster than a full roll (0.38 s vs 0.55 s)
+      this.rollT += dt / (this.dodgeStyle === 'step' ? 0.38 : 0.55);
       if (this.rollT >= 1) this.rollT = 0;
     }
     // Fase 10 — marometa progress (0.62 s full rotation)
@@ -564,6 +615,7 @@ export class Player {
       blockT: this.blockT,
       // the marometa borrows the roll's tucked pose (limbs folded tight)
       rollT: this.rollT > 0 ? this.rollT : this.flipT,
+      dodgeStep: this.rollT > 0 && this.dodgeStyle === 'step',
       bowDraw: this.bowDraw,
     });
 

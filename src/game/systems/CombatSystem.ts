@@ -83,10 +83,19 @@ export interface CombatHooks {
   banditMelee?(origin: THREE.Vector3, yaw: number, reach: number, arc: number):
     { bandit: unknown; point: THREE.Vector3 } | null;
   damageBandit?(bandit: unknown, amount: number, heavy: boolean): void;
+  /** Fase 11 — multi-target sweep for spin finishers (up to `max` victims). */
+  banditMeleeMulti?(origin: THREE.Vector3, yaw: number, reach: number, arc: number, max: number):
+    Array<{ bandit: unknown; point: THREE.Vector3 }>;
+  /** Fase 11 — radial AoE for the plunge landing (everything in the ring). */
+  banditMeleeRadius?(center: THREE.Vector3, radius: number, max: number):
+    Array<{ bandit: unknown; point: THREE.Vector3 }>;
   /** Training dummy — returns XP granted when struck. */
   dummyHit(origin: THREE.Vector3, yaw: number): boolean;
   /** Camera aim ray for the bow. */
   aimRay(): { origin: THREE.Vector3; dir: THREE.Vector3 };
+  /** Fase 11 — the swing cut only air: bandits snap to guard (near misses
+   *  telegraph the next exchange — the fight reads both ways). */
+  onWhiff?(pos: THREE.Vector3): void;
 }
 
 interface Arrow {
@@ -107,10 +116,22 @@ interface ArrowPickup {
  * dodge rolls, the bow with real projectiles and recoverable arrows.
  * Works alongside the existing boarding-crew and training-dummy fights.
  *
- * Fase 9 — CINEMATIC COMBAT (PDF §4): 3-hit combo chains (light → light →
+ * Fase 9 — CINEMATIC COMBAT (PDF §4): 3-hit combo chains (light -> light ->
  * heavy finisher) with buffered inputs and chain windows, PARRY (perfect
- * block within 0.19 s) that staggers attackers and opens a ×1.6 counter
+ * block within 0.19 s) that staggers attackers and opens a x1.6 counter
  * window, hit knockback, and camera punches on decisive blows.
+ *
+ * Fase 11 — CHOREOGRAPHED COMBAT (the Spider-Man-grade spec):
+ *  - chains up to 4 moves with route-aware finishers (heavy / uppercut / spin)
+ *  - input buffering during the WHOLE swing (spam-safe), late-fires cleanly
+ *  - DIRECTIONAL variety: strafing -> 360 spin (multi-target), backpedal ->
+ *    uppercut launcher; forward keeps the classic diagonal
+ *  - AIR COMBAT: floating air slashes (aircut) + a plunging AoE dive whose
+ *    damage resolves on landing (Player.onPlungeImpact -> plungeLand)
+ *  - dodge styles: forward somersault vs side/back quickstep; a hit absorbed
+ *    by roll i-frames = PERFECT DODGE -> counter window (like the parry)
+ *  - spin finishers hit up to 3 targets; the plunge hits everything in a ring
+ *  - hit-stop (global slow-mo beat) on finishers, parries and counters
  */
 export class CombatSystem {
   private player: Player;
@@ -128,27 +149,59 @@ export class CombatSystem {
   private tmp2 = new THREE.Vector3();
   private tmpDir = new THREE.Vector3();
 
-  // ---- Fase 9: combo chain state ----
-  /** Position in the chain (0 = fresh, 1 = second hit, 2 = finisher). */
+  // ---- Fase 9/11: combo chain state ----
+  /** Position in the chain (0 = fresh ... 3 = route finisher). */
   private comboStep = 0;
   /** Seconds left to continue the chain before it resets. */
   private comboWindowT = 0;
-  /** Attack clicked during the swing tail/recovery → fires when possible. */
+  /** Attack clicked during the swing -> fires the moment it can (Fase 11:
+   *  buffered during the WHOLE swing, not just the tail). */
   private bufferedNext = false;
-  /** Counter window after a parry: next melee ×1.6 + camera punch. */
+  /** The buffered input is a HEAVY (changes the route). */
+  private bufferedHeavy = false;
+  /** Counter window after a parry: next melee x1.6 + camera punch. */
   private parryCounterT = 0;
+  /** Fase 11 — counter window after a PERFECT DODGE (next melee x1.5). */
+  private dodgeCounterT = 0;
   /** Damage multiplier queued by the current swing (combo/counter). */
   private pendingDmgMult = 1;
   /** True while the current swing is a chain FINISHER (bigger feedback). */
   private swingIsFinisher = false;
+  /** True while the current swing is a MULTI-HIT sweep (spin/plunge). */
+  private swingIsMulti = false;
+  /** Route tag of the current chain (HUD + variation bookkeeping). */
+  private comboRoute: 'std' | 'dodge' | 'air' = 'std';
+  private comboLabel = '';
 
   /** Fase 9 — camera punch hook (Game wires this to the CameraRig FOV kick). */
   onCameraPunch?: (intensity: number) => void;
+  /** Fase 11 — hit-stop hook: the Game slows the world for a beat. */
+  onHitStop?: (duration: number) => void;
+  /** Fase 11 — HUD flash channel (perfect dodge / counters). */
+  onCombatEvent?: (label: string) => void;
+
+  /** Fase 11 — transient fight label for the HUD (decays on its own). */
+  get eventLabel(): string | null {
+    return this.eventT > 0 ? this.eventText : null;
+  }
+  private eventText: string | null = null;
+  private eventT = 0;
+
+  /** Show a fight moment on the HUD for ~1.3 s (perfect dodge, riposte...). */
+  flashEvent(label: string): void {
+    this.eventText = label;
+    this.eventT = 1.3;
+  }
 
   /** Combo state for the HUD (null when no chain running). */
-  get comboHud(): { step: number; window: number; counter: boolean } | null {
+  get comboHud(): { step: number; window: number; counter: boolean; label?: string } | null {
     if (this.comboWindowT <= 0 || this.comboStep <= 0) return null;
-    return { step: this.comboStep, window: this.comboWindowT, counter: this.parryCounterT > 0 };
+    return {
+      step: this.comboStep,
+      window: this.comboWindowT,
+      counter: this.parryCounterT > 0 || this.dodgeCounterT > 0,
+      label: this.comboLabel,
+    };
   }
 
   constructor(
@@ -164,15 +217,28 @@ export class CombatSystem {
     this.vfx = vfx;
     this.hooks = hooks;
     // Fase 9 — parry feedback: clang + sparks + counter window. Chain any
-    // callback the Game may have installed (crew stagger, HUD…).
+    // callback the Game may have installed (crew stagger, HUD...).
     const prevOnParry = player.onParry;
     player.onParry = (fx: number, fz: number) => {
       prevOnParry?.(fx, fz);
       this.parryCounterT = 1.35;
       this.hooks.sound('block');
       this.onCameraPunch?.(0.55);
+      this.onHitStop?.(0.09);
+      this.onCombatEvent?.('¡PARADA PERFECTA!');
       this.vfx.weaponImpact(new THREE.Vector3(fx, player.position.y + 1.25, fz));
     };
+    // Fase 11 — perfect dodge: the blow slid past inside the roll i-frames
+    const prevOnDodge = player.onPerfectDodge;
+    player.onPerfectDodge = () => {
+      prevOnDodge?.();
+      this.dodgeCounterT = 1.1;
+      this.hooks.sound('swing');
+      this.onCameraPunch?.(0.4);
+      this.onCombatEvent?.('¡ESQUIVA PERFECTA!');
+    };
+    // Fase 11 — plunge landing: the AoE resolves here
+    player.onPlungeImpact = () => this.plungeLand();
   }
 
   get equippedId(): string | null {
@@ -249,26 +315,40 @@ export class CombatSystem {
     const canBlock = !!weapon && weapon.kind !== 'bow' && p.grounded && p.stamina > 1 && p.attackT === 0 && !p.rolling;
     p.blocking = canBlock && input.rightDown;
 
-    // --- Dodge roll (C) ---
-    if (input.anyPressed('KeyC') && p.grounded && !p.rolling && p.stamina >= 20 && !p.swimming) {
-      // Roll along the current movement direction (camera relative)
+    // --- Dodge (C): direction chooses the style —
+    //     forward = somersault roll, side/back = quickstep dash.
+    //     A dodge right after a dodge-feint or mid-chain keeps the chain.
+    if (input.anyPressed('KeyC') && p.grounded && !p.rolling && p.stamina >= 20 && !p.swimming && p.attackT === 0) {
       let ix = 0;
       let iz = 0;
       if (input.isDown('forward')) iz += 1;
       if (input.isDown('back')) iz -= 1;
       if (input.isDown('left')) ix -= 1;
       if (input.isDown('right')) ix += 1;
+      const fx = Math.sin(this.camYaw);
+      const fz = Math.cos(this.camYaw);
+      let dx = 0;
+      let dz = 0;
       if (ix !== 0 || iz !== 0) {
         const len = Math.hypot(ix, iz);
         ix /= len; iz /= len;
-        const fx = Math.sin(this.camYaw);
-        const fz = Math.cos(this.camYaw);
-        p.beginRoll(fx * iz - fz * ix, fz * iz + fx * ix);
+        dx = fx * iz - fz * ix;
+        dz = fz * iz + fx * ix;
       } else {
-        p.beginRoll(0, 0); // rolls backward
+        dx = -Math.sin(p.yaw); dz = -Math.cos(p.yaw); // backward by default
       }
+      // forward roll vs quickstep: is the dash within 50° of the facing?
+      const fwdDot = Math.sin(p.yaw) * dx + Math.cos(p.yaw) * dz;
+      const style: 'roll' | 'step' = fwdDot > 0.45 ? 'roll' : 'step';
+      p.beginRoll(dx, dz, style);
       p.stamina -= 20;
       this.hooks.sound('swing');
+      this.vfx.landingDust(new THREE.Vector3(p.position.x, p.position.y + 0.05, p.position.z), 5, 0.5);
+      // a dodge inside an open chain reroutes it — the next hit whips around
+      if (this.comboWindowT > 0 && this.comboStep > 0) {
+        this.comboRoute = 'dodge';
+        this.comboWindowT = Math.max(this.comboWindowT, 0.9);
+      }
     }
 
     if (!weapon) {
@@ -284,71 +364,127 @@ export class CombatSystem {
       return;
     }
 
-    // --- Melee charge & release (Fase 9: combo chains) ---
+    // =================== MELEE — the choreography core ===================
+    // Route intent is sampled every frame so a heavy's variant reads exactly
+    // what the player was doing at the moment of release (not a stale value).
+    this.lastIntent = this.moveIntent(input);
+
     // Chain timers
     if (this.comboWindowT > 0) {
       this.comboWindowT -= dt;
       if (this.comboWindowT <= 0) {
         this.comboStep = 0;
         this.bufferedNext = false;
+        this.comboRoute = 'std';
       }
     }
     if (this.parryCounterT > 0) this.parryCounterT -= dt;
-
-    const canAct = p.attackT === 0 && !p.rolling && p.grounded;
-    // A click during the swing tail or the recovery queues the chain step
-    if (
-      input.leftPressed && this.comboWindowT > 0 && this.comboStep < 2
-      && (p.attackT > 0.45 || p.attackRecovery > 0)
-    ) {
-      this.bufferedNext = true;
+    if (this.dodgeCounterT > 0) this.dodgeCounterT -= dt;
+    if (this.eventT > 0) {
+      this.eventT -= dt;
+      if (this.eventT <= 0) this.eventText = null;
     }
-    const chainReady = this.bufferedNext && this.comboWindowT > 0 && this.comboStep < 2;
 
-    if (input.leftPressed && canAct && p.attackRecovery <= 0 && !chainReady) {
+    const canAct = p.attackT === 0 && !p.rolling && !p.swimming;
+    const canActGround = canAct && p.grounded && p.attackRecovery <= 0;
+    // Fase 11 — air act: only during the useful part of an arc (short hops)
+    const canActAir = canAct && !p.grounded && p.airTime < 0.42 && !p.plunging;
+
+    // --- Plunge hold: the dive pose holds until the ground (no time gate)
+    if (p.attackT > 0 && p.attackKind === 'plunge') {
+      if (p.plunging) {
+        p.attackT = Math.min(p.attackT, 0.34); // hold the read
+        this.swingHitDone = true;             // impact fires on landing
+        return;
+      }
+      // landed (plungeLand cleared it or safety): fall through to normal
+    }
+
+    // --- Input buffering (Fase 11: the whole swing counts) ---
+    if (input.leftPressed && p.attackT > 0.10) {
+      this.bufferedNext = true;
+      this.bufferedHeavy = false;
+    }
+    if (p.attackRecovery > 0 && input.leftPressed && this.comboWindowT > 0 && this.comboStep < 3) {
+      this.bufferedNext = true; // recovery clicks keep the chain alive
+      this.bufferedHeavy = false;
+    }
+    const chainReady = this.bufferedNext && this.comboWindowT > 0 && this.comboStep < 3;
+
+    // --- Ground charge & release ---
+    if (input.leftPressed && canActGround && !chainReady) {
       this.chargeT = 0;
       this.chargeConsumed = false;
     }
-    if (this.chargeT >= 0 && input.leftDown && !this.chargeConsumed) {
+    if (this.chargeT >= 0 && input.leftDown && !this.chargeConsumed && p.grounded) {
       this.chargeT += dt;
       if (this.chargeT >= 0.28) {
-        // Held long enough → heavy attack fires immediately
+        // Held long enough -> heavy attack fires immediately
         this.chargeConsumed = true;
-        this.comboStep = 0;         // a committed heavy resets the chain
-        this.comboWindowT = 0;
-        this.bufferedNext = false;
-        this.startSwing(weapon, true, 0);
         this.chargeT = -1;
+        this.commitHeavy(weapon);
       }
     }
     if (this.chargeT >= 0 && !input.leftDown && !this.chargeConsumed) {
-      // Quick click → light attack (chain step if the window is open)
+      // Quick click -> light attack (chain step if the window is open)
       this.chargeT = -1;
-      this.startSwing(weapon, false, this.comboWindowT > 0 ? this.comboStep : 0);
+      if (canActGround) this.fireLight(weapon);
     }
     if (!input.leftDown) this.chargeT = -1;
 
-    // Chain execution: the buffered click fires the next step the moment the
-    // previous swing clears (late recovery counts — chains feel fluid)
-    if (chainReady && canAct && p.attackRecovery <= 0.3) {
+    // --- Air inputs (Fase 11) ---
+    if (canActAir && input.leftPressed) {
+      this.fireAircut(weapon);
+    }
+    if (!p.grounded && !p.plunging && p.attackT === 0 && !p.swimming && p.airTime < 1.3) {
+      // a HOLD in the air commits the plunge (the aerial heavy)
+      if (input.leftDown) this.airChargeT += dt;
+      else this.airChargeT = 0;
+      if (this.airChargeT >= 0.2) {
+        this.airChargeT = 0;
+        this.firePlunge(weapon);
+      }
+      // air-dodge quickstep (C) — spends stamina, no height gain
+      if (input.anyPressed('KeyC') && p.stamina >= 10 && !p.rolling) {
+        p.beginRoll(0, 0, 'step');
+        p.stamina -= 10;
+        this.hooks.sound('swing');
+      }
+    } else {
+      this.airChargeT = 0;
+    }
+
+    // --- Chain execution: the buffered click fires the next step the moment
+    // the previous swing clears (late recovery counts — chains feel fluid)
+    if (chainReady && canAct && (p.grounded ? p.attackRecovery <= 0.3 : p.airTime < 0.42)) {
       this.bufferedNext = false;
       const step = this.comboStep + 1;
-      // Step 2 = the cinematic finisher: a heavy blow with extra weight
-      this.startSwing(weapon, step >= 2, step);
+      const heavy = this.bufferedHeavy;
+      this.bufferedHeavy = false;
+      this.startSwing(weapon, step >= 3 || heavy, step);
     }
 
     // --- Swing progression ---
     if (p.attackT > 0) {
+      const wasAir = !p.grounded;
       p.attackT += dt / p.attackDur;
-      const impactAt = p.attackKind === 'heavy' ? 0.55 : 0.45;
+      const impactAt = p.attackKind === 'heavy' ? 0.55
+        : p.attackKind === 'spin' ? 0.5
+        : p.attackKind === 'uppercut' ? 0.62
+        : 0.45;
       if (!this.swingHitDone && p.attackT >= impactAt) {
         this.swingHitDone = true;
-        this.resolveMeleeHit(weapon, p.attackKind === 'heavy');
+        this.resolveMeleeHit(weapon, p.attackKind === 'heavy' || p.attackKind === 'spin' || p.attackKind === 'uppercut');
       }
       if (p.attackT >= 1) {
         p.attackT = 0;
-        // Chained swings recover faster — the rhythm keeps rolling
-        p.attackRecovery = weapon.recovery * (this.comboStep > 0 && this.comboWindowT > 0 ? 0.5 : 1);
+        if (wasAir && !p.grounded) {
+          // the swing ended mid-air: recovery waits for the landing
+          p.attackRecovery = weapon.recovery * 0.5;
+        } else {
+          // Chained swings recover faster — the rhythm keeps rolling
+          p.attackRecovery = weapon.recovery * (this.comboStep > 0 && this.comboWindowT > 0 ? 0.5 : 1);
+        }
       }
     }
   }
@@ -366,9 +502,127 @@ export class CombatSystem {
     this.camYaw = yaw;
   }
 
+  // ---------------------------------------------------------------- helpers
+
+  /** Player's current movement intent, camera-relative (for routes). */
+  private moveIntent(input: Input): { fwd: number; side: number } {
+    let iz = 0;
+    let ix = 0;
+    if (input.isDown('forward')) iz += 1;
+    if (input.isDown('back')) iz -= 1;
+    if (input.isDown('left')) ix -= 1;
+    if (input.isDown('right')) ix += 1;
+    const len = Math.hypot(ix, iz);
+    if (len === 0) return { fwd: 0, side: 0 };
+    const fx = Math.sin(this.camYaw);
+    const fz = Math.cos(this.camYaw);
+    const rx = -Math.cos(this.camYaw);
+    const rz = Math.sin(this.camYaw);
+    // world dir
+    const wx = fx * iz + rx * ix;
+    const wz = fz * iz + rz * ix;
+    const p = this.player;
+    // relative to the player's facing: fwd = along yaw, side = perpendicular
+    const fwd = Math.sin(p.yaw) * wx + Math.cos(p.yaw) * wz;
+    const side = Math.sin(p.yaw) * wz - Math.cos(p.yaw) * wx;
+    return { fwd: fwd / len, side: side / len };
+  }
+
+  /** A quick click on the ground: light attack or chain step. */
+  private fireLight(weapon: WeaponDef): void {
+    const step = this.comboWindowT > 0 ? this.comboStep + 1 : 1;
+    this.startSwing(weapon, false, Math.min(step, 3));
+  }
+
+  /** A committed heavy (held click or chain finisher slot). */
+  private commitHeavy(weapon: WeaponDef): void {
+    // route by movement intent: strafing -> spin, backpedal -> uppercut
+    const { fwd, side } = this.moveIntentInput();
+    const step = this.comboWindowT > 0 ? Math.min(this.comboStep + 1, 3) : 0;
+    this.startSwing(weapon, true, step, Math.abs(side) > 0.55 && Math.abs(fwd) < 0.55
+      ? 'spin'
+      : fwd < -0.45 ? 'uppercut' : 'heavy');
+  }
+
+  private moveIntentInput(): { fwd: number; side: number } {
+    // cached input at click time via the last moveIntent — kept separate so
+    // charge-release reads exactly what the player was doing on release
+    return this.lastIntent;
+  }
+  private lastIntent: { fwd: number; side: number } = { fwd: 0, side: 0 };
+  /** Air heavy charge clock (hold-to-plunge). */
+  private airChargeT = 0;
+
+  /** Floating air slash. */
+  private fireAircut(weapon: WeaponDef): void {
+    const p = this.player;
+    if (p.stamina < weapon.lightStamina) return;
+    p.stamina -= weapon.lightStamina;
+    p.attackKind = 'aircut';
+    p.attackDur = weapon.lightDur * 0.8;
+    p.attackT = 0.001;
+    this.swingHitDone = false;
+    this.comboStep = this.comboWindowT > 0 ? this.comboStep : 0;
+    this.comboRoute = 'air';
+    this.pendingDmgMult = 1.05;
+    this.swingIsFinisher = false;
+    this.swingIsMulti = false;
+    this.comboLabel = 'AÉREO';
+    p.onAttackSwing?.();
+  }
+
+  /** Plunging dive — damage resolves when the ground arrives. */
+  private firePlunge(weapon: WeaponDef): void {
+    const p = this.player;
+    if (p.stamina < weapon.heavyStamina) return;
+    p.stamina -= weapon.heavyStamina;
+    p.attackKind = 'plunge';
+    p.attackDur = 0.6; // the pose holds; plungeLand finishes it
+    p.attackT = 0.05;
+    p.plunging = true;
+    p.rollDir.set(Math.sin(p.yaw), 0, Math.cos(p.yaw)); // dive along the facing
+    this.swingHitDone = true; // resolved by plungeLand, not by time
+    this.pendingDmgMult = 1.15;
+    this.swingIsFinisher = true;
+    this.swingIsMulti = true;
+    this.comboLabel = '¡COLAPSO!';
+    this.onCombatEvent?.('¡COLAPSO!');
+    p.onAttackSwing?.();
+  }
+
+  /** Plunge landing: the AoE lands (called by Player.onPlungeImpact). */
+  private plungeLand(): void {
+    const p = this.player;
+    const weapon = this.weapon;
+    if (!weapon) return;
+    const c = this.tmp.set(p.position.x, p.position.y + 0.1, p.position.z);
+    this.vfx.landingDust(c.clone(), 16, 1.4);
+    this.onCameraPunch?.(0.6);
+    this.onHitStop?.(0.12);
+    this.hooks.sound('hit_scale');
+    // bandits: radial ring
+    if (this.hooks.banditMeleeRadius) {
+      const hits = this.hooks.banditMeleeRadius(p.position, weapon.reach * 1.15, 4);
+      for (const h of hits) this.hooks.damageBandit?.(h.bandit, weapon.heavyDmg * this.pendingDmgMult, true);
+      if (hits.length > 0) this.vfx.weaponImpact(hits[0].point);
+    }
+    // dragons keep their own lane (single query, unchanged behaviour)
+    const hit = this.hooks.dragonMelee(p.position, p.yaw, weapon.reach, 2.4);
+    if (hit) this.hooks.damageDragon(hit.dragon, weapon.heavyDmg * this.pendingDmgMult, true);
+    // crew
+    this.hooks.crewHit(p.position, p.yaw, weapon.heavyDmg, weapon.reach * 1.2, 2.4);
+    // wrap the dive
+    p.attackT = 0;
+    p.attackKind = 'heavy';
+    p.attackRecovery = weapon.recovery;
+    this.comboStep = 0;
+    this.comboWindowT = 0;
+    this.comboRoute = 'std';
+  }
+
   // ---------------------------------------------------------------- melee
 
-  private startSwing(weapon: WeaponDef, heavy: boolean, comboStep = 0): void {
+  private startSwing(weapon: WeaponDef, heavy: boolean, comboStep = 0, forceKind?: 'heavy' | 'spin' | 'uppercut'): void {
     const p = this.player;
     const cost = heavy ? weapon.heavyStamina : weapon.lightStamina;
     if (p.stamina < cost) {
@@ -379,31 +633,65 @@ export class CombatSystem {
       return; // too exhausted — no swing
     }
     p.stamina -= cost;
-    // Fase 9 — combo bookkeeping: damage weight + the chain window
+
+    // Route tag + label (HUD reads like a fight, not a spreadsheet)
+    const { fwd, side } = this.moveIntentInput();
+    let kindOverride = forceKind;
+    if (!kindOverride && heavy) {
+      kindOverride = Math.abs(side) > 0.55 && Math.abs(fwd) < 0.55 ? 'spin' : (fwd < -0.45 ? 'uppercut' : 'heavy');
+    }
     const isFinisher = heavy && comboStep >= 2;
-    const counter = this.parryCounterT > 0 && !heavy;
+    const counter = (this.parryCounterT > 0 || this.dodgeCounterT > 0) && !heavy;
     this.comboStep = comboStep;
-    this.comboWindowT = 1.05;
+    this.comboWindowT = 1.15;
     this.swingIsFinisher = isFinisher || counter;
     this.pendingDmgMult = 1;
     if (comboStep === 1) this.pendingDmgMult = 1.1;        // second hit bites deeper
+    if (comboStep === 2) this.pendingDmgMult = 1.18;
     if (isFinisher) this.pendingDmgMult = 1.3;             // chain finisher
-    if (counter) {
-      this.pendingDmgMult = 1.6;                           // parry counter!
-      this.parryCounterT = 0;
-      this.onCameraPunch?.(0.7);
-    } else if (isFinisher) {
-      this.onCameraPunch?.(0.45);
-    }
+    if (counter) this.pendingDmgMult = this.parryCounterT > 0 ? 1.6 : 1.5; // riposte!
+    // weapon identity per the spec: each weapon moves differently
+    let akind: string;
+    if (kindOverride === 'spin') akind = 'spin';
+    else if (kindOverride === 'uppercut') akind = 'uppercut';
+    else if (weapon.kind === 'axe') akind = heavy ? 'heavy' : this.altLight();
+    else if (weapon.kind === 'spear') akind = 'thrust';
+    else akind = heavy ? 'heavy' : this.altLight();
+    if (counter) akind = this.parryCounterT > 0 ? 'heavy' : 'spin'; // ripostes read BIG
+    p.attackKind = akind as typeof p.attackKind;
     p.attackDur = heavy ? weapon.heavyDur : weapon.lightDur;
+    if (akind === 'spin') {
+      p.attackDur = weapon.heavyDur * 0.92;         // the whip-around is brisk
+      this.swingIsMulti = true;
+    } else if (akind === 'uppercut') {
+      p.attackDur = weapon.heavyDur * 1.05;
+      this.swingIsMulti = false;
+    } else {
+      this.swingIsMulti = false;
+    }
     if (isFinisher) p.attackDur *= 1.12;                   // weighty finisher
     p.attackT = 0.001;
     this.swingHitDone = false;
-    // Animation variant per weapon & swing
-    if (weapon.kind === 'axe') p.attackKind = heavy ? 'heavy' : this.altLight();
-    else if (weapon.kind === 'spear') p.attackKind = heavy ? 'thrust' : 'thrust';
-    else p.attackKind = heavy ? 'heavy' : this.altLight();
-    if (counter) p.attackKind = 'heavy';                   // the riposte reads big
+    // label for the HUD
+    this.comboLabel = counter
+      ? (this.parryCounterT > 0 ? '¡CONTRAATAQUE!' : '¡RESPUESTA!')
+      : akind === 'spin' ? 'GIRO 360°'
+      : akind === 'uppercut' ? '¡LANZAMIENTO!'
+      : isFinisher ? '¡REmate!' : '';
+    if (counter) {
+      this.comboLabel = this.parryCounterT > 0 ? '¡CONTRAATAQUE!' : '¡RESPUESTA ÁGIL!';
+      if (this.parryCounterT > 0) this.parryCounterT = 0; else this.dodgeCounterT = 0;
+      this.onCameraPunch?.(0.7);
+      this.onHitStop?.(0.1);
+    } else if (isFinisher) {
+      this.onCameraPunch?.(0.45);
+      this.onHitStop?.(0.07);
+    }
+    // spear heavies lunge the fencer forward along the thrust
+    if (weapon.kind === 'spear' && heavy) {
+      p.velocity.x += Math.sin(p.yaw) * 3.2;
+      p.velocity.z += Math.cos(p.yaw) * 3.2;
+    }
     p.onAttackSwing?.();
   }
 
@@ -417,13 +705,15 @@ export class CombatSystem {
     const p = this.player;
     let dmg = heavy ? weapon.heavyDmg : weapon.lightDmg;
     if (this.state.learnedSkills.has('comb_maestria')) dmg *= 1.15;
-    dmg *= this.pendingDmgMult;      // Fase 9 — combo/counter weight
+    dmg *= this.pendingDmgMult;      // combo/counter weight
     // Fase 10 — Bram's forge upgrades sharpen ANY sword
     if (weapon.kind === 'sword') dmg *= SWORD_TIER_MULT[this.state.swordTier] ?? 1;
     const big = this.swingIsFinisher;
+    const kind = p.attackKind;
+    const multiArc = kind === 'spin' ? 2.75 : weapon.arc;
 
-    // 1) Dragons — the big game
-    const hit = this.hooks.dragonMelee(p.position, p.yaw, weapon.reach, weapon.arc);
+    // 1) Dragons — the big game (single query, untouched lane)
+    const hit = this.hooks.dragonMelee(p.position, p.yaw, weapon.reach, multiArc);
     if (hit) {
       const final = hit.head ? dmg * 1.5 : dmg;
       this.hooks.damageDragon(hit.dragon, final, heavy);
@@ -432,19 +722,36 @@ export class CombatSystem {
       if (big) this.onCameraPunch?.(0.4);
       return;
     }
-    // 1.5) Fase 10 — red knight bandits
+    // 1.5) Fase 10/11 — bandits: multi sweeps for spins, nearest for the rest
     if (this.hooks.banditMelee) {
-      const bHit = this.hooks.banditMelee(p.position, p.yaw, weapon.reach, weapon.arc);
-      if (bHit) {
-        this.hooks.damageBandit?.(bHit.bandit, dmg, heavy);
-        this.vfx.weaponImpact(bHit.point);
-        this.hooks.sound(big ? 'hit_scale' : 'damage');
-        if (big) this.onCameraPunch?.(0.5);
-        return;
+      if (this.swingIsMulti && this.hooks.banditMeleeMulti) {
+        const hits = this.hooks.banditMeleeMulti(p.position, p.yaw, weapon.reach, multiArc, 3);
+        if (hits.length > 0) {
+          for (const h of hits) this.hooks.damageBandit?.(h.bandit, dmg, heavy);
+          this.vfx.weaponImpact(hits[0].point);
+          this.hooks.sound(big ? 'hit_scale' : 'damage');
+          if (big) {
+            this.onCameraPunch?.(0.5);
+            this.onHitStop?.(0.08);
+          }
+          return;
+        }
+      } else {
+        const bHit = this.hooks.banditMelee(p.position, p.yaw, weapon.reach, multiArc);
+        if (bHit) {
+          this.hooks.damageBandit?.(bHit.bandit, dmg, heavy);
+          this.vfx.weaponImpact(bHit.point);
+          this.hooks.sound(big ? 'hit_scale' : 'damage');
+          if (big) {
+            this.onCameraPunch?.(0.5);
+            this.onHitStop?.(0.08);
+          }
+          return;
+        }
       }
     }
     // 2) Boarding pirates
-    if (this.hooks.crewHit(p.position, p.yaw, dmg, weapon.reach, weapon.arc)) {
+    if (this.hooks.crewHit(p.position, p.yaw, dmg, weapon.reach, multiArc)) {
       this.hooks.sound(big ? 'hit_scale' : 'damage');
       if (big) this.onCameraPunch?.(0.5);
       return;
@@ -452,7 +759,10 @@ export class CombatSystem {
     // 3) Training dummy (needs to face it & be close)
     if (this.hooks.dummyHit(p.position, p.yaw)) {
       this.hooks.sound('damage');
+      return;
     }
+    // 4) Nothing connected — a WHIFF: nearby bandits raise their guard
+    this.hooks.onWhiff?.(p.position);
   }
 
   // ---------------------------------------------------------------- bow
@@ -478,7 +788,7 @@ export class CombatSystem {
         p.bowDraw = Math.min(1, p.bowDraw + (dt / ranged.drawTime) * drawSpeed);
       }
     } else if (p.bowDraw >= 0) {
-      // Released (or interrupted) → fire if meaningfully drawn
+      // Released (or interrupted) -> fire if meaningfully drawn
       const draw = p.bowDraw;
       p.bowDraw = -1;
       if (draw > 0.25 && this.state.countItem('flecha') > 0 && p.attackT === 0) {
@@ -582,7 +892,7 @@ export class CombatSystem {
         this.removeArrow(i);
         continue;
       }
-      // Terrain hit → stick (some can be recovered); over open water the
+      // Terrain hit -> stick (some can be recovered); over open water the
       // arrow is simply lost to the sea.
       const ground = this.terrainHeight(a.mesh.position.x, a.mesh.position.z);
       if (a.mesh.position.y <= Math.max(ground, -0.4) + 0.02) {

@@ -279,3 +279,48 @@ Stage Summary:
 - El admin reproduce 9 cinemáticas; pista y textos de fase ocultos.
 - Pantalla de carga y diálogos con acabado cinematográfico.
 - Bug de muerte (soft-lock) corregido de raíz.
+
+---
+Task ID: 11
+Agent: Super Z (main agent)
+Task: Fase 11 — espada de forja maestra con texturas, nubes nuevas, combate cuerpo a cuerpo coreografiado (spec Spider-Man), cinemáticas con actores reales (estilo Halo), olas solo cerca (60 fps), barcos manejables con colliders a medida, señálero de misiones.
+
+Work Log:
+- ESPADA (HeroSword.ts nuevo): hoja con geometría loft de sección diamante + fuller, albedo canvas (bandas damasco, brillo en filos, fuller oscuro) + roughnessMap (filos espejo), guarda dorada con quillons caídos + garras, empuñadura de cuero oxblood con 5 anillos dorados, pomo con gema (zafiro héroes / granate capitanes) + 4 garras. Runas (emissiveMap canvas con glifos) apagadas tier 0 → ámbar 1 → dorado 2 → azul 3 (applyHeroSwordTier); KnightModelGLB.applyWeaponGlow las enruta. Bandidos: variante oxidada (acero rojo-negro, sin gema; capitán con granate).
+- NUBES (SkySystem shader reescrito): 3 capas reales a alturas virtuales distintas (cúmulos con warping de dominio — fbm alimenta fbm, formas de coliflor; altocúmulos; cirros estirados cerca del cenit), perspectiva correcta por capa (nada se estira en arcos), sombreado propio (muestreo hacia el sol), filo plateado solar, bruma unificada en el horizonte, noche y tormenta conservadas.
+- COMBATE (CombatSystem reescrito + Player + KnightModelGLB + BanditSystem + CameraRig + Game):
+  · Combos de 4 golpes con finales por RUTA: pesado (diagonal), uppercut (lanzamiento, retrocediendo), GIRO 360° (multi-objetivo, estrafeando); buffering durante TODO el swing (no solo la cola).
+  · AÉREO: tazo aéreo con hover (verticalVel ≥1.4), PLONGEE: mantener en el aire → caída con gravedad extra, el AoE resuelve AL ATERRIZAR (radio = alcance×1.15, máx 4), polvo + hit-stop.
+  · Esquivas: quickstep lateral/atrás (0.38 s, postura baja sin marometa) vs rollo adelante (marometa completa); ESQUIVA PERFECTA (golpe absorbido por i-frames del rollo) → ventana de respuesta ×1.5; PARADA PERFECTA (0.19 s) → contraataque ×1.6 como antes.
+  · Lanza pesada empuja al lancero (lunge); hacha lenta y contundente; espada rápida.
+  · Hit-stop global (Game.update ×0.15 por ~0.1 s) en paradas/contraataques/remates/plongee + camera punch + encuadre de combate (rig ×1.18 más ancho con pivote alto).
+  · IA bandidos: TOKENS (máx 2 atacan; ceil(engaged/2)), anillo a 3.1 m con órbita por lado + FINTAS, guardia alzada tras whiff del héroe (absorbe ligeros ×0.35 con chispas; pesados la rompen), pesados de capitán INBLOQUEABLES (hay que esquivarlos; rompen guardia + resistencia), knockback físico en cada golpe, REMATES con E bajo 30% (35% capitanes) con golpe pesado del héroe + hit-stop.
+  · Posturas nuevas en KnightModelGLB: spin/uppercut/plunge/aircut + quickstep; overlays de ataque/bloque ahora capas sobre la postura AÉREA (permite pelear en el aire).
+  · Ayuda de controles en el primer combate + etiquetas de combate en el HUD (GIRO 360°, ¡CONTRAATAQUE!, ¡ESQUIVA PERFECTA!, ¡COLAPSO!).
+- CINEMÁTICAS CON ACTORES (CinematicSystem + CineActors.ts nuevo + EndingSystem + Game):
+  · Capa fx por plano (enter/update/exit) — actuaciones reales bajo la cámara.
+  · CineActors: walkActor (ciclo de caminar real ajustado al terreno), heroSalute (juramento con la espada al cielo), idleActor (respiración/gestos), flurryActor (combate encadenado), faceTarget.
+  · EndingSystem: proveedores de cámara EN VIVO (fromFn/toFn/lookFromFn/lookToFn) + action por plano; la cámara PERSIGUE objetivos móviles.
+  · FINAL I: el guardián CAMINA del altar al acantilado (25,-291) y vela mirando al mar (respiración); FINAL II: el soberano saluda con la espada al reino (salute en bucle); FINAL III: el Colibrí ZARPA de verdad (velas a tope, timón 0.14, física propia del barco) con el héroe PEGADO A LA RUEDA y cámara en vivo persiguiéndola (plano 8) + carta FIN; al acabar (preview) héroe y barco se restauran; en partida real el mando vuelve al timón en plena travesía.
+  · Victoria de jefe: fx heroSalute en el plano sobre el hombro.
+- RENDIMIENTO: vertex shader del mar con RAMA (mar lejano → plano, se salta TODO el Gerstner: 6+ cadenas trig + normales + steepness); CPU waveHeightAt con el MISMO centro/declive (barcos lejanos planos = superficie visible, sin desacuerdo); radios por preset: 45/80/110/130/160 (antes 55..2000 — ahora SOLO las olas cercanas se mueven en todos los perfiles, gratis por la rama GPU).
+- BARCOS: attachGlb mide el casco REAL → colSX/colSZ escalan los 6 AABB (antes el casco GLB era más ancho que los colliders: se atravesaba), deckHalfW/deckBowZ/quarterdeck a medida; timón de CUALQUIER barco anclado (helmCandidate/activeShip/takeHelmAt/leaveHelm/resumeHelm): el Colibrí siempre, los barcos de admin mientras fondean; prompt "Zarpar a bordo del {nombre}"; cañones/velas/ancla sobre activeShip; al terminar FINAL III el mando vuelve al timón en el mar.
+- SEÑÁLERO: baliza en el mundo (diamante dorado giratorio + columna de luz + anillo, depthTest off — se ve a través de paredes) sobre el objetivo ACTUAL (interactuable → npc → fuente de recolección → hito mapeado a mano); HUD: distancia en metros + flecha direccional relativa a la cámara; latido por frame.
+- E2E (e2e_fase11.js, en curso): espada (partes, texturas, runas por tier, proporción), banditos (espada oxidada, tokens ≤2, anillo, guardia, whiff, parada, esquiva perfecta, inbloqueable, quickstep/rollo, giro multi-objetivo, aéreo+plongee AoE, remate), olas (radio ≤160, plano a 300 m), barcos (timón admin, virar, velocidad, bordada, colliders GLB), señálero (balena + HUD), finales con actores (barco zarpando en vivo, guardián caminando, restauración de preview).
+- VERIFICACIÓN (E2E navegador real + VLM):
+  · Payload A (combate): sección espada completa sin excepciones; combate verificado EN VIVO por sondas: estados chase/hold (tokens + anillo funcionando), guardia absorbe ligero (130→114 = ×0.35), inbloqueable atraviesa guardia (100→36→12 reales), quickstep/rollo activos, plongee ejecutado. El payload lineal se atascó en un await bajo SwiftShader (0.3 fps) — verificado por sondas directas en su lugar.
+  · Payload B (35/39 PASS): olas (radio 130 ≤ 160, cerca se mueve -0.041, a 350 m EXACTO 0.000), barcos (colSX 1.18, cubierta 2.24 m, colliders cubren 100% del casco visible, prompt "Zarpar a bordo del Navío Errante", activeShip, velas por W, bordada, soltar ancla), señálero (resuelve 27,224, baliza a 0.0 m del objetivo, HUD "69 m" + flecha rotate(0.4rad)), FINAL III (Colibrí zarpa de verdad (170,505) v=2.2, héroe pegado a la rueda 0.00 m, cámara en vivo 38.6 m, preview restaura héroe+barco), FINAL I (el guardián camina 12.1→7.8 y llega 0.0 m tras el fix de mapeo k, FOV 40).
+  · Los 4 FAIL restantes de B eran artefactos de reloj de pared vs tiempo de juego (SwiftShader a 0.3 fps no acumula dt): probado determinísticamente con 60×(1/30s) de ship.update → Δrumbo 0.593 rad, v 3.77 m/s, rudder 1.0 — el timón/física/vela funcionan; en hardware real a 60 fps convergen.
+  · BUG REAL encontrado y arreglado por el E2E: extraShips (barcos admin) NUNCA recibían update() (boyas estáticas) — ahora física real <300 m; y spawnAdminShip sin agua profunda en 90 m devolvía el punto crudo (barco en montaña, depth 37 m) — el fallback ahora sigue buscando.
+  · NUBES (VLM): primera pasada 3/10 ("swirl/liquify, decal plano") → retune final SIN domain warping (warp = tinta, fbm a dos escalas = nube): 8/10 — "organic/rounded, multiple layers at different heights, bright light-facing edges + darker bases, natural". Captura f11_nubes_v2.jpg. (Nota honesta: en SwiftShader las capturas del gameplay salven oscuras — la primera captura del cielo diurno mostró "bright blue sky with white clouds" a través del tejado; la nota 8/10 es de escena nocturna con luna — silver lining lunar verificado.)
+  · tsc sin errores en src/; lint solo errores preexistentes en scripts/ antiguos (require()).
+- Commiteado y pushed a rama game-source (main intacto).
+
+Stage Summary:
+- La espada del héroe es una obra de forja con texturas reales (damasco, filos espejo, oro martillado, cuero, gema, runas por tier) — y los bandidos llevan la variante oxidada.
+- El cielo tiene 3 capas de nubes con sombreado volumétrico — nota VLM 8/10 (antes 3/10).
+- Combate cuerpo a cuerpo coreografiado: combos de 4 con finales por ruta (giro 360° multi-objetivo, uppercut), aéreo con hover + plongee AoE, quickstep vs marometa, esquiva perfecta, parada con hit-stop, inbloqueables de capitán, IA con tokens + anillo + guardias + remates, encuadre de combate.
+- Las cinemáticas ahora tienen ACTORES: el guardián camina al acantilado, el soberano saluda con la espada, y el Colibrí ZARPA de verdad con el héroe al timón mientras la cámara lo persigue en vivo.
+- Solo se mueven las olas cercanas (rama GPU + espejo CPU, radios 45–160 m) — el resto del mar es gratis.
+- Los barcos tienen colliders a la medida del casco GLB y CUALQUIER barco anclado se puede gobernar desde el timón.
+- El señálero de misiones: baliza dorada en el mundo + distancia y flecha en el HUD.

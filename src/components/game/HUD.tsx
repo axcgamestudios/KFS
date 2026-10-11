@@ -467,10 +467,12 @@ export default function HUD() {
             className="kotfs-title text-lg tracking-[0.24em] text-[color:#e8c96a]"
             style={{ textShadow: '0 1px 10px rgba(0,0,0,0.85)' }}
           >
-            {combo.counter ? '¡CONTRAATAQUE!' : `CADENA ×${combo.step + 1}`}
+            {combo.label ?? (combo.counter ? '¡CONTRAATAQUE!' : `CADENA ×${combo.step + 1}`)}
           </p>
           <p className="text-[0.58rem] tracking-[0.3em] text-[color:var(--kotfs-parchment-dim)] uppercase">
-            {combo.counter ? 'golpea ahora — daño ×1.6' : combo.step >= 1 ? 'sigue — remate a la tercera' : 'encadena' }
+            {combo.label
+              ? (combo.label.includes('ESQUIVA') ? 'golpea ahora — ventana abierta' : '')
+              : combo.counter ? 'golpea ahora — daño ×1.6' : combo.step >= 1 ? 'sigue — remate a la tercera' : 'encadena'}
           </p>
         </div>
       )}
@@ -496,6 +498,24 @@ export default function HUD() {
               </li>
             ))}
           </ul>
+          {/* Fase 11 — the señálero: live bearing + distance to the objective */}
+          {questTracker.marker && (
+            <div className="mt-1.5 flex items-center justify-end gap-2 border-t border-[color:#5a4a2e]/60 pt-1.5">
+              <span className="kotfs-title text-[0.68rem] tracking-[0.14em] text-[color:#e8c96a] kotfs-shadow-text">
+                {questTracker.marker.dist} m
+              </span>
+              <span
+                aria-hidden
+                className="kotfs-title inline-flex h-5 w-5 items-center justify-center text-[0.8rem] leading-none text-[color:#e8c96a]"
+                style={{
+                  transform: `rotate(${questTracker.marker.bearing}rad)`,
+                  textShadow: '0 0 8px rgba(232,201,106,0.9)',
+                }}
+              >
+                ▲
+              </span>
+            </div>
+          )}
         </div>
       )}
 

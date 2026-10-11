@@ -48,6 +48,17 @@ export class CameraRig {
   }
   private dialogueFocus = false;
 
+  /** Fase 11 — combat framing: while enemies are hot, the rig sits a touch
+   *  wider and higher so the pack stays in frame with the hero (it never
+   *  fights the player's zoom — it scales whatever zoom they chose). */
+  setCombatFraming(active: boolean): void {
+    if (active === this.combatFraming) return;
+    this.combatFraming = active;
+    const k = active ? 1.18 : 1 / 1.18;
+    this.targetDistance = clamp(this.targetDistance * k, 2.2, this.shipTarget ? 42 : 8.5);
+  }
+  private combatFraming = false;
+
   handleInput(input: Input, dt: number): void {
     if (!input.pointerLocked) return;
     const sens = 0.0023 * this.sensitivity;
@@ -79,8 +90,10 @@ export class CameraRig {
     }
     this.distance = damp(this.distance, this.targetDistance, 8, dt);
 
-    // Desired pivot: player head
-    const pivotY = playerPos.y + 1.55;
+    // Desired pivot: player head (Fase 11 — combat framing lifts it a hair
+    // so the ring of enemies reads below the hero's silhouette)
+    const combatLift = this.combatFraming ? 0.3 : 0;
+    const pivotY = playerPos.y + 1.55 + combatLift;
     this.lookAt.set(
       playerPos.x,
       pivotY + 0.1,

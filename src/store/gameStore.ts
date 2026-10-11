@@ -35,6 +35,9 @@ export interface DialogueState {
 export interface QuestTracker {
   title: string;
   objectives: Array<{ text: string; done: boolean }>;
+  /** Fase 11 — the señálero: distance (m) + bearing (rad, 0 = straight
+   *  ahead, positive = to the right) toward the current objective. */
+  marker?: { dist: number; bearing: number } | null;
 }
 
 /** Boss fight HUD state (Fase 3). */
@@ -110,8 +113,9 @@ interface GameStore {
   endingCard: EndingCard | null;
   /** Fase 9 — in-game narrative cinematic (letterbox + cards). */
   cinematic: { title: string; subtitle: string; progress: number; shot: number; total: number; text?: string } | null;
-  /** Fase 9 — melee combo chain indicator (null when no chain). */
-  combo: { step: number; counter: boolean } | null;
+  /** Fase 9 — melee combo chain indicator (null when no chain).
+   *  Fase 11 adds `label` — the fight moments (GIRO 360°, ¡CONTRAATAQUE!...). */
+  combo: { step: number; counter: boolean; label?: string } | null;
   // Progression
   level: number;
   xp: number;

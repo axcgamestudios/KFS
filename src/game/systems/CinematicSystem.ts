@@ -32,6 +32,15 @@ export interface CineShot {
   subtitle?: string;
   /** Fase 10 — long narration paragraph shown at the bottom (intro replay). */
   text?: string;
+  /** Fase 11 — ACTING layer: real performances layered under the camera —
+   *  enter runs once at shot start, update every frame (k = progress),
+   *  exit once at the cut (the Game drives bodies, ships and dragons with
+  *   it — cinematics are no longer text over flying cameras). */
+  fx?: {
+    enter?(): void;
+    update?(k: number, dt: number): void;
+    exit?(): void;
+  };
 }
 
 export interface CineOpts {
@@ -63,6 +72,8 @@ export class CinematicSystem {
   private lookB = new THREE.Vector3();
   private eye = new THREE.Vector3();
   private look = new THREE.Vector3();
+  /** Fase 11 — acting layer of the CURRENT shot (drive/exit bookkeeping). */
+  private curFx: CineShot['fx'] | null = null;
 
   get active(): boolean {
     return this.activeFlag;
@@ -91,6 +102,7 @@ export class CinematicSystem {
     this.t = 0;
     this.age = 0;
     this.activeFlag = true;
+    this.startFx(this.shots[0].fx);
     this.emitState();
   }
 
@@ -101,6 +113,7 @@ export class CinematicSystem {
   }
 
   private finish(): void {
+    this.endFx();
     this.activeFlag = false;
     const done = this.opts?.onDone;
     const state = this.opts?.onState;
@@ -108,6 +121,20 @@ export class CinematicSystem {
     this.shots = [];
     state?.(null);
     done?.();
+  }
+
+  /** Fase 11 — acting layer lifecycle (enter on shot start, exit at cut). */
+  private startFx(fx: CineShot['fx'] | undefined): void {
+    this.endFx();
+    this.curFx = fx ?? null;
+    this.curFx?.enter?.();
+  }
+
+  private endFx(): void {
+    if (this.curFx) {
+      this.curFx.exit?.();
+      this.curFx = null;
+    }
   }
 
   private emitState(): void {
@@ -144,6 +171,9 @@ export class CinematicSystem {
     const k = Math.min(1, this.t / shot.dur);
     const e = easeInOut(k);
 
+    // Fase 11 — the actors play under the camera
+    this.curFx?.update?.(k, dt);
+
     const posA = typeof shot.fromPos === 'function' ? shot.fromPos() : shot.fromPos;
     const posB = shot.toPos
       ? (typeof shot.toPos === 'function' ? shot.toPos() : shot.toPos)
@@ -168,6 +198,7 @@ export class CinematicSystem {
       if (this.idx >= this.shots.length) {
         this.finish();
       } else {
+        this.startFx(this.shots[this.idx].fx);
         this.emitState();
       }
     }

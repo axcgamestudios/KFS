@@ -106,11 +106,23 @@ export class WaterSystem {
         void main() {
           vec3 pos = (modelMatrix * vec4(position, 1.0)).xyz;
           float shore = terrainH(pos.xz);
-          // Fase 8 — quality: the far sea calms down. Waves only MOVE within
-          // uWaveMotion metres of the camera; beyond it the surface keeps its
-          // shape shading but stops churning (distant water stops saturating
-          // the frame and low-end GPUs catch a break).
-          float motionK = 1.0 - smoothstep(uWaveMotion * 0.55, uWaveMotion, distance(pos.xz, uCameraPos.xz));
+          // Fase 8/11 — quality: the far sea calms down. Waves only MOVE within
+          // uWaveMotion metres of the camera; beyond it the surface is a flat
+          // plane. Fase 11 turns the fade into a BRANCH: flat vertices skip
+          // the whole Gerstner evaluation (6+ trig chains, the normals pass,
+          // the steepness) — the same pixels, a fraction of the ALU.
+          float dist2cam = distance(pos.xz, uCameraPos.xz);
+          float motionK = 1.0 - smoothstep(uWaveMotion * 0.55, uWaveMotion, dist2cam);
+          if (motionK < 0.004) {
+            // ---- FAR SEA: flat, cheap, visually identical to the old fade ----
+            vNormal = vec3(0.0, 1.0, 0.0);
+            vSteep = 0.0;
+            vCrest = 0.0;
+            vWorldPos = pos;
+            vShore = shore;
+            gl_Position = projectionMatrix * viewMatrix * vec4(pos, 1.0);
+            return;
+          }
           // Ola completa en aguas profundas, amortiguada en bahías y orilla
           // (profundo ≤ -20 m → 1.0 · muelle/bahía ≥ -3.5 m → 0.12)
           float shallowK = 1.0 - smoothstep(-20.0, -3.5, shore);
@@ -302,7 +314,13 @@ export class WaterSystem {
     this.mesh.position.x = camera.position.x;
     this.mesh.position.z = camera.position.z;
     this.material.uniforms.uCameraPos.value.copy(camera.position);
+    // Fase 11 — the CPU mirror uses the same motion center so distant ships
+    // bob on the SAME flat sea the GPU draws (buoyancy and surface agree).
+    this.motionCenter.copy(camera.position);
   }
+
+  /** Fase 11 — camera anchor for the CPU-side wave fade (kept fresh by update). */
+  private motionCenter = new THREE.Vector3(0, 0, 0);
 
   /**
    * Fase 8 — quality ladder: rebuild the sea mesh at a new segment count
@@ -334,7 +352,14 @@ export class WaterSystem {
     // espejo exacto del shader: profundo → ola completa, bahía/orilla → amortiguada
     let shallowK = 1 - smoothstep(-20, -3.5, shore);
     shallowK = Math.min(1, Math.max(0.12, shallowK));
-    const set = swellSet(this.time);
+    // Fase 11 — same distance fade as the shader: outside the motion radius
+    // the sea is flat on BOTH sides of the GPU/CPU mirror (far ships stop
+    // heaving over a visibly calm sea — the two never disagree).
+    const r = this.material.uniforms.uWaveMotion.value as number;
+    const d = Math.hypot(x - this.motionCenter.x, z - this.motionCenter.z);
+    const motionK = 1 - smoothstep(r * 0.55, r, d);
+    if (motionK < 0.004) return 0;
+    const set = swellSet(this.time) * motionK;
     let h = 0;
     for (let i = 0; i < 3; i++) {
       const k = (Math.PI * 2) / WAVES.len[i];

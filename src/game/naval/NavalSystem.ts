@@ -37,7 +37,7 @@ export interface NavalCallbacks {
   wasParried: () => boolean;
   /** Fase 9 — cinematic finisher started: play the hero's execution blow. */
   onFinisher?: (x: number, y: number, z: number) => void;
-  returnPlayerToShip: () => void;
+  returnPlayerToShip: (ship: Ship) => void;
 }
 
 /** One boarding pirate (walks the enemy deck in ship-local coordinates). */
@@ -200,6 +200,9 @@ interface LootBarrel {
 export class NavalSystem {
   playerShip: Ship | null = null;
   playerSailing = false;
+  /** Fase 11 — the ship currently at the helm. Defaults to the Colibrí, but
+   *  ANY anchored ship (admin spawns included) can be taken to sea. */
+  private helmShip: Ship | null = null;
   enemies: EnemyBrain[] = [];
   boarding: {
     brain: EnemyBrain;
@@ -385,8 +388,65 @@ export class NavalSystem {
 
   // ---------------------------------------------------------- player helm
 
+  /** Fase 11 — the ship actually steered right now (never a sinking one). */
+  get activeShip(): Ship | null {
+    if (this.helmShip && !this.helmShip.sunk && this.helmShip.sinking === 0) return this.helmShip;
+    if (this.playerShip && !this.playerShip.sunk && this.playerShip.sinking === 0) return this.playerShip;
+    return this.helmShip;
+  }
+
+  /** Fase 11 — nearest sailable ship (the Colibrí always; admin ships only
+   *  while at anchor). Enemy AI ships are NEVER candidates. */
+  helmCandidate(playerWorld: THREE.Vector3): Ship | null {
+    let best: Ship | null = null;
+    let bestD = Infinity;
+    const consider = (s: Ship, isPlayer: boolean) => {
+      if (s.sunk || s.sinking > 0) return;
+      const d = Math.hypot(s.pos.x - playerWorld.x, s.pos.z - playerWorld.z);
+      if (d < 13 && d < bestD && (isPlayer || s.anchored)) {
+        best = s;
+        bestD = d;
+      }
+    };
+    if (this.playerShip) consider(this.playerShip, true);
+    for (const s of this.extraShips) consider(s, false);
+    return best;
+  }
+
+  /** Fase 11 — take the wheel of a specific ship (any anchored vessel). */
+  takeHelmAt(ship: Ship): void {
+    if (ship.sunk || ship.sinking > 0) return;
+    this.helmShip = ship;
+    this.playerSailing = true;
+    ship.anchored = false;
+    ship.frozen = false;
+    ship.rudderInput = 0;
+  }
+
+  /** Fase 11 — drop the wheel in place (the ship stays where she is). */
+  leaveHelm(): void {
+    this.playerSailing = false;
+    if (this.helmShip) {
+      this.helmShip.rudderInput = 0;
+      this.helmShip.anchored = true;
+      this.helmShip.sailState = 0;
+    }
+    this.helmShip = null;
+  }
+
+  /** Fase 11 — hand the helm back mid-voyage (post-ending "Colibrí sails"
+   *  handoff: control resumes at the wheel, sails already set). */
+  resumeHelm(ship: Ship): void {
+    if (ship.sunk || ship.sinking > 0) return;
+    this.helmShip = ship;
+    this.playerSailing = true;
+    ship.anchored = false;
+    ship.frozen = false;
+    this.applyPerks();
+  }
+
   setSailState(s: 0 | 1 | 2): void {
-    const ship = this.playerShip;
+    const ship = this.activeShip ?? this.playerShip;
     if (!ship || ship.sailState === s) return;
     ship.sailState = s;
     if (s > 0) ship.anchored = false;
@@ -394,7 +454,7 @@ export class NavalSystem {
   }
 
   toggleAnchor(): void {
-    const ship = this.playerShip;
+    const ship = this.activeShip ?? this.playerShip;
     if (!ship) return;
     ship.anchored = !ship.anchored;
     if (ship.anchored) {
@@ -403,11 +463,11 @@ export class NavalSystem {
     }
     this.cb.sound('anchor');
     this.cb.notify('info', ship.anchored ? 'Ancla fondeada' : 'Ancla izada',
-      ship.anchored ? 'El Colibrí se detiene. Puedes desembarcar si hay costa cerca.' : 'Listos para navegar.');
+      ship.anchored ? `${ship.name} se detiene. Puedes desembarcar si hay costa cerca.` : 'Listos para navegar.');
   }
 
   firePlayer(side: 'port' | 'starboard'): void {
-    const ship = this.playerShip;
+    const ship = this.activeShip ?? this.playerShip;
     if (!ship || !this.playerSailing || this.boarding) return;
     const shots = ship.fire(side);
     if (!shots) {
@@ -651,7 +711,7 @@ export class NavalSystem {
     brain.ship.frozen = false;
     brain.ship.applyDamage(brain.ship.hullHp + 1);
     // Player jumps back aboard the Colibrí
-    this.cb.returnPlayerToShip();
+    this.cb.returnPlayerToShip(this.playerShip!);
     for (const c of this.boarding.crew) c.group.parent?.remove(c.group);
     this.playerShip!.grappled = false;
     this.playerShip!.frozen = false;
@@ -725,13 +785,14 @@ export class NavalSystem {
     const ship = this.playerShip;
     if (!ship || this.boarding) return null; // mid-boarding: hands are full
 
-    const distToShip = Math.hypot(ship.pos.x - playerWorld.x, ship.pos.z - playerWorld.z);
-
     if (!this.playerSailing) {
-      if (distToShip < 10 && !ship.sunk && ship.sinking === 0) {
+      // Fase 11 — ANY anchored ship in reach offers her wheel: the Colibrí
+      // always, admin ships while at anchor
+      const cand = this.helmCandidate(playerWorld);
+      if (cand) {
         return {
-          prompt: 'Zarpar a bordo del Colibrí de Mar',
-          run: () => this.cb.returnPlayerToShip(),
+          prompt: `Zarpar a bordo del ${cand.name}`,
+          run: () => this.cb.returnPlayerToShip(cand),
         };
       }
       return null;
@@ -747,8 +808,9 @@ export class NavalSystem {
     }
 
     // Disembark when (almost) stopped
-    if (Math.abs(ship.speed) < 0.8) {
-      const spot = this.findLandingSpot(ship);
+    const active = this.activeShip ?? ship;
+    if (Math.abs(active.speed) < 0.8) {
+      const spot = this.findLandingSpot(active);
       if (spot) {
         return {
           prompt: 'Desembarcar en tierra firme',
@@ -798,13 +860,14 @@ export class NavalSystem {
   }
 
   private disembark(spot: { x: number; z: number }): void {
-    const ship = this.playerShip!;
+    const ship = this.activeShip ?? this.playerShip!;
     this.playerSailing = false;
     ship.anchored = true;
     ship.frozen = false;
     ship.sailState = 0;
+    this.helmShip = null;
     this.onDisembark?.(spot);
-    this.cb.notify('info', 'Has desembarcado', 'El Colibrí queda fondeado aquí. Vuélvete a acercar a su costado para zarpar de nuevo.');
+    this.cb.notify('info', 'Has desembarcado', `${ship.name} queda fondeado aquí. Vuélvete a acercar a su costado para zarpar de nuevo.`);
   }
 
   onDisembark?: (spot: { x: number; z: number }) => void;
@@ -888,7 +951,13 @@ export class NavalSystem {
     for (const brain of this.enemies) {
       brain.ship.syncColliders(playerWorld.x, playerWorld.z);
     }
+    // Fase 11 — admin/decorative ships LIVE: real buoyancy, sails and helm
+    // (they used to be static buoys — now they can actually be sailed).
+    // Far ones (>300 m) skip physics but keep their colliders in sync.
     for (const s of this.extraShips) {
+      if (Math.hypot(s.pos.x - playerWorld.x, s.pos.z - playerWorld.z) < 300) {
+        s.update(dt, this.water, this.terrain, WIND.dir);
+      }
       s.syncColliders(playerWorld.x, playerWorld.z);
     }
 

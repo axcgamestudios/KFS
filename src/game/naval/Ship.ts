@@ -357,6 +357,24 @@ export class Ship {
     this.flag.visible = false;
     this.hull.add(wrap);
     this.glbHull = wrap;
+
+    // Fase 11 — fit the colliders + walkable deck to the REAL hull: the
+    // export is wider/longer than the procedural hull the base layout was
+    // tuned on, which is why the player used to walk through the sides.
+    wrap.updateWorldMatrix(true, true);
+    const realBox = new THREE.Box3().setFromObject(wrap);
+    const halfW = Math.max(2.35, realBox.max.x - realBox.min.x) / 2;
+    const halfL = Math.max(8.4, realBox.max.z - realBox.min.z) / 2;
+    this.colSX = Math.min(1.85, halfW / 2.35);
+    this.colSZ = Math.min(1.22, halfL / 8.4);
+    this.deckHalfW = Math.max(1.62, Math.min(3.1, halfW - 0.52));
+    this.deckBowZ = Math.max(5.9, halfL - 0.8);
+    this.deckSternZ = Math.min(-4.7, -halfL + 3.2);
+    this.quarterHalfW = Math.max(1.5, this.deckHalfW - 0.16);
+    // quarterdeck (aft): from the stern extreme up to just abaft the main deck
+    this.quarterSternZ = Math.min(-7.9, -halfL + 0.7);
+    this.quarterBowZ = this.deckSternZ + 0.35;
+    this.colSynced = false; // force an AABB refresh with the new scales
   }
 
   get usesGlbHull(): boolean {
@@ -386,17 +404,23 @@ export class Ship {
     return out.set(dx * c - dz * s, dx * s + dz * c);
   }
 
-  /** Deck platform height at ship-local coords, or null when off-deck. */
+  /** Deck platform height at ship-local coords, or null when off-deck.
+   *  Fase 11 — the bounds follow the REAL hull (GLB ships are wider). */
   deckHeightAt(lx: number, lz: number): number | null {
-    if (Math.abs(lx) > 1.62) return null;
-    if (lz >= -4.7 && lz <= 5.9) return DECK_Y + this.group.position.y;       // main + bow deck
-    if (lz >= -7.9 && lz <= -4.3 && Math.abs(lx) < 1.5) return QUARTER_Y + this.group.position.y; // quarterdeck
+    if (Math.abs(lx) > this.deckHalfW) return null;
+    if (lz >= this.deckSternZ && lz <= this.deckBowZ) return DECK_Y + this.group.position.y;       // main + bow deck
+    if (lz >= this.quarterSternZ && lz <= this.quarterBowZ && Math.abs(lx) < this.quarterHalfW) return QUARTER_Y + this.group.position.y; // quarterdeck (aft)
     return null;
   }
 
   /** Deck bounds for keeping crew aboard. */
   get deckBounds(): { minX: number; maxX: number; minZ: number; maxZ: number } {
-    return { minX: -1.55, maxX: 1.55, minZ: -7.8, maxZ: 5.7 };
+    return {
+      minX: -this.deckHalfW + 0.08,
+      maxX: this.deckHalfW - 0.08,
+      minZ: this.quarterBowZ,
+      maxZ: this.deckBowZ - 0.2,
+    };
   }
 
   get wheelWorld(): THREE.Vector3 {
@@ -548,7 +572,8 @@ export class Ship {
     if (this.cdStar > 0) this.cdStar -= dt / (this.perks.cannonCdMult ?? 1);
   }
 
-  private syncTransform(): void {
+  /** Fase 11 — public: cinematics and Game moves ships deliberately. */
+  syncTransform(): void {
     this.group.position.x = this.pos.x;
     this.group.position.z = this.pos.z;
     this.group.rotation.y = this.heading;
@@ -629,6 +654,18 @@ export class Ship {
   private lastColHeading = NaN;
   private lastColY = NaN;
 
+  /** Fase 11 — collider/deck scale derived from the REAL hull (GLB ships are
+   *  wider and longer than the procedural hull the AABBs were tuned on;
+   *  without this the player walks through the visible hull sides). */
+  colSX = 1;
+  colSZ = 1;
+  deckHalfW = 1.62;
+  deckBowZ = 5.9;
+  deckSternZ = -4.7;
+  quarterHalfW = 1.5;
+  quarterSternZ = -4.3;
+  quarterBowZ = -7.9;
+
   /** Bind the game's collision world (called once by the NavalSystem). */
   bindColliderRegistry(registry: ColliderRegistry): void {
     this.colReg = registry;
@@ -667,10 +704,14 @@ export class Ship {
     const cosH = Math.cos(this.heading);
     for (let i = 0; i < Ship.COLLIDER_PARTS.length; i++) {
       const p = Ship.COLLIDER_PARTS[i];
-      // local → world for the 4 corners, then take the AABB
+      // Fase 11 — the parts scale to the REAL hull (GLB ships are wider
+      // than the procedural hull the base layout was tuned on)
+      const sx = this.colSX;
+      const sz = this.colSZ;
+      // local -> world for the 4 corners, then take the AABB
       let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
       for (const [lx, lz] of [
-        [p.x0, p.z0], [p.x1, p.z0], [p.x0, p.z1], [p.x1, p.z1],
+        [p.x0 * sx, p.z0 * sz], [p.x1 * sx, p.z0 * sz], [p.x0 * sx, p.z1 * sz], [p.x1 * sx, p.z1 * sz],
       ] as Array<[number, number]>) {
         // toWorld(): x' = x·cos + z·sin, z' = −x·sin + z·cos
         const wx = this.pos.x + lx * cosH + lz * sinH;
