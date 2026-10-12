@@ -31,13 +31,13 @@ const MAX_RING = 11.4;
 /** Presupuesto de mattas por tile según su anillo (calidad ultra). */
 function bandCapacity(ringDist: number): number {
   if (ringDist > MAX_RING) return 0;
-  if (ringDist <= 3) return 110;    // ≤ 144 m   ~1 mata / 21 m²
-  if (ringDist <= 6) return 64;     // ≤ 288 m   ~1 mata / 36 m²
-  return 30;                        // horizonte ~1 mata / 77 m²
+  if (ringDist <= 3) return 150;    // Fase 12: ≤ 144 m  ~1 mata / 15 m²
+  if (ringDist <= 6) return 92;     // ≤ 288 m  ~1 mata / 25 m²
+  return 44;                        // horizonte ~1 mata / 52 m²
 }
 
 /** Tiles re-llenados por frame. */
-const FILLS_PER_FRAME = 3;
+const FILLS_PER_FRAME = 4;
 
 export interface FarGrassOpts {
   density: number;

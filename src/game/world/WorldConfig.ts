@@ -4,8 +4,8 @@
  */
 
 export const WORLD = {
-  /** World spans [-1024, 1024] on X/Z. */
-  halfSize: 1024,
+  /** Fase 12 — map reduced 30%: world spans [-716, 716] on X/Z (1432 m). */
+  halfSize: 716,
   /** Island center + base radius. */
   islandCenter: { x: 0, z: -60 },
   islandRadius: 430,
@@ -60,22 +60,22 @@ export interface IslandDef {
 export const ISLANDS: IslandDef[] = [
   {
     id: 'crow', name: 'Isla del Cuervo Viejo',
-    x: -620, z: -520, radius: 130, height: 46, biome: 'volcanic',
+    x: -540, z: -450, radius: 130, height: 46, biome: 'volcanic',
     journal: 'La isla del mapa de mi padre. Acantilados negros como alas de cuervo y, sobre la cala, una fortaleza de troncos erizada de estandartes rojos. Aquí anida el Cuervo de Tres Cabezas.',
   },
   {
     id: 'faro', name: 'Farallón del Faro',
-    x: 660, z: 120, radius: 82, height: 30, biome: 'volcanic',
+    x: 575, z: 108, radius: 82, height: 30, biome: 'volcanic',
     journal: 'Un farallón de roca volcánica coronado por las ruinas de un faro antiquísimo. Sus fuegos llevaron a los barcos de la Orden de la Marea durante siglos. Ahora solo lo habitan las gaviotas.',
   },
   {
     id: 'bruma_a', name: 'Islas de la Bruma',
-    x: -80, z: 760, radius: 85, height: 16, biome: 'sandy',
+    x: -60, z: 590, radius: 85, height: 16, biome: 'sandy',
     journal: 'Dos hermanas de arena blanca y palmeras bajas, siempre envueltas en una bruma tibia. Los pescadores dicen que la marea deja regalos en sus orillas… y que algo más grande también las visita.',
   },
   {
     id: 'bruma_b', name: 'Islas de la Bruma',
-    x: 40, z: 822, radius: 64, height: 13, biome: 'sandy',
+    x: 40, z: 655, radius: 64, height: 13, biome: 'sandy',
     journal: 'La hermana menor de las islas. Entre ambas, un paso poco profundo donde el agua brilla turquesa al mediodía.',
   },
 ];
@@ -118,15 +118,15 @@ export const POIS: POIDef[] = [
     journal: 'Las montañas del norte, coronadas de nieve eterna. Los pastores juran que a veces una sombra enorme cruza el cielo al atardecer. Los dragones dormían... ¿durmiendo aún?',
   },
   {
-    id: 'fortaleza', name: 'Fortaleza del Cuervo', x: -620, z: -520, radius: 100, xp: 60,
+    id: 'fortaleza', name: 'Fortaleza del Cuervo', x: -540, z: -450, radius: 100, xp: 60,
     journal: 'La guarida pirata de la Isla del Cuervo Viejo: una empalizada de troncos rematada por cráneos de moros, cabañas de vela alquitranada y una única torre de vigía. La Gaviota Sangrienta ancla en su cala.',
   },
   {
-    id: 'faro', name: 'Ruinas del Faro Antiguo', x: 660, z: 120, radius: 60, xp: 40,
+    id: 'faro', name: 'Ruinas del Faro Antiguo', x: 575, z: 108, radius: 60, xp: 40,
     journal: 'El faro de los Guardianes de la Marea, derruido por la gran guerra. Sus escaleras de caracol suben en espiral hacia nada. En la cima, un brasero apagado espera una llama que nadie recuerda encender.',
   },
   {
-    id: 'bruma', name: 'Las Islas de la Bruma', x: -20, z: 790, radius: 115, xp: 40,
+    id: 'bruma', name: 'Las Islas de la Bruma', x: -15, z: 622, radius: 115, xp: 40,
     journal: 'Arenas blancas, palmeras bajas y niebla tibia. Entre conchas y maderas varadas encontré señales de que alguien ha acampado aquí hace poco. Alguien que cocinó pescado y talló espirales en la arena.',
   },
   {
@@ -138,11 +138,11 @@ export const POIS: POIDef[] = [
     journal: 'Bajo cinco metros de agua turquesa, columnas de mármol verde sostienen el peso del mar. La ciudad de los reyes hundidos descansa ordenada como un cementerio de gigantes… y su altar aún emerge, blanco y paciente, entre las olas.',
   },
   {
-    id: 'cala', name: 'Cala del Silencio', x: -478, z: -520, radius: 45, xp: 70,
+    id: 'cala', name: 'Cala del Silencio', x: -398, z: -450, radius: 45, xp: 70,
     journal: 'Un anfiteatro de basalto negro a los pies de la fortaleza pirata. Ni gaviotas ni hierba: solo el eco del mar golpeando la piedra. Un caballero de piedra vela la entrada, la espada baja, desde hace trescientos años.',
   },
   {
-    id: 'insignia', name: 'El Bajío del Almirante', x: -440, z: -560, radius: 45, xp: 60,
+    id: 'insignia', name: 'El Bajío del Almirante', x: -360, z: -490, radius: 45, xp: 60,
     journal: 'El buque insignia del Cuervo, varado para siempre en un bajío de roca negra. Tres mástiles rotos, un casco agrietado como una costilla vieja. Lo que el Cuervo robó al mar, el mar lo fue a buscar.',
   },
   {
@@ -207,12 +207,12 @@ export const WORLD_SEED = 20261010;
 export interface FlatDef { x: number; z: number; r: number; h: number }
 
 export const FLATS: FlatDef[] = [
-  { x: -570, z: -515, r: 42, h: 18 },  // Fortaleza del Cuervo terrace
-  { x: 652, z: 128, r: 26, h: 22 },    // Faro plateau
-  { x: -80, z: 748, r: 24, h: 4 },     // Mist isles camp
+  { x: -490, z: -445, r: 42, h: 18 },  // Fortaleza del Cuervo terrace
+  { x: 567, z: 116, r: 26, h: 22 },    // Faro plateau
+  { x: -60, z: 578, r: 24, h: 4 },     // Mist isles camp
   { x: 20, z: -300, r: 30, h: 88 },    // Nido del Ancestro (snowy summit plateau)
-  { x: -478, z: -520, r: 34, h: 2.6 }, // Fase 4: Cala del Silencio (crow cove shelf)
-  { x: -440, z: -560, r: 26, h: 1.6 }, // Fase 4: bajío del buque insignia (flagship wreck reef)
+  { x: -398, z: -450, r: 34, h: 2.6 }, // Fase 4: Cala del Silencio (crow cove shelf)
+  { x: -360, z: -490, r: 26, h: 1.6 }, // Fase 4: bajío del buque insignia (flagship wreck reef)
 ];
 
 /** Global sailing wind — slow precession, shared by ships, HUD and audio. */

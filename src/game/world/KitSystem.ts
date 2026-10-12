@@ -92,6 +92,8 @@ const WEAPON_OBJECT: Record<Exclude<WeaponKind, 'none'>, { kit: string; grip: nu
 
 export class KitSystem {
   private templates = new Map<string, THREE.Object3D>();
+  /** Fase 12 — textured material library by original material name. */
+  private matLib = new Map<string, THREE.Material>();
   ready = false;
 
   constructor(private assets: AssetSystem) {}
@@ -108,6 +110,10 @@ export class KitSystem {
   private async explodeFile(file: string, entries: KitEntry[], label: string): Promise<void> {
     try {
       const root = await this.assets.loadModel(file);
+      // Fase 12 — the medieval kit ships 61 FLAT diffuse materials (zero
+      // textures): every prop renders as plastic. Remap them to the game's
+      // real photo-PBR library, keeping each original colour as a hue tint.
+      if (file === 'medieval_props.glb') this.retextureKit(root);
       const byName = new Map<string, THREE.Object3D>();
       root.traverse((o) => { if (o.name && !byName.has(o.name)) byName.set(o.name, o); });
       for (const entry of entries) {
@@ -119,6 +125,161 @@ export class KitSystem {
     } catch {
       /* kit unavailable → procedural fallbacks stay in place */
     }
+  }
+
+  /**
+   * Fase 12 — swap the kit's flat diffuse materials for textured PBR ones.
+   * The kit's UVs are valid 0-1 unwraps, so the photo textures (stone wall,
+   * wood planks, roof tiles, leather…) map straight on. The original
+   * diffuseFactor is kept as a normalised hue tint so every prop keeps its
+   * colour identity while gaining real surface detail.
+   */
+  private retextureKit(root: THREE.Object3D): void {
+    const pbr = this.assets.pbr;
+    const texSet = (name: string) => pbr[name];
+
+    const clone = (t: THREE.Texture, repeat = 1): THREE.Texture => {
+      const c = t.clone();
+      c.wrapS = THREE.RepeatWrapping;
+      c.wrapT = THREE.RepeatWrapping;
+      c.repeat.set(repeat, repeat);
+      c.needsUpdate = true;
+      return c;
+    };
+    // Original colour as a bright hue tint (max channel → 0.95 keeps the
+    // identity but lets the texture read through).
+    const tintOf = (m: THREE.MeshStandardMaterial): THREE.Color => {
+      const c = m.color.clone();
+      const mx = Math.max(c.r, c.g, c.b);
+      if (mx > 0.04) c.multiplyScalar(0.95 / mx);
+      else c.setScalar(0.95);
+      return c;
+    };
+
+    root.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh || !mesh.material) return;
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      const next: THREE.Material[] = [];
+      for (const mat of mats) {
+        const std = mat as THREE.MeshStandardMaterial;
+        const name = (std.name || '').toLowerCase();
+        let out = this.matLib.get(std.name);
+        if (!out) {
+          out = this.buildKitMaterial(std, name, texSet, clone, tintOf);
+          this.matLib.set(std.name, out);
+        }
+        next.push(out);
+      }
+      mesh.material = next.length === 1 ? next[0] : next;
+    });
+  }
+
+  private buildKitMaterial(
+    std: THREE.MeshStandardMaterial,
+    name: string,
+    texSet: (n: string) => { map: THREE.Texture; normalMap: THREE.Texture; roughnessMap?: THREE.Texture } | undefined,
+    clone: (t: THREE.Texture, repeat?: number) => THREE.Texture,
+    tintOf: (m: THREE.MeshStandardMaterial) => THREE.Color,
+  ): THREE.Material {
+    const tint = tintOf(std);
+    const stone = texSet('stone_wall');
+    const wood = texSet('wood');
+    const tiles = texSet('roof_tiles');
+    const leatherSet = texSet('dirt');
+    const bark = this.assets.mapleBark;
+    const leaf = this.assets.mapleLeaf;
+
+    const mk = (opts: {
+      map?: THREE.Texture; normalMap?: THREE.Texture; roughnessMap?: THREE.Texture;
+      color: THREE.Color; roughness: number; metalness?: number;
+      normalScale?: number; emissive?: number; emissiveIntensity?: number;
+      transparent?: boolean; opacity?: number; side?: THREE.Side;
+    }): THREE.MeshStandardMaterial => {
+      const m = new THREE.MeshStandardMaterial({
+        color: opts.color, roughness: opts.roughness, metalness: opts.metalness ?? 0,
+        emissive: opts.emissive ?? 0x000000, emissiveIntensity: opts.emissiveIntensity ?? 1,
+        transparent: opts.transparent ?? false, opacity: opts.opacity ?? 1,
+        side: opts.side ?? THREE.FrontSide,
+      });
+      if (opts.map) m.map = opts.map;
+      if (opts.normalMap) { m.normalMap = opts.normalMap; m.normalScale.set(opts.normalScale ?? 1, opts.normalScale ?? 1); }
+      if (opts.roughnessMap) m.roughnessMap = opts.roughnessMap;
+      return m;
+    };
+
+    // --- fire / glow elements stay emissive (no photo texture) ---
+    if (/(bonfire|wick|glow|flame|light|lamp_post_light|checkpoint)/.test(name)) {
+      return mk({
+        color: tint, roughness: 0.6,
+        emissive: std.emissive?.getHex() ?? 0xff7a20, emissiveIntensity: /bonfire|wick/.test(name) ? 1.6 : 1.2,
+      });
+    }
+    // --- glass / liquid ---
+    if (/(glass|wine|beer|cristal|globe)/.test(name)) {
+      return mk({
+        color: tint, roughness: 0.08, metalness: 0.05,
+        transparent: true, opacity: 0.72,
+      });
+    }
+    // --- metalwork: steel with hammered normal + real metalness ---
+    if (/(metal|iron|brass|helmet|nails|fence|cage)/.test(name)) {
+      const isBrass = /brass/.test(name);
+      return mk({
+        map: stone ? clone(stone.map, 0.8) : undefined,
+        normalMap: stone ? clone(stone.normalMap, 0.8) : undefined,
+        normalScale: 0.22,
+        color: isBrass ? new THREE.Color(0xd8a940) : tint,
+        roughness: isBrass ? 0.32 : 0.38, metalness: 0.82,
+      });
+    }
+    // --- roof / floor tiles ---
+    if (/(tile|tiles)/.test(name) && tiles) {
+      return mk({
+        map: clone(tiles.map, 1), normalMap: clone(tiles.normalMap, 1),
+        roughnessMap: tiles.roughnessMap ? clone(tiles.roughnessMap, 1) : undefined,
+        color: tint, roughness: 0.85, normalScale: 1.1,
+      });
+    }
+    // --- masonry ---
+    if (/(stone|rock|well$|well_|column|block|stair|bridge|arc)/.test(name) && stone) {
+      return mk({
+        map: clone(stone.map, 1), normalMap: clone(stone.normalMap, 1),
+        roughnessMap: stone.roughnessMap ? clone(stone.roughnessMap, 1) : undefined,
+        color: tint, roughness: 0.92, normalScale: 1.0,
+      });
+    }
+    // --- foliage ---
+    if (/(plant|leaves|leaf)/.test(name) && leaf) {
+      return mk({
+        map: clone(leaf, 1), color: tint, roughness: 0.8,
+        side: THREE.DoubleSide,
+      });
+    }
+    if (/(cortex|bark|trunk)/.test(name) && bark) {
+      return mk({ map: clone(bark, 1), color: tint, roughness: 0.95, normalScale: 0.9 });
+    }
+    // --- leather / rope / cork ---
+    if (/(leather|cork|rope)/.test(name)) {
+      return mk({
+        map: leatherSet ? clone(leatherSet.map, 1) : undefined,
+        normalMap: leatherSet ? clone(leatherSet.normalMap, 1) : undefined,
+        color: tint, roughness: 0.82, normalScale: 0.55,
+      });
+    }
+    // --- cloth (banners, sails) keep their colour, gain fabric grain ---
+    if (/(banner|sail|cloth|flag|check|white|beer|cork)/.test(name)) {
+      return mk({ color: tint, roughness: 0.9 });
+    }
+    // --- wood family (default for this kit) ---
+    if (wood) {
+      return mk({
+        map: clone(wood.map, 1), normalMap: clone(wood.normalMap, 1),
+        roughnessMap: wood.roughnessMap ? clone(wood.roughnessMap, 1) : undefined,
+        color: tint, roughness: 0.78, normalScale: 0.85,
+      });
+    }
+    return std;
   }
 
   /**

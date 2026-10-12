@@ -54,7 +54,7 @@ export interface EndingDef {
  * Altar of the Tides ~ (20, -302) · Nido del Ancestro (20, -300)
  * Cumbres de Garrahielo (40, -320) · Castillo de Aldmor (110, -40)
  * Puerto Cuervo (20, 150) · bay (0, 330) · Cascada (-95, -195)
- * Fortaleza del Cuervo (-620, -520) · Islas de la Bruma (-20, 790) */
+ * Fortaleza del Cuervo (-540, -450) · Islas de la Bruma (-15, 622) */
 
 export const ENDINGS: Record<EndingId, EndingDef> = {
   guardian: {
@@ -99,7 +99,7 @@ export const ENDINGS: Record<EndingId, EndingDef> = {
       // 2 — the weight of gold: tight orbit on the altar
       { from: [34, 93, -286], to: [10, 92, -292], lookFrom: [20, 89, -302], lookTo: [20, 89, -302], dur: 9, fov: 40, card: 0 },
       // 3 — the fortress kneels: approach over the pirate bay
-      { from: [-548, 70, -452], to: [-578, 56, -492], lookFrom: [-620, 30, -520], lookTo: [-618, 34, -524], dur: 11, fov: 55 },
+      { from: [-468, 70, -382], to: [-498, 56, -422], lookFrom: [-540, 30, -450], lookTo: [-538, 34, -454], dur: 11, fov: 55 },
       // 4 — banners over the castle of Aldmor
       { from: [166, 62, 16], to: [150, 50, 52], lookFrom: [110, 32, -40], lookTo: [110, 36, -48], dur: 11, fov: 52, card: 1 },
       // 5 — the harbour obeys: caravels at anchor
@@ -133,7 +133,7 @@ export const ENDINGS: Record<EndingId, EndingDef> = {
       // 3 — the dragons wake FREE: banking over the peaks
       { from: [96, 86, -252], to: [-16, 78, -236], lookFrom: [30, 60, -330], lookTo: [26, 56, -322], dur: 11, fov: 60 },
       // 4 — no tolls, no flags: the Bruma islands from the sea
-      { from: [-90, 22, 700], to: [-40, 14, 748], lookFrom: [-20, 6, 792], lookTo: [-16, 6, 800], dur: 11, fov: 52 },
+      { from: [-90, 22, 530], to: [-40, 14, 570], lookFrom: [-20, 6, 612], lookTo: [-16, 6, 618], dur: 11, fov: 52 },
       // 5 — the wreck that started it all, at peace now
       { from: [-368, 26, 158], to: [-342, 14, 178], lookFrom: [-330, 4, 190], lookTo: [-328, 4, 196], dur: 10, fov: 48, card: 1 },
       // 6 — sails of every colour: the bay at midday

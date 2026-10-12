@@ -24,6 +24,8 @@ export interface WeaponDef {
   lightStamina: number;
   heavyStamina: number;
   ranged?: { drawTime: number; dmg: number; minDmgFrac: number; speed: number };
+  /** Fase 12 — elemental legendary swords (late-game boss loot). */
+  element?: 'fire' | 'frost' | 'storm';
 }
 
 export const WEAPONS: Record<string, WeaponDef> = {
@@ -39,6 +41,21 @@ export const WEAPONS: Record<string, WeaponDef> = {
     id: 'espada_eirik', kind: 'sword',
     lightDmg: 20, heavyDmg: 34, reach: 2.5, arc: 1.75,
     lightDur: 0.5, heavyDur: 0.8, recovery: 0.35, lightStamina: 8, heavyStamina: 16,
+  },
+  espada_fuego: {
+    id: 'espada_fuego', kind: 'sword', element: 'fire',
+    lightDmg: 34, heavyDmg: 58, reach: 2.6, arc: 1.8,
+    lightDur: 0.5, heavyDur: 0.8, recovery: 0.32, lightStamina: 8, heavyStamina: 16,
+  },
+  espada_escarcha: {
+    id: 'espada_escarcha', kind: 'sword', element: 'frost',
+    lightDmg: 30, heavyDmg: 52, reach: 2.55, arc: 1.78,
+    lightDur: 0.48, heavyDur: 0.78, recovery: 0.3, lightStamina: 7, heavyStamina: 15,
+  },
+  espada_tormenta: {
+    id: 'espada_tormenta', kind: 'sword', element: 'storm',
+    lightDmg: 32, heavyDmg: 55, reach: 2.58, arc: 1.82,
+    lightDur: 0.49, heavyDur: 0.8, recovery: 0.31, lightStamina: 8, heavyStamina: 16,
   },
   hacha_orden: {
     id: 'hacha_orden', kind: 'axe',
@@ -61,8 +78,19 @@ export const WEAPONS: Record<string, WeaponDef> = {
 /** Slot order for keys 1-4. Slot 1 is the sword the player actually owns
  * (Fase 10: the starting Espada de acero upgrades through Bram's forge and
  * heirlooms are found along the way — the HUD always shows the best one). */
-export const SWORD_PRIORITY = ['espada_guardian', 'espada_eirik', 'espada_acero'];
+export const SWORD_PRIORITY = [
+  'espada_fuego', 'espada_escarcha', 'espada_tormenta',
+  'espada_guardian', 'espada_eirik', 'espada_acero',
+];
 export const WEAPON_SLOTS = ['espada_acero', 'hacha_orden', 'lanza_caza', 'arco_naufragio'];
+
+/** Fase 12 — element of an equipped weapon id (null = mundane steel). */
+export function swordElementOf(id: string | null | undefined): 'fire' | 'frost' | 'storm' | null {
+  if (id === 'espada_fuego') return 'fire';
+  if (id === 'espada_escarcha') return 'frost';
+  if (id === 'espada_tormenta') return 'storm';
+  return null;
+}
 
 /** Display names for the forge tiers of any sword. */
 export const SWORD_TIER_NAMES = ['', ' · Templada', ' · Rúnica', ' · Legendaria'];
@@ -79,6 +107,8 @@ export interface CombatHooks {
   damageDragon(dragon: Dragon, amount: number, heavy: boolean): void;
   /** Boarding crew query — returns true when someone was struck. */
   crewHit(origin: THREE.Vector3, yaw: number, dmg: number, reach: number, arc: number): boolean;
+  /** Fase 12 — an elemental sword connected: burst FX at the impact point. */
+  elementalHit?(pos: THREE.Vector3, element: 'fire' | 'frost' | 'storm'): void;
   /** Fase 10 — red knight bandits: melee query + damage sink. */
   banditMelee?(origin: THREE.Vector3, yaw: number, reach: number, arc: number):
     { bandit: unknown; point: THREE.Vector3 } | null;
@@ -708,6 +738,12 @@ export class CombatSystem {
     dmg *= this.pendingDmgMult;      // combo/counter weight
     // Fase 10 — Bram's forge upgrades sharpen ANY sword
     if (weapon.kind === 'sword') dmg *= SWORD_TIER_MULT[this.state.swordTier] ?? 1;
+    // Fase 12 — elemental legendaries: flat bonus + distinct feel per element
+    let element: 'fire' | 'frost' | 'storm' | undefined;
+    if (weapon.element) {
+      element = weapon.element;
+      dmg *= element === 'fire' ? 1.35 : element === 'storm' ? 1.30 : 1.25;
+    }
     const big = this.swingIsFinisher;
     const kind = p.attackKind;
     const multiArc = kind === 'spin' ? 2.75 : weapon.arc;
@@ -718,6 +754,7 @@ export class CombatSystem {
       const final = hit.head ? dmg * 1.5 : dmg;
       this.hooks.damageDragon(hit.dragon, final, heavy);
       this.vfx.weaponImpact(hit.point);
+      if (element) this.hooks.elementalHit?.(hit.point, element);
       this.hooks.sound('hit_scale');
       if (big) this.onCameraPunch?.(0.4);
       return;
@@ -729,6 +766,14 @@ export class CombatSystem {
         if (hits.length > 0) {
           for (const h of hits) this.hooks.damageBandit?.(h.bandit, dmg, heavy);
           this.vfx.weaponImpact(hits[0].point);
+          if (element) {
+            this.hooks.elementalHit?.(hits[0].point, element);
+            // STORM chains: the nearest extra bandit eats half the damage
+            if (element === 'storm' && hits.length > 1) {
+              this.hooks.damageBandit?.(hits[hits.length - 1].bandit, dmg * 0.5, false);
+              this.hooks.elementalHit?.(hits[hits.length - 1].point, 'storm');
+            }
+          }
           this.hooks.sound(big ? 'hit_scale' : 'damage');
           if (big) {
             this.onCameraPunch?.(0.5);
@@ -741,6 +786,7 @@ export class CombatSystem {
         if (bHit) {
           this.hooks.damageBandit?.(bHit.bandit, dmg, heavy);
           this.vfx.weaponImpact(bHit.point);
+          if (element) this.hooks.elementalHit?.(bHit.point, element);
           this.hooks.sound(big ? 'hit_scale' : 'damage');
           if (big) {
             this.onCameraPunch?.(0.5);

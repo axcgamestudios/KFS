@@ -236,7 +236,7 @@ export class NavalSystem {
   /** Fase 9 — the game's collision world (solid hulls). */
   private colliders: ColliderRegistry | null = null;
   /** Fase 9 — admin/decorative ships (kept for collider sync). */
-  private extraShips: Ship[] = [];
+  extraShips: Ship[] = [];
 
   constructor(
     private scene: THREE.Scene,
@@ -335,7 +335,7 @@ export class NavalSystem {
     // Morwen's brig — anchored in the cove of the Crow Isle (quest ship)
     const gaviota = new Ship({
       id: 'gaviota', name: 'Gaviota Sangrienta', kind: 'pirate', isPlayer: false,
-      x: -505, z: -378, heading: 2.2, hullHp: 120, cannonCd: 6.5,
+      x: -425, z: -308, heading: 2.2, hullHp: 120, cannonCd: 6.5,
     });
     this.scene.add(gaviota.group);
     if (this.colliders) gaviota.bindColliderRegistry(this.colliders);
@@ -344,7 +344,7 @@ export class NavalSystem {
       ship: gaviota,
       mode: 'patrol',
       waypoints: [
-        { x: -505, z: -378 }, { x: -430, z: -300 }, { x: -560, z: -330 }, { x: -470, z: -420 },
+        { x: -425, z: -308 }, { x: -560, z: -250 }, { x: -600, z: -620 }, { x: -350, z: -500 },
       ],
       wpIndex: 0,
       fireCd: 3,
@@ -357,7 +357,7 @@ export class NavalSystem {
     // A roaming raider between the Mist Isles and Aldmor's south shore
     const zharpa = new Ship({
       id: 'zharpa', name: 'Zarpa de Sal', kind: 'pirate', isPlayer: false,
-      x: 140, z: 520, heading: 0.4, hullHp: 100, cannonCd: 7,
+      x: 110, z: 430, heading: 0.4, hullHp: 100, cannonCd: 7,
     });
     this.scene.add(zharpa.group);
     if (this.colliders) zharpa.bindColliderRegistry(this.colliders);
@@ -366,13 +366,13 @@ export class NavalSystem {
       ship: zharpa,
       mode: 'patrol',
       waypoints: [
-        { x: 140, z: 520 }, { x: -120, z: 560 }, { x: -40, z: 690 }, { x: 120, z: 640 },
+        { x: 110, z: 430 }, { x: -60, z: 480 }, { x: 60, z: 540 },
       ],
       wpIndex: 0,
       fireCd: 4,
       aggroNotified: false,
       quest: false,
-      respawnAt: { x: 140, z: 520 },
+      respawnAt: { x: 110, z: 430 },
       respawnTimer: 0,
     });
   }

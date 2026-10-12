@@ -73,7 +73,9 @@ const tmpC = new THREE.Vector3();
 /** Fase 9 — ÉPICA: the dragons read as overgrown lizards; every species is
  *  now 3× bigger. The multiplier is applied to the whole envelope (model,
  *  hit spheres, leg height, melee/fire reach) so a giant still fights like one. */
-export const DRAGON_SIZE_MULT = 3;
+/** Fase 12 — 2.2× (down from 3×): still EPIC bosses (~27-39 m) but the
+ *  giants no longer scrape terrain or clip through hillsides. */
+export const DRAGON_SIZE_MULT = 2.2;
 
 /**
  * One dragon creature: AI state machine + locomotion (ground walk with
@@ -675,7 +677,9 @@ export class Dragon {
       // Attack run: dive straight at the target so the breath connects —
       // a pure orbit never faces it (tangent vs radius).
       const tgtGround = Math.max(terrain.height(targetPos.x, targetPos.z), 0);
-      const diveAlt = def.id === 'skarnvind' ? 9 : 15;
+      // Fase 12 — dive height scales with the body so the breath connects
+      // without the chest going through the hillside.
+      const diveAlt = def.id === 'skarnvind' ? 9 : Math.max(16, this.legHeight * 1.35);
       tmpA.set(targetPos.x, tgtGround + diveAlt, targetPos.z);
       this.anim.mode = 'glide';
       this.anim.turn = 0;
@@ -716,8 +720,10 @@ export class Dragon {
     if (dist > 0.001) tmpC.multiplyScalar(1 / dist);
     const desired = tmpA.copy(tmpC).multiplyScalar(speed);
     // Terrain avoidance: push up when the ground rises near the flight path
+    // Fase 12 — the lookahead margin scales with the body (giants need runway)
     const ahead = terrain.height(this.pos.x + tmpC.x * 14, this.pos.z + tmpC.z * 14);
-    if (this.pos.y < ahead + 9) desired.y = Math.max(desired.y, 10);
+    const clearance = Math.max(9, this.legHeight * 0.85 + 5);
+    if (this.pos.y < ahead + clearance) desired.y = Math.max(desired.y, 10 + clearance * 0.35);
     // Gentle gravity bias when gliding
     if (!hunt) desired.y -= 3;
     this.vel.x = damp(this.vel.x, desired.x, 1.6, dt);
@@ -729,7 +735,11 @@ export class Dragon {
   private updateFlightPhysics(dt: number, terrain: TerrainHeight, vel: THREE.Vector3, orient: boolean): void {
     this.pos.addScaledVector(vel, dt);
     const ground = Math.max(terrain.height(this.pos.x, this.pos.z), -1);
-    const minY = ground + 3.5;
+    // Fase 12 — clearance scales with the BODY: the hips ride legHeight above
+    // ground when standing, so flying at ground+3.5 buried the belly and legs
+    // into hillsides (the "broken dragons"). Keep at least 85% of the leg
+    // column clear while airborne.
+    const minY = ground + Math.max(3.5, this.legHeight * 0.85);
     if (this.pos.y < minY) {
       this.pos.y = minY;
       if (vel.y < 0) vel.y *= -0.25;

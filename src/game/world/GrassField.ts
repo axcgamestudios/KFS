@@ -29,22 +29,22 @@ import { FLATS } from './WorldConfig';
  */
 
 const TILE = 8;            // m por tile
-const GRID = 19;           // tiles por lado (impar) → ventana de 152 m
+const GRID = 23;           // Fase 12: tiles por lado (impar) → ventana de 184 m
 const HALF = (GRID - 1) / 2;
 /** Radio circular de la ventana (los tiles de las esquinas quedan fuera). */
-const MAX_RING = 9.4;
+const MAX_RING = 11.4;   // Fase 12: ventana más ancha
 
 /** Presupuesto de briznas por tile según su anillo de distancia (calidad ultra). */
 function bandCapacity(ringDist: number): number {
   if (ringDist > MAX_RING) return 0;
-  if (ringDist <= 2.6) return 1700;   // prado cercano  ~26 briznas/m²
-  if (ringDist <= 5.2) return 620;    // media distancia ~9.7/m²
-  if (ringDist <= 7.6) return 230;    // raleado          ~3.6/m²
-  return 90;                          // silueta lejana   ~1.4/m²
+  if (ringDist <= 2.6) return 2100;   // Fase 12: prado cercano ~32 briznas/m²
+  if (ringDist <= 5.2) return 850;    // media distancia    ~13/m²
+  if (ringDist <= 7.6) return 340;    // raleado             ~5.3/m²
+  return 130;                         // silueta lejana     ~2/m²
 }
 
 /** Tiles re-llenados por frame (pop-in progresivo y sin tirones). */
-const FILLS_PER_FRAME = 6;
+const FILLS_PER_FRAME = 8;
 
 export interface GrassFieldOpts {
   /** Multiplicador global de densidad 0..1 (calidad). */

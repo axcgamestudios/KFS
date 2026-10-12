@@ -43,6 +43,22 @@ export const ITEMS: Record<string, ItemDef> = {
     desc: 'El acero del capitán desaparecido. La empuñadura lleva grabada una serpiente marina enroscada. Ligera, letal, llena de recuerdos.',
     icon: 'Sword', stackable: false, equipable: true, rarity: 'legendary',
   },
+  // ---- Fase 12 — ESPADAS ELEMENTALES: botín de los grandes jefes tardíos ----
+  espada_fuego: {
+    id: 'espada_fuego', name: 'Colmillo Ígneo', kind: 'weapon',
+    desc: 'Forjada en el corazón mismo del aliento de Kraivenn. La hoja arde sin consumirse: cada tajo prende al enemigo. (+35% daño, ráfagas de brasas)',
+    icon: 'Sword', stackable: false, equipable: true, rarity: 'legendary',
+  },
+  espada_escarcha: {
+    id: 'espada_escarcha', name: 'Colmillo de Escarcha', kind: 'weapon',
+    desc: 'Arrancada del lecho de hielo del Ancestro Vaelyx. El filo congela la sangre allí donde muerde. (+25% daño, aliento gélido)',
+    icon: 'Sword', stackable: false, equipable: true, rarity: 'legendary',
+  },
+  espada_tormenta: {
+    id: 'espada_tormenta', name: 'Relámpago del Abismo', kind: 'weapon',
+    desc: 'Templada con los rayos que la Wyvern de las Brumas escupía sobre el mar. Salta de un enemigo a otro como un trueno encadenado. (+30% daño, cadena eléctrica)',
+    icon: 'Sword', stackable: false, equipable: true, rarity: 'legendary',
+  },
   amuleto: {
     id: 'amuleto', name: 'Amuleto de cobre', kind: 'key',
     desc: 'Un amuleto con la marca de la Orden de la Marea. Encaja en el cierre del cofre de Eirik.',

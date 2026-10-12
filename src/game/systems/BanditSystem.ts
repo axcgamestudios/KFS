@@ -42,6 +42,8 @@ export interface BanditHooks {
   blockSparks: (pos: THREE.Vector3) => void;
   cameraShake: (i: number) => void;
   hitStop: (dur: number) => void;
+  /** Fase 12 — a bandit died (kill streaks + bounty counters). */
+  onBanditKilled?: (captain: boolean) => void;
 }
 
 interface CampDef {
@@ -156,6 +158,11 @@ class Bandit {
 
   get aggroed(): boolean {
     return this.aggro && !this.dead;
+  }
+
+  /** Fase 12 — ambush spawns come in already hunting. */
+  forceAggro(): void {
+    this.aggro = true;
   }
 
   /** Can the player execute a REMATE on this bandit right now? */
@@ -506,6 +513,36 @@ export class BanditSystem {
     void n;
   }
 
+  /** Fase 12 — living red knights (E2E/admin). */
+  aliveCount(): number {
+    return this.bandits.filter((b) => !b.dead).length;
+  }
+
+  /**
+   * Fase 12 — AMBUSH: a surprise squad of red knights materialises around a
+   * point (collection pickups triggering action). They spawn ALERTED and
+   * charge straight in — the player can never gather in peace.
+   */
+  spawnAmbush(x: number, z: number, count = 3): number {
+    let spawned = 0;
+    const camp = { ...CAMPS[0], x, z, radius: 4 };
+    for (let i = 0; i < count; i++) {
+      const captain = i === 0 && count >= 3;
+      const bandit = new Bandit(0, camp as CampDef, captain, 9000 + this.bandits.length * 13 + i);
+      const a = (i / count) * Math.PI * 2 + Math.random();
+      const r = 13 + Math.random() * 5;
+      bandit.pos.set(x + Math.cos(a) * r, 0, z + Math.sin(a) * r);
+      bandit.pos.y = this.terrain.height(bandit.pos.x, bandit.pos.z);
+      bandit.group.position.copy(bandit.pos);
+      bandit.forceAggro();          // they come in swinging
+      this.scene.add(bandit.group);
+      this.bandits.push(bandit);
+      this.attachVisual(bandit, captain);
+      spawned++;
+    }
+    return spawned;
+  }
+
   private attachVisual(bandit: Bandit, captain: boolean): void {
     this.assets.loadModel('knight_rigged.glb').then((scene) => {
       if (bandit.dead) return; // died before the model arrived
@@ -644,6 +681,7 @@ export class BanditSystem {
       this.hooks.sound('hit_scale');
       this.hooks.cameraShake(b.captain ? 0.5 : 0.25);
       this.hooks.hitStop(b.captain ? 0.12 : 0.07);
+      this.hooks.onBanditKilled?.(b.captain);
       this.hooks.notify(
         'item',
         b.captain ? '¡Capitán bandido derrotado!' : 'Bandido abatido',

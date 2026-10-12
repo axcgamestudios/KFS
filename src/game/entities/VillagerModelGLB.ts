@@ -347,23 +347,25 @@ export class VillagerModelGLB implements CharacterVisual {
     // legs — Fase 9 ROOT FIX: the X channel used to be fed the REST-Z value
     // (±π on Mixamo UpLeg bones — the "legs upside down" bug). The swing
     // lives on the X channel (rest.x ≈ 0); the π flip must stay on Z.
-    t.upLegR = [this.rx('upLegR', -legR * amp), this.ry('upLegR', 0), this.rz('upLegR', 0)];
-    t.upLegL = [this.rx('upLegL', -legL * amp), this.ry('upLegL', 0), this.rz('upLegL', 0)];
+    const hipRoll = legL * (0.03 + runK * 0.035);
+    t.upLegR = [this.rx('upLegR', -legR * amp), this.ry('upLegR', 0), this.rz('upLegR', -hipRoll)];
+    t.upLegL = [this.rx('upLegL', -legL * amp), this.ry('upLegL', 0), this.rz('upLegL', hipRoll)];
     // knees bend on the passing phase (flexion only — never hyperextends)
     t.legR = [this.rx('legR', Math.max(0, -Math.sin(ph + Math.PI - 0.65)) * (0.6 + runK * 0.4)), 0, this.rz('legR', 0)];
     t.legL = [this.rx('legL', Math.max(0, -Math.sin(ph - 0.65)) * (0.6 + runK * 0.4)), 0, this.rz('legL', 0)];
-    // counter arm swing around the arms-down rest pose
+    // counter arm swing around the arms-down rest pose.
+    // Fase 12 — elbows fold on the back swing (follow-through), the gait
+    // swings from the hips and the forearms lead the swing — reads natural.
     const armAmp = 0.3 + runK * 0.3;
     t.armR = [this.rx('armR', legR * armAmp), this.ry('armR', 0), this.rz('armR', 0)];
     t.armL = [this.rx('armL', legL * armAmp), this.ry('armL', 0), this.rz('armL', 0)];
-    const fore = 0.25 + runK * 0.3;
-    t.foreR = [this.rx('foreR', -fore), 0, 0];
-    t.foreL = [this.rx('foreL', -fore), 0, 0];
+    t.foreR = [this.rx('foreR', -(0.25 + runK * 0.3) - Math.max(0, -legR) * (0.3 + runK * 0.25)), 0, 0];
+    t.foreL = [this.rx('foreL', -(0.25 + runK * 0.3) - Math.max(0, -legL) * (0.3 + runK * 0.25)), 0, 0];
     // torso: bob + counter-rotation
     const spine = t.spine ?? [0, 0, 0];
     t.spine = [spine[0] + 0.04 + runK * 0.1, spine[1] + Math.sin(ph) * 0.06, spine[2]];
     const chest = t.chest ?? [0, 0, 0];
-    t.chest = [chest[0], chest[1] - Math.sin(ph) * 0.05, chest[2]];
+    t.chest = [chest[0] + runK * 0.08, chest[1] - Math.sin(ph) * 0.05, chest[2]];
     const head = t.head ?? [0, 0, 0];
     t.head = [head[0] - 0.03 - runK * 0.05, head[1], head[2]];
     // vertical bob through the inner wrapper (root-space metres, on top of

@@ -6,7 +6,7 @@ import { gameApi } from '@/game/api';
 import { POIS } from '@/game/world/WorldConfig';
 import { X } from 'lucide-react';
 
-const MAP_WORLD = 2048;
+const MAP_WORLD = 1432;
 
 function worldToCanvas(x: number, z: number, size: number): [number, number] {
   return [((x + MAP_WORLD / 2) / MAP_WORLD) * size, ((z + MAP_WORLD / 2) / MAP_WORLD) * size];
@@ -94,8 +94,8 @@ export default function MapUI() {
       if (!pm.discovered.includes(poi.id)) continue;
       const [px, py] = worldToCanvas(poi.x, poi.z, size);
       const exploredNearby = (() => {
-        const cx = Math.floor(((poi.x + 1024) / 2048) * 128);
-        const cz = Math.floor(((poi.z + 1024) / 2048) * 128);
+        const cx = Math.floor(((poi.x + 716) / 1432) * 128);
+        const cz = Math.floor(((poi.z + 716) / 1432) * 128);
         return explored[cz * 128 + cx];
       })();
       if (!exploredNearby) continue;

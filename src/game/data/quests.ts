@@ -3,7 +3,7 @@
  * inventory state managed by QuestSystem.
  */
 
-export type ObjectiveType = 'talk' | 'collect' | 'interact' | 'flag';
+export type ObjectiveType = 'talk' | 'collect' | 'interact' | 'flag' | 'kill';
 
 export interface ObjectiveDef {
   id: string;

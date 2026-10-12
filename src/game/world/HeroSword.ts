@@ -20,6 +20,8 @@ import * as THREE from 'three';
  * weapons use, so it drops straight into the knight's hand slot).
  */
 
+export type SwordElement = 'fire' | 'frost' | 'storm';
+
 export interface HeroSwordOpts {
   /** Forge tier 0..3 — drives the rune glow (see applyHeroSwordTier). */
   tier?: number;
@@ -27,6 +29,8 @@ export interface HeroSwordOpts {
   rusted?: boolean;
   /** Captain bandit: garnet-red gem instead of sapphire. */
   captain?: boolean;
+  /** Fase 12 — elemental legendary: the blade itself burns/freezes/cracks. */
+  element?: SwordElement;
 }
 
 // ---------------------------------------------------------------- textures
@@ -394,7 +398,48 @@ export function buildHeroSword(opts: HeroSwordOpts = {}): THREE.Group {
 
   g.traverse((o) => { if ((o as THREE.Mesh).isMesh) (o as THREE.Mesh).castShadow = true; });
   applyHeroSwordTier(g, rusted ? 0 : tier, rusted);
+  if (opts.element) applyHeroSwordElement(g, opts.element);
   return g;
+}
+
+/** Fase 12 — elemental palettes: the whole blade identity shifts. */
+const ELEMENT_COLORS: Record<SwordElement, { rune: number; gem: number; gold: number; steel: number }> = {
+  fire:  { rune: 0xff4d12, gem: 0xff6a1e, gold: 0xffb35c, steel: 0xffd9c2 },
+  frost: { rune: 0x66d9ff, gem: 0x9fdcff, gold: 0xbfe8ff, steel: 0xd8f2ff },
+  storm: { rune: 0xa97fff, gem: 0xb98cff, gold: 0xd9c2ff, steel: 0xe8dfff },
+};
+
+/** Turn a hero sword into its elemental legendary form: blazing runes,
+ * a burning gem and a warm/cold tint over steel + gold. */
+export function applyHeroSwordElement(sword: THREE.Object3D, element: SwordElement): void {
+  const pal = ELEMENT_COLORS[element];
+  sword.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    for (const m of mats) {
+      const std = m as THREE.MeshStandardMaterial;
+      if (!std.isMeshStandardMaterial) continue;
+      if (std.emissiveMap === runeTexCache) {
+        // the runes BLAZE in the element colour
+        std.emissive?.setHex(pal.rune);
+        std.emissiveIntensity = 2.4;
+      } else if (std.map === goldTexCache) {
+        std.color.setHex(pal.gold);
+        std.emissive?.setHex(pal.rune);
+        std.emissiveIntensity = 0.34;
+      } else if (std.map === leatherTexCache) {
+        // grip keeps its leather but darkens
+        std.color.setHex(0x6a4a3a);
+      } else {
+        // blade steel: tinted by the element
+        std.color.setHex(pal.steel);
+        std.emissive?.setHex(pal.rune);
+        std.emissiveIntensity = 0.16;
+      }
+      std.needsUpdate = true;
+    }
+  });
 }
 
 /** Rune glow per forge tier. Rusted blades never glow. */

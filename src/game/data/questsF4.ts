@@ -12,6 +12,31 @@ import type { QuestDef } from './quests';
  *  - flag    → story flags set by combat/naval/mount/ending systems
  */
 export const QUESTS_F4: Record<string, QuestDef> = {
+  // ============ FASE 12 — CAZA DE RECOMPENSAS (acción pura) ============
+  sq_cazarrecompensas: {
+    id: 'sq_cazarrecompensas',
+    title: 'La Caza del Cuervo',
+    description: 'El cartel de recompensas de Puerto Cuervo paga oro vivo por cada caballero rojo abatido. Seis cabezas y la bolsa es tuya.',
+    journal: 'He arrancado el cartel de recompensas de la plaza. Los caballeros rojos del Cuervo asaltan los caminos de Aldmor: sus campamentos marcan el Camino Real, las ruinas de Vaelthara, el Círculo de las Vigilias y la costa oeste. Seis bandidos. Esa es la caza.',
+    objectives: [
+      { id: 'o1', text: 'Abate 6 caballeros rojos del Cuervo', type: 'kill', target: 'bandit', count: 6 },
+      { id: 'o2', text: 'Cobra la recompensa en el cartel de la plaza', type: 'interact', target: 'bounty_board' },
+    ],
+    rewards: { xp: 220, items: [{ id: 'coin', count: 150 }, { id: 'pocion', count: 2 }] },
+    nextQuest: 'sq_tormenta_caminos',
+    completionJournal: 'Seis estandartes rojos quemados y una bolsa de oro que pesa lo suyo. El camino real vuelve a ser transitable... aunque el Cuervo sigue allá arriba, tejiendo su nido de tres cabezas.',
+  },
+  sq_tormenta_caminos: {
+    id: 'sq_tormenta_caminos',
+    title: 'La Ira del Camino Real',
+    description: 'Los bandidos han puesto un peaje en el camino al castillo. El Maestre Aldric paga por limpiarlo: diez asaltantes en total y el comercio reabre.',
+    journal: 'Aldric me ha encargado limpiar el Camino Real de Puerto Cuervo al castillo. «Ya no llegan ni las provisiones», dice. La Orden paga bien por cada asaltante que caiga. Que el camino tiemble.',
+    objectives: [
+      { id: 'o1', text: 'Abate 10 caballeros rojos en total (la caza continúa)', type: 'kill', target: 'bandit', count: 10 },
+    ],
+    rewards: { xp: 160, items: [{ id: 'coin', count: 90 }] },
+    completionJournal: 'El Camino Real respira. Los carros vuelven a subir al castillo con grano y hierro, y Aldric me selló la recompensa con el sello de la Orden.',
+  },
   // ================= CHAPTER IV — LA CORONA HUNDIDA =================
   q10_orden: {
     id: 'q10_orden',

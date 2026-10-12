@@ -13,8 +13,8 @@ export function buildPirateFort(
   b: StaticBuilder,
   terrain: { height(x: number, z: number): number },
 ): { chestPos: THREE.Vector3 } {
-  const cx = -570;
-  const cz = -515;
+  const cx = -490;
+  const cz = -445;
   const rand = mulberry32(66613);
   const g = (x: number, z: number) => terrain.height(x, z);
 
@@ -144,8 +144,8 @@ export function buildFaroRuins(
   b: StaticBuilder,
   terrain: { height(x: number, z: number): number },
 ): { chestPos: THREE.Vector3 } {
-  const cx = 652;
-  const cz = 128;
+  const cx = 567;
+  const cz = 116;
   const rand = mulberry32(777);
   const g = (x: number, z: number) => terrain.height(x, z);
   const gy = g(cx, cz);
@@ -199,8 +199,8 @@ export function buildBrumaCamp(
   b: StaticBuilder,
   terrain: { height(x: number, z: number): number },
 ): { chestPos: THREE.Vector3 } {
-  const cx = -80;
-  const cz = 748;
+  const cx = -60;
+  const cz = 578;
   const rand = mulberry32(31337);
   const g = (x: number, z: number) => terrain.height(x, z);
   const gy = g(cx, cz);

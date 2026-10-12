@@ -58,141 +58,166 @@ function transformGeo(geo: THREE.BufferGeometry, x: number, y: number, z: number
 }
 
 /**
- * Build the SIX tree species as merged geometries with vertex colors.
- * 0 oak · 1 pine · 2 birch · 3 maple (textured, two material groups) ·
- * 4 spruce · 5 dead/ancient
+ * Fase 12 — trees are TWO textured parts (bark trunk + leaf canopy) for every
+ * species, with organically noise-displaced canopies so they read as leaf
+ * clusters instead of angular blobs. Species:
+ * 0 oak · 1 pine · 2 birch · 3 maple (golden) · 4 spruce · 5 dead/ancient
  */
-function buildTreeGeometries(): { geos: THREE.BufferGeometry[]; mapleParts: [THREE.BufferGeometry, THREE.BufferGeometry] } {
+function displacedBlob(radius: number, seed: number, amp = 0.24, squashY = 0.9): THREE.BufferGeometry {
+  const g = new THREE.IcosahedronGeometry(radius, 1);
+  const pos = g.attributes.position as THREE.BufferAttribute;
+  // Hash the position (not the index): shared corners displace identically → no cracks.
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+    const h = (frac(Math.sin(x * 12.9898 + y * 78.233 + z * 37.719) * 43758.5453) * 2 - 1) * amp;
+    const h2 = (frac(Math.sin(x * 93.989 + y * 47.233 + z * 17.719) * 24634.6345) * 2 - 1) * amp * 0.55;
+    pos.setXYZ(i, x * (1 + h), y * (1 + h2) * squashY, z * (1 + h));
+  }
+  g.computeVertexNormals();
+  return g;
+}
+const frac = (v: number) => v - Math.floor(v);
+
+/** Per-species [bark trunk geometry, leaf canopy geometry]. */
+function buildTreeGeometries(): Array<[THREE.BufferGeometry, THREE.BufferGeometry]> {
   const rand = mulberry32(999);
-  const geos: THREE.BufferGeometry[] = [];
+  const parts: Array<[THREE.BufferGeometry, THREE.BufferGeometry]> = [];
 
-  // --- Species 0: Oak ---
-  const oakParts: THREE.BufferGeometry[] = [];
-  const trunkCol = new THREE.Color(0x5a4028);
-  const leafCols = [new THREE.Color(0x3e5a2a), new THREE.Color(0x4a6a30), new THREE.Color(0x35502a)];
-  const t = new THREE.CylinderGeometry(0.20, 0.38, 2.8, 7);
-  colorize(t, trunkCol, 0.08, 1);
-  oakParts.push(transformGeo(t, 0, 1.4, 0, 1, 1, 1));
-  for (let i = 0; i < 3; i++) {
-    const b = new THREE.CylinderGeometry(0.08, 0.14, 1.6, 5);
-    colorize(b, trunkCol, 0.08, 2 + i);
-    const ang = (i / 3) * Math.PI * 2 + rand() * 0.5;
-    oakParts.push(transformGeo(b, Math.cos(ang) * 0.7, 2.4 + rand() * 0.5, Math.sin(ang) * 0.7, 1, 1, 1, 0, 0.5 + rand() * 0.3));
-  }
-  const blobs: Array<[number, number, number, number]> = [
-    [0, 4.1, 0, 1.9], [1.2, 3.5, 0.5, 1.35], [-1.05, 3.6, -0.6, 1.3], [0.3, 3.4, -1.2, 1.25], [-0.4, 3.7, 1.15, 1.2],
-  ];
-  blobs.forEach((b, i) => {
-    const g = new THREE.IcosahedronGeometry(b[3], 1);
-    colorize(g, leafCols[i % 3], 0.12, 10 + i);
-    oakParts.push(transformGeo(g, b[0], b[1], b[2], 1.15, 0.92, 1.15, rand() * 3, rand() * 0.4));
-  });
-  geos.push(mergeGeometries(oakParts)!);
-
-  // --- Species 1: Pine ---
-  const pineParts: THREE.BufferGeometry[] = [];
-  const pineTrunk = new THREE.CylinderGeometry(0.14, 0.30, 2.0, 7);
-  colorize(pineTrunk, new THREE.Color(0x4d3520), 0.08, 21);
-  pineParts.push(transformGeo(pineTrunk, 0, 1.0, 0));
-  const pineCols = [new THREE.Color(0x2a4a30), new THREE.Color(0x22513a), new THREE.Color(0x2f5533)];
-  const tiers: Array<[number, number, number, number]> = [
-    [2.15, 2.0, 2.6, 1.0], [3.55, 1.5, 2.2, 0.95], [4.75, 1.05, 1.9, 0.9], [5.7, 0.62, 1.5, 0.85],
-  ];
-  tiers.forEach((tier, i) => {
-    const c = new THREE.ConeGeometry(tier[1], tier[2], 8);
-    colorize(c, pineCols[i % 3], 0.1, 30 + i);
-    pineParts.push(transformGeo(c, 0, tier[0], 0, 1, 1, 1, rand() * 3));
-  });
-  geos.push(mergeGeometries(pineParts)!);
-
-  // --- Species 2: Birch ---
-  const birchParts: THREE.BufferGeometry[] = [];
-  const btrunk = new THREE.CylinderGeometry(0.09, 0.17, 3.4, 6);
-  colorize(btrunk, new THREE.Color(0xc9c4b4), 0.06, 41);
-  birchParts.push(transformGeo(btrunk, 0, 1.7, 0));
-  const bCols = [new THREE.Color(0x6f8f3a), new THREE.Color(0x87a344)];
-  const bBlobs: Array<[number, number, number, number]> = [
-    [0, 3.7, 0, 1.15], [0.6, 3.2, 0.3, 0.85], [-0.55, 3.35, -0.25, 0.8], [0.1, 4.4, -0.4, 0.75],
-  ];
-  bBlobs.forEach((b, i) => {
-    const g = new THREE.IcosahedronGeometry(b[3], 1);
-    colorize(g, bCols[i % 2], 0.13, 50 + i);
-    birchParts.push(transformGeo(g, b[0], b[1], b[2], 1.1, 1.25, 1.1, rand() * 3));
-  });
-  geos.push(mergeGeometries(birchParts)!);
-
-  // --- Species 3: Maple (built as two parts for textured materials) ---
-  // Elegant trunk with forking branches (bark material group)
-  const mapleTrunkParts: THREE.BufferGeometry[] = [];
-  const mt = new THREE.CylinderGeometry(0.16, 0.42, 3.0, 8);
-  colorize(mt, new THREE.Color(0x9a8574), 0.05, 61);
-  mapleTrunkParts.push(transformGeo(mt, 0, 1.5, 0));
-  for (let i = 0; i < 4; i++) {
-    const b = new THREE.CylinderGeometry(0.06, 0.13, 2.0, 6);
-    colorize(b, new THREE.Color(0x9a8574), 0.06, 62 + i);
-    const ang = (i / 4) * Math.PI * 2 + 0.4;
-    mapleTrunkParts.push(
-      transformGeo(b, Math.cos(ang) * 0.85, 3.4 + rand() * 0.6, Math.sin(ang) * 0.85, 1, 1, 1, 0, 0.7 + rand() * 0.25),
-    );
-  }
-  const mapleTrunkGeo = mergeGeometries(mapleTrunkParts)!;
-  // Broad canopy blobs (leaf material group)
-  const mapleCanopyParts: THREE.BufferGeometry[] = [];
-  const mCols = [new THREE.Color(0xd8a83c), new THREE.Color(0xc98f2e), new THREE.Color(0xe0b84e), new THREE.Color(0xb97f28)];
-  const mBlobs: Array<[number, number, number, number]> = [
-    [0, 5.2, 0, 1.85], [1.35, 4.4, 0.6, 1.3], [-1.2, 4.6, -0.55, 1.25], [0.45, 4.2, -1.3, 1.2], [-0.5, 4.5, 1.25, 1.15], [0.1, 6.2, 0.2, 1.05],
-  ];
-  mBlobs.forEach((b, i) => {
-    const g = new THREE.IcosahedronGeometry(b[3], 1);
-    colorize(g, mCols[i % 4], 0.1, 70 + i);
-    mapleCanopyParts.push(transformGeo(g, b[0], b[1], b[2], 1.12, 0.9, 1.12, rand() * 3, rand() * 0.3));
-  });
-  const mapleCanopyGeo = mergeGeometries(mapleCanopyParts)!;
-  geos.push(mergeGeometries([mapleTrunkGeo, mapleCanopyGeo])!);
-
-  // --- Species 4: Spruce (tall, narrow, dark — high altitude) ---
-  const spruceParts: THREE.BufferGeometry[] = [];
-  const sTrunk = new THREE.CylinderGeometry(0.12, 0.26, 2.6, 7);
-  colorize(sTrunk, new THREE.Color(0x42301e), 0.08, 81);
-  spruceParts.push(transformGeo(sTrunk, 0, 1.3, 0));
-  const sCols = [new THREE.Color(0x1d3a2a), new THREE.Color(0x24452e), new THREE.Color(0x1a3626)];
-  const sTiers: Array<[number, number, number, number]> = [
-    [2.8, 1.75, 2.5, 1.0], [4.3, 1.32, 2.1, 0.95], [5.65, 0.95, 1.75, 0.9], [6.85, 0.6, 1.4, 0.88], [7.85, 0.32, 1.05, 0.85],
-  ];
-  sTiers.forEach((tier, i) => {
-    const c = new THREE.ConeGeometry(tier[1], tier[2], 8);
-    colorize(c, sCols[i % 3], 0.09, 85 + i);
-    spruceParts.push(transformGeo(c, 0, tier[0], 0, 1, 1, 1, rand() * 3));
-  });
-  geos.push(mergeGeometries(spruceParts)!);
-
-  // --- Species 5: Dead / ancient tree (bare branches) ---
-  const deadParts: THREE.BufferGeometry[] = [];
-  const dCol = new THREE.Color(0x54483c);
-  const dTrunk = new THREE.CylinderGeometry(0.16, 0.40, 3.6, 7);
-  colorize(dTrunk, dCol, 0.14, 91);
-  deadParts.push(transformGeo(dTrunk, 0, 1.8, 0, 1, 1, 1, 0, 0.06));
-  for (let i = 0; i < 6; i++) {
-    const len = 1.2 + rand() * 1.3;
-    const b = new THREE.CylinderGeometry(0.03, 0.10, len, 5);
-    colorize(b, dCol, 0.16, 92 + i);
-    const ang = (i / 6) * Math.PI * 2 + rand() * 0.8;
-    const h = 2.2 + rand() * 1.6;
-    deadParts.push(transformGeo(
-      b, Math.cos(ang) * 0.5, h, Math.sin(ang) * 0.5, 1, 1, 1, ang, 0.7 + rand() * 0.5,
-    ));
-    // secondary twig
-    if (rand() < 0.7) {
-      const tb = new THREE.CylinderGeometry(0.02, 0.05, len * 0.6, 4);
-      colorize(tb, dCol, 0.16, 100 + i);
-      deadParts.push(transformGeo(
-        tb, Math.cos(ang + 0.5) * 0.9, h + len * 0.42, Math.sin(ang + 0.5) * 0.9, 1, 1, 1, ang + 0.6, 0.4 + rand() * 0.4,
-      ));
+  // --- Species 0: Oak — broad, muscular, green ---
+  {
+    const trunk: THREE.BufferGeometry[] = [];
+    const trunkCol = new THREE.Color(0x8a6a4a);
+    const t = new THREE.CylinderGeometry(0.22, 0.46, 3.0, 10);
+    colorize(t, trunkCol, 0.07, 1);
+    trunk.push(transformGeo(t, 0, 1.5, 0));
+    for (let i = 0; i < 4; i++) {
+      const b = new THREE.CylinderGeometry(0.09, 0.17, 1.9, 8);
+      colorize(b, trunkCol, 0.07, 2 + i);
+      const ang = (i / 4) * Math.PI * 2 + rand() * 0.5;
+      trunk.push(transformGeo(b, Math.cos(ang) * 0.8, 2.6 + rand() * 0.6, Math.sin(ang) * 0.8, 1, 1, 1, 0, 0.55 + rand() * 0.35));
     }
+    const canopy: THREE.BufferGeometry[] = [];
+    const leafCols = [new THREE.Color(0x86a34a), new THREE.Color(0x74a040), new THREE.Color(0x92ac54)];
+    const blobs: Array<[number, number, number, number]> = [
+      [0, 4.6, 0, 2.0], [1.35, 3.9, 0.6, 1.45], [-1.2, 4.0, -0.65, 1.4], [0.35, 3.8, -1.3, 1.35],
+      [-0.45, 4.1, 1.25, 1.3], [0.9, 5.4, 0.7, 1.15], [-0.8, 5.5, -0.6, 1.1], [0.1, 6.3, 0.2, 1.0],
+    ];
+    blobs.forEach((b, i) => {
+      const g = displacedBlob(b[3], 11 + i, 0.22, 0.88);
+      colorize(g, leafCols[i % 3], 0.1, 20 + i);
+      canopy.push(transformGeo(g, b[0], b[1], b[2], 1.12, 1, 1.12, rand() * 3, rand() * 0.25));
+    });
+    parts.push([mergeGeometries(trunk)!, mergeGeometries(canopy)!]);
   }
-  geos.push(mergeGeometries(deadParts)!);
 
-  return { geos, mapleParts: [mapleTrunkGeo, mapleCanopyGeo] };
+  // --- Species 1: Pine — layered cones with wobbled rims ---
+  {
+    const trunk: THREE.BufferGeometry[] = [];
+    const pineTrunk = new THREE.CylinderGeometry(0.16, 0.34, 2.2, 9);
+    colorize(pineTrunk, new THREE.Color(0x6e5238), 0.07, 21);
+    trunk.push(transformGeo(pineTrunk, 0, 1.1, 0));
+    const canopy: THREE.BufferGeometry[] = [];
+    const pineCols = [new THREE.Color(0x3f6b46), new THREE.Color(0x35624a), new THREE.Color(0x49734a)];
+    const tiers: Array<[number, number, number, number]> = [
+      [2.3, 2.1, 2.7, 1.0], [3.7, 1.6, 2.3, 0.95], [4.95, 1.15, 1.95, 0.9], [5.95, 0.72, 1.55, 0.85], [6.7, 0.38, 1.1, 0.8],
+    ];
+    tiers.forEach((tier, i) => {
+      const c = new THREE.ConeGeometry(tier[1], tier[2], 11);
+      colorize(c, pineCols[i % 3], 0.09, 30 + i);
+      canopy.push(transformGeo(c, 0, tier[0], 0, 1, 1, 1, rand() * 3));
+    });
+    parts.push([mergeGeometries(trunk)!, mergeGeometries(canopy)!]);
+  }
+
+  // --- Species 2: Birch — pale slim trunk, airy light-green crown ---
+  {
+    const trunk: THREE.BufferGeometry[] = [];
+    const btrunk = new THREE.CylinderGeometry(0.10, 0.19, 3.6, 9);
+    colorize(btrunk, new THREE.Color(0xe8e4d8), 0.05, 41);
+    trunk.push(transformGeo(btrunk, 0, 1.8, 0));
+    const canopy: THREE.BufferGeometry[] = [];
+    const bCols = [new THREE.Color(0xa9c465), new THREE.Color(0xbcd07a)];
+    const bBlobs: Array<[number, number, number, number]> = [
+      [0, 4.1, 0, 1.25], [0.65, 3.5, 0.35, 0.9], [-0.6, 3.7, -0.3, 0.85], [0.15, 4.9, -0.45, 0.8], [-0.15, 5.3, 0.4, 0.72],
+    ];
+    bBlobs.forEach((b, i) => {
+      const g = displacedBlob(b[3], 51 + i, 0.26, 1.2);
+      colorize(g, bCols[i % 2], 0.11, 50 + i);
+      canopy.push(transformGeo(g, b[0], b[1], b[2], 1.05, 1, 1.05, rand() * 3));
+    });
+    parts.push([mergeGeometries(trunk)!, mergeGeometries(canopy)!]);
+  }
+
+  // --- Species 3: Maple — the golden landmark tree ---
+  {
+    const trunk: THREE.BufferGeometry[] = [];
+    const mt = new THREE.CylinderGeometry(0.18, 0.46, 3.2, 10);
+    colorize(mt, new THREE.Color(0x9a8574), 0.05, 61);
+    trunk.push(transformGeo(mt, 0, 1.6, 0));
+    for (let i = 0; i < 4; i++) {
+      const b = new THREE.CylinderGeometry(0.07, 0.15, 2.1, 7);
+      colorize(b, new THREE.Color(0x9a8574), 0.06, 62 + i);
+      const ang = (i / 4) * Math.PI * 2 + 0.4;
+      trunk.push(transformGeo(b, Math.cos(ang) * 0.9, 3.6 + rand() * 0.6, Math.sin(ang) * 0.9, 1, 1, 1, 0, 0.7 + rand() * 0.25));
+    }
+    const canopy: THREE.BufferGeometry[] = [];
+    const mCols = [new THREE.Color(0xe8bc50), new THREE.Color(0xd8a83c), new THREE.Color(0xf0cc66), new THREE.Color(0xc9952e)];
+    const mBlobs: Array<[number, number, number, number]> = [
+      [0, 5.5, 0, 1.95], [1.4, 4.7, 0.65, 1.35], [-1.25, 4.9, -0.6, 1.3], [0.5, 4.5, -1.35, 1.25],
+      [-0.55, 4.8, 1.3, 1.2], [0.15, 6.6, 0.25, 1.1], [1.0, 6.1, -0.7, 0.95],
+    ];
+    mBlobs.forEach((b, i) => {
+      const g = displacedBlob(b[3], 71 + i, 0.24, 0.9);
+      colorize(g, mCols[i % 4], 0.09, 70 + i);
+      canopy.push(transformGeo(g, b[0], b[1], b[2], 1.1, 0.95, 1.1, rand() * 3, rand() * 0.25));
+    });
+    parts.push([mergeGeometries(trunk)!, mergeGeometries(canopy)!]);
+  }
+
+  // --- Species 4: Spruce — tall, narrow, dark, high altitude ---
+  {
+    const trunk: THREE.BufferGeometry[] = [];
+    const sTrunk = new THREE.CylinderGeometry(0.13, 0.28, 2.8, 9);
+    colorize(sTrunk, new THREE.Color(0x5c4430), 0.07, 81);
+    trunk.push(transformGeo(sTrunk, 0, 1.4, 0));
+    const canopy: THREE.BufferGeometry[] = [];
+    const sCols = [new THREE.Color(0x2e5240), new THREE.Color(0x274c38), new THREE.Color(0x355942)];
+    const sTiers: Array<[number, number, number, number]> = [
+      [3.0, 1.85, 2.6, 1.0], [4.5, 1.4, 2.2, 0.95], [5.9, 1.0, 1.8, 0.9], [7.15, 0.66, 1.45, 0.88], [8.2, 0.35, 1.05, 0.85], [9.0, 0.16, 0.7, 0.82],
+    ];
+    sTiers.forEach((tier, i) => {
+      const c = new THREE.ConeGeometry(tier[1], tier[2], 11);
+      colorize(c, sCols[i % 3], 0.08, 85 + i);
+      canopy.push(transformGeo(c, 0, tier[0], 0, 1, 1, 1, rand() * 3));
+    });
+    parts.push([mergeGeometries(trunk)!, mergeGeometries(canopy)!]);
+  }
+
+  // --- Species 5: Dead / ancient — bare twisted branches (bark both groups) ---
+  {
+    const trunk: THREE.BufferGeometry[] = [];
+    const dCol = new THREE.Color(0x8a7a68);
+    const dTrunk = new THREE.CylinderGeometry(0.17, 0.42, 3.8, 9);
+    colorize(dTrunk, dCol, 0.12, 91);
+    trunk.push(transformGeo(dTrunk, 0, 1.9, 0, 1, 1, 1, 0, 0.06));
+    const canopy: THREE.BufferGeometry[] = [];
+    for (let i = 0; i < 7; i++) {
+      const len = 1.3 + rand() * 1.5;
+      const b = new THREE.CylinderGeometry(0.03, 0.11, len, 6);
+      colorize(b, dCol, 0.14, 92 + i);
+      const ang = (i / 7) * Math.PI * 2 + rand() * 0.8;
+      const h = 2.4 + rand() * 1.7;
+      canopy.push(transformGeo(b, Math.cos(ang) * 0.55, h, Math.sin(ang) * 0.55, 1, 1, 1, ang, 0.7 + rand() * 0.5));
+      if (rand() < 0.7) {
+        const tb = new THREE.CylinderGeometry(0.02, 0.055, len * 0.6, 5);
+        colorize(tb, dCol, 0.14, 100 + i);
+        canopy.push(transformGeo(tb, Math.cos(ang + 0.5) * 0.95, h + len * 0.42, Math.sin(ang + 0.5) * 0.95, 1, 1, 1, ang + 0.6, 0.4 + rand() * 0.4));
+      }
+    }
+    parts.push([mergeGeometries(trunk)!, mergeGeometries(canopy)!]);
+  }
+
+  return parts;
 }
 
 /** Average canopy color per species (billboard tint & minimap). */
@@ -307,12 +332,12 @@ interface ClusterData {
 const SPECIES_COUNT = 6;
 
 export class VegetationSystem {
+  /** Per-species [trunk, canopy] geometries + the merged two-group geo. */
+  private speciesParts: Array<[THREE.BufferGeometry, THREE.BufferGeometry]> = [];
   private treeGeos: THREE.BufferGeometry[];
-  private mapleTrunkGeo: THREE.BufferGeometry;
-  private mapleCanopyGeo: THREE.BufferGeometry;
   private treeMat: THREE.MeshStandardMaterial;
-  private mapleBarkMat: THREE.MeshStandardMaterial;
-  private mapleLeafMat: THREE.MeshStandardMaterial;
+  private barkMat: THREE.MeshStandardMaterial;
+  private leafMat: THREE.MeshStandardMaterial;
   private billboardMat: THREE.MeshStandardMaterial;
   private billboardGeo: THREE.BufferGeometry;
   private rockGeo: THREE.BufferGeometry;
@@ -346,26 +371,27 @@ export class VegetationSystem {
     this.treeMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, metalness: 0 });
     patchWind(this.treeMat, { strength: 0.10, minHeight: 2.0, maxHeight: 6.0 });
 
-    // Maple: real textures from the asset repository
+    // Fase 12 — EVERY species wears real textures: bark on trunks/branches,
+    // leaf on canopies, vertex colours as per-species hue tints.
     if (mapleTextures) {
       const bark = mapleTextures.bark.clone();
       bark.repeat.set(2, 2);
       bark.needsUpdate = true;
       const leaf = mapleTextures.leaf.clone();
-      leaf.repeat.set(3, 3);
+      leaf.repeat.set(2, 2);
       leaf.needsUpdate = true;
-      this.mapleBarkMat = new THREE.MeshStandardMaterial({
-        map: bark, vertexColors: true, roughness: 0.92, metalness: 0,
+      this.barkMat = new THREE.MeshStandardMaterial({
+        map: bark, vertexColors: true, roughness: 0.95, metalness: 0,
       });
-      this.mapleLeafMat = new THREE.MeshStandardMaterial({
-        map: leaf, vertexColors: true, roughness: 0.85, metalness: 0,
+      this.leafMat = new THREE.MeshStandardMaterial({
+        map: leaf, vertexColors: true, roughness: 0.82, metalness: 0,
       });
     } else {
-      this.mapleBarkMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0 });
-      this.mapleLeafMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, metalness: 0 });
+      this.barkMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 });
+      this.leafMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.82, metalness: 0 });
     }
-    patchWind(this.mapleBarkMat, { strength: 0.07, minHeight: 2.5, maxHeight: 6.5 });
-    patchWind(this.mapleLeafMat, { strength: 0.13, minHeight: 3.5, maxHeight: 7.0 });
+    patchWind(this.barkMat, { strength: 0.08, minHeight: 2.0, maxHeight: 6.5 });
+    patchWind(this.leafMat, { strength: 0.15, minHeight: 2.5, maxHeight: 7.5 });
 
     // Billboard impostor material (alpha-tested)
     this.billboardMat = new THREE.MeshStandardMaterial({
@@ -383,9 +409,14 @@ export class VegetationSystem {
     this.rockGeo = buildRockGeometry();
 
     const built = buildTreeGeometries();
-    this.treeGeos = built.geos;
-    this.mapleTrunkGeo = built.mapleParts[0];
-    this.mapleCanopyGeo = built.mapleParts[1];
+    this.speciesParts = built;
+    this.treeGeos = built.map(([trunk, canopy]) => {
+      const g = mergeGeometries([trunk, canopy])!;
+      g.clearGroups();
+      g.addGroup(0, trunk.attributes.position.count, 0);
+      g.addGroup(trunk.attributes.position.count, canopy.attributes.position.count, 1);
+      return g;
+    });
 
     // Fase 6 — prado de briznas individuales (sustituye a los matas de planos)
     this.grassField = new GrassField(terrain, scene, {
@@ -513,21 +544,13 @@ export class VegetationSystem {
     if (!cluster.meshes) {
       const trees: THREE.InstancedMesh[] = [];
       for (let s = 0; s < SPECIES_COUNT; s++) {
-        let mesh: THREE.InstancedMesh;
-        if (s === 3) {
-          // Maple: two material groups (bark trunk / leaf canopy)
-          const geo = this.treeGeos[3];
-          const trunkCount = this.mapleTrunkGeo.attributes.position.count;
-          const canopyCount = this.mapleCanopyGeo.attributes.position.count;
-          geo.clearGroups();
-          geo.addGroup(0, trunkCount, 0);
-          geo.addGroup(trunkCount, canopyCount, 1);
-          mesh = new THREE.InstancedMesh(
-            geo, [this.mapleBarkMat, this.mapleLeafMat], this.speciesCapacity,
-          );
-        } else {
-          mesh = new THREE.InstancedMesh(this.treeGeos[s], this.treeMat, this.speciesCapacity);
-        }
+        // Fase 12 — every species is a two-group geometry (bark + leaf);
+        // the dead tree keeps bark on BOTH groups (bare branches, no foliage)
+        const mesh = new THREE.InstancedMesh(
+          this.treeGeos[s],
+          s === 5 ? [this.barkMat, this.barkMat] : [this.barkMat, this.leafMat],
+          this.speciesCapacity,
+        );
         mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
         mesh.castShadow = true;
         mesh.receiveShadow = false;
@@ -646,13 +669,12 @@ export class VegetationSystem {
     }
     this.clusters.clear();
     this.treeGeos.forEach((g) => g.dispose());
-    this.mapleTrunkGeo.dispose();
-    this.mapleCanopyGeo.dispose();
+    for (const [t, c] of this.speciesParts) { t.dispose(); c.dispose(); }
     this.billboardGeo.dispose();
     this.rockGeo.dispose();
     this.treeMat.dispose();
-    this.mapleBarkMat.dispose();
-    this.mapleLeafMat.dispose();
+    this.barkMat.dispose();
+    this.leafMat.dispose();
     (this.billboardMat.map as THREE.Texture)?.dispose();
     this.billboardMat.dispose();
     this.rockMat.dispose();

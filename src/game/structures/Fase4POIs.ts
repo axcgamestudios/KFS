@@ -104,10 +104,10 @@ export function buildFase4World(
     groups.push({ group: g, x: sx, z: sz, r: 60 });
   }
 
-  // ================= 2. CALA DEL SILENCIO (-478, -520) =================
+  // ================= 2. CALA DEL SILENCIO (-398, -450) =================
   // Black-basalt cove: braziers, raven bones, the knight statue & the black altar.
-  const kx = -478;
-  const kz = -520;
+  const kx = -398;
+  const kz = -450;
   const knightPos = new THREE.Vector3(kx + 9, terrain.height(kx + 9, kz - 2), kz - 2);
   const altarCuervoPos = new THREE.Vector3(kx, terrain.height(kx, kz) + 1.05, kz);
   {
@@ -186,10 +186,10 @@ export function buildFase4World(
     });
   }
 
-  // ================= 3. EL BAJÍO DEL ALMIRANTE (-440, -560) =================
+  // ================= 3. EL BAJÍO DEL ALMIRANTE (-360, -490) =================
   // The Crow's flagship, beached forever on the reef.
-  const fx = -440;
-  const fz = -560;
+  const fx = -360;
+  const fz = -490;
   const flagshipPos = new THREE.Vector3(fx, terrain.height(fx, fz), fz);
   {
     assets.loadModel('pirate_ship.glb').then((ship) => {

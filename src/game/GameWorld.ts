@@ -73,7 +73,7 @@ function renderMapCanvas(terrain: TerrainHeight): HTMLCanvasElement {
   const ctx = canvas.getContext('2d')!;
   const img = ctx.createImageData(size, size);
   const col: [number, number, number] = [0, 0, 0];
-  const half = 1024;
+  const half = 716;
   for (let j = 0; j < size; j++) {
     for (let i = 0; i < size; i++) {
       const x = ((i / (size - 1)) - 0.5) * 2 * half;
@@ -224,7 +224,7 @@ export async function buildWorld(
   const fortGroup = new THREE.Group();
   fortB.build(fortGroup, { shadows: true });
   scene.add(fortGroup);
-  streamer.register(fortGroup, -570, -515, 70);
+  streamer.register(fortGroup, -490, -445, 70);
 
   prog(0.56, 'Excavando el Farallón del Faro…');
   const faroB = new StaticBuilder(colliders, 'faro');
@@ -232,7 +232,7 @@ export async function buildWorld(
   const faroGroup = new THREE.Group();
   faroB.build(faroGroup, { shadows: true });
   scene.add(faroGroup);
-  streamer.register(faroGroup, 652, 128, 45);
+  streamer.register(faroGroup, 567, 116, 45);
 
   prog(0.58, 'Tendiendo el campamento de la Bruma…');
   const brumaB = new StaticBuilder(colliders, 'bruma');
@@ -240,7 +240,7 @@ export async function buildWorld(
   const brumaGroup = new THREE.Group();
   brumaB.build(brumaGroup, { shadows: true });
   scene.add(brumaGroup);
-  streamer.register(brumaGroup, -80, 748, 30);
+  streamer.register(brumaGroup, -60, 578, 30);
 
   prog(0.60, 'Alzando el Nido del Ancestro…');
   const lairB = new StaticBuilder(colliders, 'lair');

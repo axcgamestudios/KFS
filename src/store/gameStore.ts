@@ -38,6 +38,15 @@ export interface QuestTracker {
   /** Fase 11 — the señálero: distance (m) + bearing (rad, 0 = straight
    *  ahead, positive = to the right) toward the current objective. */
   marker?: { dist: number; bearing: number } | null;
+  /** Fase 12 — screen-space marker: the objective pinned on screen (or
+   *  clamped to the nearest edge with an arrow when off-screen). */
+  marker3d?: {
+    x: number;          // 0..1 screen fraction
+    y: number;
+    onScreen: boolean;
+    dist: number;
+    angle: number;      // edge-arrow direction (rad)
+  } | null;
 }
 
 /** Boss fight HUD state (Fase 3). */

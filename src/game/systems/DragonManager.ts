@@ -49,12 +49,12 @@ export const DRAGON_DEFS: DragonDef[] = [
     useGlbModel: true,
     colors: { body: 0x4a5560, belly: 0x9aa5b0, membrane: 0x5a6a7a, eye: 0x9fe8ff, horn: 0x2e3640 },
     scale: 1.05, maxHp: 300,
-    home: { x: 0, z: 500 }, territory: 420, aggroRange: 90,
+    home: { x: 0, z: 460 }, territory: 420, aggroRange: 90,
     attacks: ['fire'],
     meleeRange: 5.8, fireRange: 40, fireDps: 20, meleeDamage: 14,
     speedGround: 3, speedFly: 13,
     xp: 260, deathFlag: 'skarnvind_dead', introFlag: 'skarnvind_seen',
-    drops: [{ id: 'garra_skarnvind', count: 1 }, { id: 'escama', count: 2 }],
+    drops: [{ id: 'garra_skarnvind', count: 1 }, { id: 'espada_tormenta', count: 1 }, { id: 'escama', count: 2 }],
     lootGold: 90,
   },
   {
@@ -69,7 +69,7 @@ export const DRAGON_DEFS: DragonDef[] = [
     speedGround: 3.8, speedFly: 11.5,
     xp: 500, deathFlag: 'ancestro_dead', introFlag: 'ancestro_seen',
     phase2At: 0.66, phase3At: 0.33,
-    drops: [{ id: 'colmillo_ancestro', count: 1 }, { id: 'escama', count: 3 }],
+    drops: [{ id: 'colmillo_ancestro', count: 1 }, { id: 'espada_escarcha', count: 1 }, { id: 'escama', count: 3 }],
     lootGold: 220,
   },
   {
@@ -81,13 +81,13 @@ export const DRAGON_DEFS: DragonDef[] = [
     spawnFlag: 'kraivenn_awake',
     colors: { body: 0x17141c, belly: 0x3a3444, membrane: 0x241f2e, eye: 0xff4030, horn: 0x55505c },
     scale: 1.55, maxHp: 950,
-    home: { x: -478, z: -520 }, territory: 120, aggroRange: 60,
+    home: { x: -398, z: -450 }, territory: 120, aggroRange: 60,
     attacks: ['bite', 'claw', 'tail', 'fire'],
     meleeRange: 9.4, fireRange: 41, fireDps: 34, meleeDamage: 26,
     speedGround: 4.2, speedFly: 12.5,
     xp: 800, deathFlag: 'kraivenn_dead', introFlag: 'kraivenn_intro',
     phase2At: 0.62, phase3At: 0.3,
-    drops: [{ id: 'corazon_cuervo', count: 1 }, { id: 'reliquia_cuervo', count: 3 }],
+    drops: [{ id: 'corazon_cuervo', count: 1 }, { id: 'espada_fuego', count: 1 }, { id: 'reliquia_cuervo', count: 3 }],
     lootGold: 400,
   },
   {
@@ -128,6 +128,11 @@ export const DRAGON_DEFS: DragonDef[] = [
 export class DragonManager {
   private dragons: Dragon[] = [];
   private byId = new Map<string, Dragon>();
+
+  /** Fase 12 — public live lookup (admin/E2E). */
+  dragonById(id: string): Dragon | undefined {
+    return this.byId.get(id);
+  }
   /** Skarnvind spawns only during the q8 hunt in the southern corridor. */
   seaEventState: 'unspawned' | 'active' | 'done' = 'unspawned';
   private hooks: DragonManagerHooks;
@@ -446,7 +451,7 @@ export class DragonManager {
       sailing && shipPos &&
       this.state.isQuestActive('q8_skarnvind') &&
       !this.state.hasFlag('skarnvind_dead') &&
-      shipPos.z > 380 && shipPos.z < 660 &&
+      shipPos.z > 340 && shipPos.z < 560 &&
       Math.hypot(shipPos.x, shipPos.z + 60) > 420 // off the main island
     ) {
       this.spawnSeaWyvern(shipPos);

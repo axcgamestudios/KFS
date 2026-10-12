@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { type AnimParams, type CharacterVisual, type WeaponKind } from './CharacterModel';
 import { damp } from '../core/MathUtils';
 import { getFlameFX, type PersistentFlameHandle } from '../world/FlameFX';
-import { applyHeroSwordTier } from '../world/HeroSword';
+import { applyHeroSwordTier, applyHeroSwordElement, type SwordElement } from '../world/HeroSword';
 
 /**
  * Fase 5 — KnightModelGLB.
@@ -235,7 +235,23 @@ export class KnightModelGLB implements CharacterVisual {
     this.applyWeaponGlow();
   }
 
+  /** Fase 12 — elemental legendary form of the equipped sword. */
+  setWeaponElement(element: SwordElement | null): void {
+    this.weaponElement = element;
+    this.applyWeaponGlow();
+  }
+
+  /** Fase 12 — world position of the blade tip (elemental particle trail). */
+  weaponTipWorld(out: THREE.Vector3): boolean {
+    const w = this.activeWeapon ?? this.swordProp;
+    if (!w) return false;
+    out.set(0, (w.userData.height as number ?? 1) * 0.72, 0);
+    w.localToWorld(out);
+    return true;
+  }
+
   private weaponTier = 0;
+  private weaponElement: SwordElement | null = null;
 
   private applyWeaponGlow(): void {
     const w = this.activeWeapon ?? this.swordProp;
@@ -243,7 +259,8 @@ export class KnightModelGLB implements CharacterVisual {
     // Fase 11 — the master-forged sword carries its own rune-glow materials
     if (w.userData?.heroSword) {
       applyHeroSwordTier(w, this.weaponTier, false);
-      const s = 1 + this.weaponTier * 0.05;
+      if (this.weaponElement) applyHeroSwordElement(w, this.weaponElement);
+      const s = 1 + this.weaponTier * 0.05 + (this.weaponElement ? 0.06 : 0);
       w.scale.set(s, s, s);
       return;
     }
@@ -663,17 +680,24 @@ export class KnightModelGLB implements CharacterVisual {
       const amp = 0.52 + runK * 0.5;
       const legPhL = Math.sin(ph);
       const legPhR = Math.sin(ph + Math.PI);
+      // Fase 12 — pelvis rocks over the stance leg (secondary motion: the
+      // walk stops reading as two stiff pistons and starts swinging from
+      // the hips like a real gait).
+      const hipRoll = Math.sin(ph) * (0.035 + runK * 0.05);
       // right leg (x<0) — j_hipR: -X = forward
-      t.j_hipR = [-legPhR * amp, 0, 0];
+      t.j_hipR = [-legPhR * amp, 0, -hipRoll];
       t.j_kneeR = [Math.max(0, -Math.sin(ph + Math.PI - 0.7)) * (0.55 + runK * 0.75), 0, 0];
-      t.j_ankleR = [-0.1 + legPhR * 0.18, 0, 0];
+      t.j_ankleR = [-0.1 + legPhR * 0.18, 0, Math.max(0, legPhR) * 0.08];
       // left leg
-      t.j_hipL = [-legPhL * amp, 0, 0];
+      t.j_hipL = [-legPhL * amp, 0, hipRoll];
       t.j_kneeL = [Math.max(0, -Math.sin(ph - 0.7)) * (0.55 + runK * 0.75), 0, 0];
-      t.j_ankleL = [-0.1 + legPhL * 0.18, 0, 0];
-      // arms counter-swing; the sword arm (R) carries the relaxed sword
+      t.j_ankleL = [-0.1 + legPhL * 0.18, 0, Math.max(0, legPhL) * 0.08];
+      // arms counter-swing; the sword arm (R) carries the relaxed sword.
+      // Fase 12 — elbows flex on the BACK swing (the arm folds as it trails
+      // behind, opens as it swings forward — the classic follow-through).
       const armAmp = 0.34 + runK * 0.5;
       t.j_shoulderR = [legPhR * armAmp, 0, -0.06];
+      t.j_elbowR = [-0.18 - runK * 0.35 - Math.max(0, -legPhR) * (0.3 + runK * 0.3), 0, 0];
       // Fase 10 — SHIELD CARRY: a knight does NOT swing the shield arm like a
       // pendulum while running (the old full counter-swing looked broken).
       // With a shield visible the left arm locks into a steady carry: elbow
@@ -688,25 +712,32 @@ export class KnightModelGLB implements CharacterVisual {
         t.j_elbowL = [-0.92, 0, 0.18];
       } else {
         t.j_shoulderL = [legPhL * armAmp * 0.8, 0, 0.06];
-        t.j_elbowL = [-0.25 - runK * 0.3, 0, 0];
+        t.j_elbowL = [-0.25 - runK * 0.3 - Math.max(0, -legPhL) * (0.28 + runK * 0.28), 0, 0];
       }
-      t.j_elbowR = [-0.18 - runK * 0.35, 0, 0];
-      // torso: bob, forward lean, counter-rotation
-      t.j_torso = [0.05 + runK * 0.17, Math.sin(ph) * (0.05 + runK * 0.06), 0];
-      t.j_head = [-0.04 - runK * 0.08, -Math.sin(ph) * 0.04, 0];
+      // torso: bob, forward lean, counter-rotation (amplified at speed)
+      t.j_torso = [0.05 + runK * 0.2, Math.sin(ph) * (0.05 + runK * 0.08), 0];
+      // head stabilizes against the torso sway (vestibular reflex)
+      t.j_head = [-0.04 - runK * 0.08, -Math.sin(ph) * 0.06, -Math.sin(ph) * 0.02];
       this.inner.position.y = Math.abs(Math.sin(ph)) * 0.028 * (0.5 + runK);
+      // Fase 12 — subtle lateral sway of the whole body over the stance foot
+      this.inner.position.x = Math.sin(ph) * 0.012 * (0.6 + runK);
     } else {
       // idle: breathing, weight shift, relaxed sword arm
       const br = Math.sin(this.t * 1.7);
-      t.j_torso = [0.02 + br * 0.012, Math.sin(this.t * 0.4) * 0.02, 0];
+      const sway = Math.sin(this.t * 0.33);
+      t.j_torso = [0.02 + br * 0.012, Math.sin(this.t * 0.4) * 0.02, sway * 0.012];
       t.j_head = [0.0, Math.sin(this.t * 0.5) * 0.13, Math.sin(this.t * 0.33) * 0.05];
       t.j_shoulderR = [br * 0.03 - 0.04, 0, -0.05];
       t.j_shoulderL = [-br * 0.03, 0, 0.06];
-      t.j_elbowR = [-0.15, 0, 0];
+      t.j_elbowR = [-0.15 - br * 0.02, 0, 0];
       t.j_elbowL = [-0.22, 0, 0];
-      t.j_kneeR = [-0.04, 0, 0];
-      t.j_kneeL = [-0.06, 0, 0];
+      // Fase 12 — the knees breathe with the weight shift
+      t.j_kneeR = [-0.04 + Math.max(0, sway) * 0.05, 0, 0];
+      t.j_kneeL = [-0.06 + Math.max(0, -sway) * 0.05, 0, 0];
+      t.j_hipR = [0, 0, -sway * 0.018];
+      t.j_hipL = [0, 0, sway * 0.018];
       this.inner.position.y = damp(this.inner.position.y, 0, 8, 1 / 60);
+      this.inner.position.x = damp(this.inner.position.x, 0, 8, 1 / 60);
       if (p.talking) {
         t.j_head = [0, Math.sin(this.t * 2.1) * 0.07, 0];
         t.j_shoulderR = [Math.sin(this.t * 3.0) * 0.16 - 0.12, 0, -0.05];

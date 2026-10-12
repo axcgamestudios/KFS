@@ -412,6 +412,61 @@ function WeaponSlots({ slots }: { slots: WeaponSlotHud[] }) {
 
 /* ---------------------------------------------------------------- root */
 
+/** Fase 12 — screen-space objective pin: a golden compass diamond hovering
+ *  over the target, or an edge arrow with metres when it's off-screen. */
+function QuestPin({ m }: {
+  m: { x: number; y: number; onScreen: boolean; dist: number; angle: number };
+}) {
+  const left = `${(m.x * 100).toFixed(2)}%`;
+  const top = `${(m.y * 100).toFixed(2)}%`;
+  if (m.onScreen) {
+    return (
+      <div
+        className="absolute -translate-x-1/2 -translate-y-1/2"
+        style={{ left, top }}
+      >
+        <div className="flex flex-col items-center gap-0.5">
+          <span
+            className="block h-3.5 w-3.5 rotate-45 border-2 border-[color:#ffe9a8] bg-[color:#e8c96a]/90"
+            style={{ boxShadow: '0 0 14px rgba(232,201,106,0.95), 0 0 4px rgba(0,0,0,0.6)' }}
+          />
+          <span
+            className="kotfs-title whitespace-nowrap border border-[color:#e8c96a]/50 bg-[color:#140f06]/85 px-1.5 py-px text-[0.62rem] tracking-[0.08em] text-[color:#ffe9a8]"
+            style={{ textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}
+          >
+            {m.dist} m
+          </span>
+        </div>
+      </div>
+    );
+  }
+  // off-screen: arrow clamped near the edge + metres
+  return (
+    <div
+      className="absolute -translate-x-1/2 -translate-y-1/2"
+      style={{ left, top }}
+    >
+      <div className="flex flex-col items-center gap-0.5">
+        <span
+          className="kotfs-title text-2xl leading-none text-[color:#ffd76a]"
+          style={{
+            transform: `rotate(${m.angle}rad)`,
+            textShadow: '0 0 12px rgba(232,201,106,0.95), 0 1px 4px rgba(0,0,0,0.8)',
+          }}
+        >
+          ➤
+        </span>
+        <span
+          className="kotfs-title whitespace-nowrap border border-[color:#e8c96a]/40 bg-[color:#140f06]/80 px-1.5 py-px text-[0.6rem] tracking-[0.08em] text-[color:#e8c96a]"
+          style={{ textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}
+        >
+          {m.dist} m
+        </span>
+      </div>
+    </div>
+  );
+}
+
 export default function HUD() {
   const health = useGameStore((s) => s.health);
   const maxHealth = useGameStore((s) => s.maxHealth);
@@ -457,6 +512,10 @@ export default function HUD() {
         </p>
       </div>
 
+      {/* --- Fase 12 — the objective PIN: pinned on the world, clamped to
+           the screen edge with an arrow when you face away --- */}
+      {questTracker?.marker3d && !dialogue && <QuestPin m={questTracker.marker3d} />}
+
       {/* --- Boss health bar --- */}
       {boss && <BossBar b={boss} />}
 
@@ -501,18 +560,20 @@ export default function HUD() {
           {/* Fase 11 — the señálero: live bearing + distance to the objective */}
           {questTracker.marker && (
             <div className="mt-1.5 flex items-center justify-end gap-2 border-t border-[color:#5a4a2e]/60 pt-1.5">
-              <span className="kotfs-title text-[0.68rem] tracking-[0.14em] text-[color:#e8c96a] kotfs-shadow-text">
-                {questTracker.marker.dist} m
-              </span>
+              <span className="kotfs-serif text-[0.66rem] italic text-[color:#cdb98a]/80">objetivo</span>
               <span
-                aria-hidden
-                className="kotfs-title inline-flex h-5 w-5 items-center justify-center text-[0.8rem] leading-none text-[color:#e8c96a]"
-                style={{
-                  transform: `rotate(${questTracker.marker.bearing}rad)`,
-                  textShadow: '0 0 8px rgba(232,201,106,0.9)',
-                }}
+                className="kotfs-title inline-flex h-6 w-6 items-center justify-center border border-[color:#e8c96a]/70 bg-[color:#1a140a]/80"
+                style={{ transform: `rotate(${questTracker.marker.bearing}rad)`, boxShadow: '0 0 10px rgba(232,201,106,0.35) inset' }}
               >
-                ▲
+                <span
+                  className="text-[0.72rem] leading-none text-[color:#e8c96a]"
+                  style={{ textShadow: '0 0 8px rgba(232,201,106,0.9)' }}
+                >
+                  ➤
+                </span>
+              </span>
+              <span className="kotfs-title text-[0.7rem] tracking-[0.1em] text-[color:#ffe9a8] kotfs-shadow-text">
+                {questTracker.marker.dist} m
               </span>
             </div>
           )}

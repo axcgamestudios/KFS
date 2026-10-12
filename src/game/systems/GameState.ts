@@ -72,9 +72,22 @@ export class GameState {
 
   // ---------------- Inventory ----------------
 
+  /** Fase 12 — combat kill counters for bounty/hunt objectives. */
+  killCounters: Record<string, number> = {};
+  registerKill(kind: string): void {
+    this.killCounters[kind] = (this.killCounters[kind] ?? 0) + 1;
+    this.emit('quests');
+    this.evaluateQuests();
+  }
+
+  /** Fase 12 — ambush hook: fires when the player gains an item (Game wires
+   *  surprise bandit attacks on collection objectives). */
+  onItemGained?: (id: string, count: number) => void;
+
   addItem(id: string, count = 1): void {
     this.inventory.set(id, (this.inventory.get(id) ?? 0) + count);
     this.emit('inventory');
+    this.onItemGained?.(id, count);
     // Live objective check so collect goals tick as items arrive
     this.evaluateQuests();
   }
@@ -231,6 +244,9 @@ export class GameState {
             break;
           case 'flag':
             done = this.flags.has(obj.target);
+            break;
+          case 'kill':
+            done = (this.killCounters[obj.target] ?? 0) >= (obj.count ?? 1);
             break;
         }
         if (done) state.objectives.add(obj.id);

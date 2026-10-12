@@ -105,6 +105,8 @@ export class VfxSystem {
   private sparks: SpritePool;   // weapon/block impacts (additive)
   private dust: SpritePool;     // landing dust rings
   private splash: SpritePool;   // Fase 4: water splashes (white foam, additive)
+  private frost: SpritePool;    // Fase 12: elemental sword — ice shards
+  private storm: SpritePool;    // Fase 12: elemental sword — arcing sparks
   private lights: THREE.PointLight[] = [];
   private lightTimers: number[] = [];
   private tmp = new THREE.Vector3();
@@ -118,6 +120,8 @@ export class VfxSystem {
     this.sparks = new SpritePool(scene, 48, 'rgba(255,230,160,1)', true);
     this.dust = new SpritePool(scene, 40, 'rgba(120,104,84,0.7)', false);
     this.splash = new SpritePool(scene, 48, 'rgba(214,234,244,1)', true);
+    this.frost = new SpritePool(scene, 40, 'rgba(158,220,255,1)', true);
+    this.storm = new SpritePool(scene, 40, 'rgba(196,160,255,1)', true);
     // Two shared flickering lights for dragon fire (borrowed round-robin)
     for (let i = 0; i < 2; i++) {
       const l = new THREE.PointLight(0xff7a2a, 0, 46, 1.7);
@@ -244,6 +248,56 @@ export class VfxSystem {
     }
   }
 
+  /** Fase 12 — an elemental sword connected: element-coloured burst. */
+  elementalBurst(pos: THREE.Vector3, element: 'fire' | 'frost' | 'storm'): void {
+    if (element === 'fire') {
+      // a gout of flame + embers at the impact
+      for (let i = 0; i < 7; i++) {
+        this.tmp2.set((Math.random() - 0.5) * 3.4, Math.random() * 2.6, (Math.random() - 0.5) * 3.4);
+        this.embers.spawn(pos, 0.3 + Math.random() * 0.35, 0.5 + Math.random() * 0.3, this.tmp2, {
+          grow: 1.2, drag: 1.6, gravity: 1.2,
+        });
+      }
+      this.smoke.spawn(pos, 0.7, 0.9, this.tmp2.set(0, 1, 0), { grow: 1.6, drag: 2, opacity: 0.3 });
+    } else if (element === 'frost') {
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2;
+        this.tmp2.set(Math.cos(a) * 2.4, 0.8 + Math.random() * 1.6, Math.sin(a) * 2.4);
+        this.frost.spawn(pos, 0.2 + Math.random() * 0.26, 0.42 + Math.random() * 0.25, this.tmp2, {
+          grow: 0.7, drag: 2.2, gravity: -2.2,
+        });
+      }
+    } else {
+      for (let i = 0; i < 9; i++) {
+        const a = Math.random() * Math.PI * 2;
+        this.tmp2.set(Math.cos(a) * (2 + Math.random() * 3), Math.random() * 2.2, Math.sin(a) * (2 + Math.random() * 3));
+        this.storm.spawn(pos, 0.16 + Math.random() * 0.22, 0.3 + Math.random() * 0.2, this.tmp2, {
+          grow: 0.4, drag: 3.0, gravity: -1.2,
+        });
+      }
+    }
+  }
+
+  /** Fase 12 — living elemental trail off an equipped legendary blade. */
+  elementalTrail(pos: THREE.Vector3, element: 'fire' | 'frost' | 'storm'): void {
+    if (element === 'fire') {
+      this.tmp2.set((Math.random() - 0.5) * 0.5, 0.5 + Math.random() * 0.6, (Math.random() - 0.5) * 0.5);
+      this.embers.spawn(pos, 0.12 + Math.random() * 0.14, 0.5, this.tmp2, {
+        grow: 0.8, drag: 1.4, gravity: 0.9, opacity: 0.8,
+      });
+    } else if (element === 'frost') {
+      this.tmp2.set((Math.random() - 0.5) * 0.35, 0.2 + Math.random() * 0.3, (Math.random() - 0.5) * 0.35);
+      this.frost.spawn(pos, 0.09 + Math.random() * 0.1, 0.55, this.tmp2, {
+        grow: 0.4, drag: 1.8, gravity: -0.5, opacity: 0.75,
+      });
+    } else {
+      this.tmp2.set((Math.random() - 0.5) * 0.9, (Math.random() - 0.5) * 0.9, (Math.random() - 0.5) * 0.9);
+      this.storm.spawn(pos, 0.07 + Math.random() * 0.08, 0.28, this.tmp2, {
+        grow: 0.3, drag: 2.4, gravity: 0, opacity: 0.9,
+      });
+    }
+  }
+
   /** Arrow hitting terrain: tiny dust kick. */
   arrowDust(pos: THREE.Vector3): void {
     for (let i = 0; i < 3; i++) {
@@ -273,6 +327,8 @@ export class VfxSystem {
     this.smoke.update(dt);
     this.sparks.update(dt);
     this.dust.update(dt);
+    this.frost.update(dt);
+    this.storm.update(dt);
     for (let i = 0; i < this.lights.length; i++) {
       if (this.lightTimers[i] > 0) {
         this.lightTimers[i] -= dt;

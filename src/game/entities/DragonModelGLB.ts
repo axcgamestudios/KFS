@@ -277,15 +277,17 @@ export class DragonModelGLB {
       case 'glide':
       case 'takeoff':
       case 'land': {
-        // Wing flap: shoulders swing on Z, fingers fan slightly
+        // Wing flap: shoulders swing on Z (up/down) AND X (fore/aft sweep) so
+        // the wingtip traces an ELLIPSE like real flight — not a paddle line.
         const flap = s.mode === 'glide' ? 0.18 : Math.sin(ph * Math.PI * 2);
         const amp = s.mode === 'takeoff' ? 1.15 : s.mode === 'land' ? 0.55 : 0.8;
-        set(this.joints[WING_ARMS[0]], -0.15, 0, 0.55 + flap * amp, 8 * dt);
-        set(this.joints[WING_ARMS[1]], -0.15, 0, -0.55 - flap * amp, 8 * dt);
+        const sweep = -0.12 + flap * 0.3; // wings sweep forward on the downstroke
+        set(this.joints[WING_ARMS[0]], -0.15 + sweep, 0, 0.55 + flap * amp, 8 * dt);
+        set(this.joints[WING_ARMS[1]], -0.15 + sweep, 0, -0.55 - flap * amp, 8 * dt);
         const fan = 0.25 + Math.max(0, flap) * 0.3;
         for (const arm of WING_ARMS) {
           WING_FINGERS[arm].forEach((f, i) => {
-            set(this.joints[f], 0, 0, (i % 2 === 0 ? 1 : -1) * fan * 0.35, 6 * dt);
+            set(this.joints[f], flap * 0.22, 0, (i % 2 === 0 ? 1 : -1) * fan * 0.35, 6 * dt);
           });
         }
         // Hind legs trail back, tail streams, neck forward

@@ -18,7 +18,7 @@ import { VillagerModelGLB } from './entities/VillagerModelGLB';
 import { NavalSystem, type SailingHud } from './naval/NavalSystem';
 import type { Ship } from './naval/Ship';
 import { VfxSystem } from './systems/VfxSystem';
-import { CombatSystem, WEAPONS, SWORD_TIER_NAMES } from './systems/CombatSystem';
+import { CombatSystem, WEAPONS, SWORD_TIER_NAMES, SWORD_PRIORITY, swordElementOf } from './systems/CombatSystem';
 import { DragonManager } from './systems/DragonManager';
 import { BanditSystem } from './systems/BanditSystem';
 import type { Dragon } from './entities/Dragon';
@@ -83,6 +83,35 @@ export class Game {
   private npcs: NPC[] = [];
   private naval?: NavalSystem;
   private vfx?: VfxSystem;
+  /** Fase 12 — wake emission cadence + scratch vector. */
+  private wakeTimer = 0;
+  private tmpSplash = new THREE.Vector3();
+  /** Fase 12 — element of the equipped legendary sword (trail particles). */
+  private equippedElement: 'fire' | 'frost' | 'storm' | null = null;
+  private elemTrailT = 0;
+  /** Fase 12 — kill streak window (dopamine) + ambush cooldown. */
+  private streakN = 0;
+  private streakT = 0;
+  private ambushCd = 0;
+
+  /** A combat kill landed: streak labels + bonus XP keep the blood hot. */
+  private registerCombatKill(label = ''): void {
+    this.state.registerKill('bandit');
+    this.streakT = 7;                      // the window stays open
+    this.streakN++;
+    const n = this.streakN;
+    if (n >= 2) {
+      const names = ['', '', '¡DOBLE!', '¡TRIPLE!', '¡MATANZA!', '¡IMPARABLE!', '¡LEYENDA!'];
+      const text = label || names[Math.min(n, 6)];
+      this.combat?.flashEvent(text);
+      const bonus = 6 * n;
+      this.state.giveXp(bonus);
+      useGameStore.getState().notify('item', text, `Racha ×${n} — +${bonus} XP de furia.`);
+      this.rig?.punch(0.3 + Math.min(0.3, n * 0.06));
+    } else if (label) {
+      this.combat?.flashEvent(label);
+    }
+  }
   private combat?: CombatSystem;
   private dragons?: DragonManager;
   private mounts?: MountSystem;
@@ -215,7 +244,10 @@ export class Game {
         // steel/gold/leather/gem materials + rune glow by forge tier); every
         // other weapon keeps its kit model.
         weaponFactory: (kind) => kind === 'sword'
-          ? buildHeroSword({ tier: this.state?.swordTier ?? 0 })
+          ? buildHeroSword({
+              tier: this.state?.swordTier ?? 0,
+              element: swordElementOf(this.state?.equippedWeapon) ?? undefined,
+            })
           : kits.weapon(kind),
         shieldFactory: () => kits.create('shield_02'),
       });
@@ -232,8 +264,14 @@ export class Game {
       if (kind === 'enter') {
         this.vfx?.waterSplash(this.player!.position.clone(), Math.min(1.4, speed));
         this.audio.playEvent('splash');
+        // Fase 12 — a real wake ring spreads from the dive
+        world.water.addWake(
+          this.player!.position.x, this.player!.position.z,
+          Math.min(1, 0.4 + speed * 0.4), 9 + speed * 9, 3.4 + speed * 1.4,
+        );
       } else {
         this.vfx?.waterSplash(this.player!.position.clone(), 0.5);
+        world.water.addWake(this.player!.position.x, this.player!.position.z, 0.3, 7, 3);
       }
     };
     this.player.onDamaged = (amount) => {
@@ -330,6 +368,8 @@ export class Game {
         this.bandits ? this.bandits.meleeHitCheckRadius(center, radius, max) : [],
       // Fase 11 — a whiff: nearby bandits snap into a weapon-up guard
       onWhiff: (pos) => this.bandits?.onPlayerWhiff(pos),
+      // Fase 12 — elemental sword connected: element burst at the impact
+      elementalHit: (pos, element) => this.vfx?.elementalBurst(pos, element),
     });
     this.combat.dragonHitRef = (pos, radius) =>
       this.dragons ? this.dragons.projectileHitTest(pos, radius) : null;
@@ -443,8 +483,42 @@ export class Game {
         blockSparks: (pos) => this.vfx?.blockSparks(pos),
         cameraShake: (i) => { this.shakeT = Math.max(this.shakeT, i); },
         hitStop: (dur) => { this.hitStopT = Math.max(this.hitStopT, dur); },
+        // Fase 12 — bounty counters + KILL STREAK dopamine
+        onBanditKilled: (captain) => this.registerCombatKill(captain ? '¡CAPITÁN ABATIDO!' : ''),
       },
     );
+
+    // Fase 12 — AMBUSHES: gathering quest materials can wake the red
+    // knights. Not every pickup — the threat must stay a surprise.
+    const AMBUSH_ITEMS = new Set(['petalo', 'madera', 'lona', 'cuerda', 'cargamento', 'petalo_marfil']);
+    this.state.onItemGained = (id) => {
+      // Fase 12 — a better sword leaps INTO your hand the moment you claim it
+      // (boss legendaries: the blade is burning before the loot banner fades)
+      const rank = SWORD_PRIORITY.indexOf(id);
+      if (rank >= 0) {
+        // SWORD_PRIORITY is BEST-FIRST: a lower index beats the current one
+        const cur = this.state.equippedWeapon;
+        const curRank = cur ? SWORD_PRIORITY.indexOf(cur) : Infinity;
+        if (rank < curRank) {
+          this.state.equip(id);
+          this.combat?.refreshVisuals();
+          this.syncSwordVisuals();
+          useGameStore.getState().notify('item', '¡ESPADA LEGENDARIA!', 'El acero nuevo salta a tu mano. Úsala con la tecla 1.');
+        }
+        return;
+      }
+      if (!AMBUSH_ITEMS.has(id)) return;
+      if (this.ambushCd > 0 || !this.player || !this.bandits) return;
+      if (Math.random() > 0.4) return;
+      this.ambushCd = 55;                       // no machine-gun ambushes
+      const n = 2 + Math.floor(Math.random() * 2);
+      this.bandits.spawnAmbush(this.player.position.x, this.player.position.z, n);
+      this.combat?.flashEvent('¡EMBOSCADA!');
+      useGameStore.getState().notify('quest', '¡EMBOSCADA!', '¡Caballeros rojos del Cuervo saltan de la maleza!');
+      this.musicIntensityTarget = Math.max(this.musicIntensityTarget, 0.85);
+      this.audio.playEvent('stagger');
+      this.rig?.punch(0.5);
+    };
 
     // Fase 10 — the marometa kick: camera pulse + whoosh on double jump
     this.player.onDoubleJump = () => {
@@ -477,6 +551,8 @@ export class Game {
     this.installApi();
     // Debug/testing hook (harmless in production)
     (window as unknown as { __kotfsGame?: Game }).__kotfsGame = this;
+    // Fase 12 — debug/E2E hook: live HUD store reads
+    (window as unknown as { __kotfsStoreGet?: () => unknown }).__kotfsStoreGet = () => useGameStore.getState();
 
     // Menu ambience: golden hour over the bay
     world.sky.dayFraction = 0.78;
@@ -586,6 +662,84 @@ export class Game {
             state.addItem('moneda_antigua', 1);
             state.addItem('coin', 30);
             store.getState().notify('item', 'Moneda de Thalassar', 'Oro viejo del reino hundido. Elin paga bien por estas.');
+          }
+        },
+      });
+    }
+
+    // --- Fase 12 — CARTEL DE RECOMPENSAS (bounty board, plaza) ---
+    {
+      const boardX = 33, boardZ = 141;
+      const boardY = terrainH(boardX, boardZ);
+      const board = new THREE.Group();
+      const post = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.09, 0.11, 2.6, 8),
+        new THREE.MeshStandardMaterial({ color: 0x6a4a30, roughness: 0.9 }),
+      );
+      post.position.y = 1.3;
+      post.castShadow = true;
+      board.add(post);
+      const panel = new THREE.Mesh(
+        new THREE.BoxGeometry(1.5, 1.0, 0.08),
+        new THREE.MeshStandardMaterial({ color: 0x8a6a44, roughness: 0.85 }),
+      );
+      panel.position.y = 2.0;
+      panel.castShadow = true;
+      board.add(panel);
+      // the red bounty sheet + the raven mark
+      const sheet = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.62, 0.72),
+        new THREE.MeshStandardMaterial({ color: 0xa8281e, roughness: 0.8 }),
+      );
+      sheet.position.set(-0.3, 2.05, 0.05);
+      board.add(sheet);
+      const sheet2 = sheet.clone();
+      sheet2.material = new THREE.MeshStandardMaterial({ color: 0xd8cfb8, roughness: 0.85 });
+      sheet2.position.set(0.38, 1.98, 0.05);
+      sheet2.rotation.z = 0.08;
+      board.add(sheet2);
+      board.position.set(boardX, boardY, boardZ);
+      board.rotation.y = -0.6;
+      this.engine.scene.add(board);
+      w.interactables.push({
+        id: 'bounty_board',
+        pos: new THREE.Vector3(boardX, boardY, boardZ),
+        radius: 2.6,
+        get prompt() {
+          if (state.isQuestActive('sq_cazarrecompensas')) {
+            const k = state.killCounters.bandit ?? 0;
+            return k >= 6 ? 'Cobrar la recompensa (150 oro)' : `Cazar caballeros rojos (${k}/6)`;
+          }
+          if (state.isQuestActive('sq_tormenta_caminos')) {
+            const k = state.killCounters.bandit ?? 0;
+            return k >= 10 ? 'Cobrar la recompensa (90 oro)' : `La caza continúa (${k}/10)`;
+          }
+          if (state.questStates?.get?.('sq_cazarrecompensas')?.status === 'completed' &&
+              state.questStates?.get?.('sq_tormenta_caminos')?.status !== 'active') return '';
+          return 'Leer el cartel de recompensas';
+        },
+        run: () => {
+          const st1 = state.questStates?.get?.('sq_cazarrecompensas')?.status;
+          const st2 = state.questStates?.get?.('sq_tormenta_caminos')?.status;
+          const kills = state.killCounters.bandit ?? 0;
+          if (st1 !== 'active' && st1 !== 'completed') {
+            state.startQuest('sq_cazarrecompensas');
+            useGameStore.getState().notify('quest', '¡NUEVA CAZA!', 'La Caza del Cuervo: 6 caballeros rojos. 150 monedas de oro al terminar.');
+            this.audio.playEvent('quest');
+          } else if (st1 === 'active' && kills >= 6) {
+            state.setFlag('interacted_bounty_board');
+            useGameStore.getState().notify('item', 'Recompensa cobrada', '150 monedas de oro y el respeto de la Orden.');
+          } else if (st2 === 'active' && kills >= 10) {
+            // auto-completed by the kill objective; acknowledge the payoff
+            useGameStore.getState().notify('item', 'El Camino Real respira', '90 monedas más. Los carros vuelven a subir al castillo.');
+          } else {
+            useGameStore.getState().notify(
+              'info',
+              'Cartel de recompensas',
+              st1 === 'active'
+                ? `Caballeros rojos abatidos: ${kills}/6. Sus campamentos vigilan el Camino Real, Vaelthara, las Vigilias y la costa oeste.`
+                : `Caza en curso: ${kills}/10 abatidos.`,
+            );
           }
         },
       });
@@ -1406,11 +1560,14 @@ export class Game {
     });
   }
 
-  /** Fase 10 — push the forge tier onto the player's blade (glow + pride). */
+  /** Fase 10 — push the forge tier onto the player's blade (glow + pride).
+   *  Fase 12 — elemental legendaries restyle the whole sword. */
   private syncSwordVisuals(): void {
     const visual = this.player?.model;
     if (visual instanceof KnightModelGLB) {
       visual.setWeaponTier(this.state.swordTier);
+      visual.setWeaponElement(swordElementOf(this.state.equippedWeapon));
+      this.equippedElement = swordElementOf(this.state.equippedWeapon);
     }
   }
 
@@ -1821,6 +1978,41 @@ export class Game {
 
     w.water.update(dt, this.engine.camera);
     w.water.setSky(w.sky.sunDir, w.sky.sunColor, w.sky.zenithColor, w.sky.horizonColor, w.sky.nightFactor);
+    // Fase 12 — REAL planar reflection (mirrored scene, half-rate when near sea)
+    w.water.renderReflection(this.engine.renderer, this.engine.scene, this.engine.camera);
+    // Fase 12 — boat wakes + bow spray: every moving ship pushes wave rings
+    this.wakeTimer -= dt;
+    if (this.wakeTimer <= 0) {
+      this.wakeTimer = 0.32;
+      const cam = this.engine.camera.position;
+      const feed = (ship: import('./naval/Ship').Ship) => {
+        if (ship.sunk || ship.sinking > 0) return;
+        const spd = Math.abs(ship.speed);
+        if (spd < 0.6) return;
+        if (Math.hypot(ship.pos.x - cam.x, ship.pos.z - cam.z) > 420) return;
+        // bow + stern wave rings along the hull line
+        const bx = ship.pos.x + Math.sin(ship.heading) * 6;
+        const bz = ship.pos.z + Math.cos(ship.heading) * 6;
+        const sx = ship.pos.x - Math.sin(ship.heading) * 6;
+        const sz = ship.pos.z - Math.cos(ship.heading) * 6;
+        const k = Math.min(1, spd / 4.5);
+        w.water.addWake(bx, bz, 0.28 + k * 0.5, 13 + k * 9, 3.2 + k * 1.6);
+        w.water.addWake(sx, sz, 0.2 + k * 0.42, 11 + k * 8, 3.0 + k * 1.4);
+        // bow spray particles at speed
+        if (spd > 1.9 && this.vfx) {
+          const bowY = w.water.waveHeightAt(bx, bz);
+          this.tmpSplash.set(bx, bowY + 0.15, bz);
+          this.vfx.waterSplash(this.tmpSplash, 0.22 + k * 0.3);
+        }
+      };
+      if (naval.playerShip) feed(naval.playerShip);
+      for (const e of naval.enemies) feed(e.ship);
+      for (const s of naval.extraShips) feed(s);
+      // swimming strokes leave ripples too
+      if (p.swimming) {
+        w.water.addWake(p.position.x, p.position.z, 0.16, 7, 2.2);
+      }
+    }
     const focusX = sailing ? (naval.activeShip ?? naval.playerShip)!.pos.x : p.position.x;
     const focusZ = sailing ? (naval.activeShip ?? naval.playerShip)!.pos.z : p.position.z;
     w.terrain.update(focusX, focusZ);
@@ -1903,8 +2095,10 @@ export class Game {
       };
       const tracker = this.state.currentTracker();
       // Fase 11 — the señálero: live distance + bearing + in-world beacon
+      // Fase 12 — + a true SCREEN-SPACE pin (edge-clamped when off-screen)
       const questPos = tracker ? this.resolveQuestTarget() : null;
       let marker: { dist: number; bearing: number } | null = null;
+      let marker3d: { x: number; y: number; onScreen: boolean; dist: number; angle: number } | null = null;
       if (tracker && questPos) {
         const dx = questPos.x - p.position.x;
         const dz = questPos.z - p.position.z;
@@ -1915,6 +2109,38 @@ export class Game {
           while (rel < -Math.PI) rel += Math.PI * 2;
           marker = { dist: Math.round(dist), bearing: Math.round(rel * 10) / 10 };
         }
+        // project the objective (raised to head height on its terrain) to screen
+        this.tmpSplash.set(
+          questPos.x,
+          w.terrainHeight.height(questPos.x, questPos.z) + 2.2,
+          questPos.z,
+        );
+        // camera-space first: z > 0 means BEHIND the camera (it looks down -z)
+        const camSpace = this.tmpSplash.clone().applyMatrix4(this.engine.camera.matrixWorldInverse);
+        const behindCam = camSpace.z > 0;
+        this.tmpSplash.project(this.engine.camera);
+        let sx = (this.tmpSplash.x * 0.5 + 0.5);
+        let sy = (-this.tmpSplash.y * 0.5 + 0.5);
+        if (behindCam) { sx = 1 - sx; sy = 1 - sy; }
+        const onScreen = !behindCam && sx > 0.04 && sx < 0.96 && sy > 0.06 && sy < 0.94;
+        // edge arrow: direction from screen centre toward the pin
+        let ex = sx, ey = sy, angle = 0;
+        if (!onScreen) {
+          const cx0 = 0.5, cy0 = 0.5;
+          let vx = ex - cx0, vy = ey - cy0;
+          const len = Math.hypot(vx, vy) || 1;
+          vx /= len; vy /= len;
+          angle = Math.atan2(vx, -vy); // 0 = up, positive = clockwise
+          ex = cx0 + vx * 0.40;
+          ey = cy0 + vy * 0.40;
+        }
+        marker3d = {
+          x: Math.max(0.03, Math.min(0.97, ex)),
+          y: Math.max(0.06, Math.min(0.93, ey)),
+          onScreen,
+          dist: Math.round(dist),
+          angle,
+        };
         this.updateQuestBeacon(questPos, !!marker);
       } else {
         this.updateQuestBeacon(null, false);
@@ -1930,7 +2156,7 @@ export class Game {
         maxStamina: p.stats.maxStamina,
         clock: formatClock(w.sky.dayFraction),
         dayCount: w.sky.dayCount,
-        questTracker: tracker ? { ...tracker, marker } : null,
+        questTracker: tracker ? { ...tracker, marker, marker3d } : null,
         fps: this.engine.fps,
         prompt: clickHint ?? store.prompt,
         sailing: sailingHud,
@@ -2178,36 +2404,50 @@ export class Game {
     const g = new THREE.Group();
     g.name = 'quest_beacon';
     const diamond = new THREE.Mesh(
-      new THREE.OctahedronGeometry(0.34, 0),
+      new THREE.OctahedronGeometry(0.55, 0),
       new THREE.MeshBasicMaterial({
-        color: 0xe8c96a, transparent: true, opacity: 0.95, depthTest: false,
+        color: 0xffd76a, transparent: true, opacity: 0.98, depthTest: false,
       }),
     );
     diamond.name = 'diamond';
     diamond.renderOrder = 999;
-    diamond.position.y = 3.2;
+    diamond.position.y = 5.0;
     g.add(diamond);
-    const shaft = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.045, 0.045, 2.7, 6, 1, true),
+    // a smaller counter-rotating diamond above reads as a compass
+    const diamond2 = new THREE.Mesh(
+      new THREE.OctahedronGeometry(0.3, 0),
       new THREE.MeshBasicMaterial({
-        color: 0xe8c96a, transparent: true, opacity: 0.3,
+        color: 0xfff0c0, transparent: true, opacity: 0.85, depthTest: false,
+      }),
+    );
+    diamond2.name = 'diamond2';
+    diamond2.renderOrder = 999;
+    diamond2.position.y = 6.4;
+    g.add(diamond2);
+    const shaft = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.09, 0.14, 5.6, 8, 1, true),
+      new THREE.MeshBasicMaterial({
+        color: 0xffd76a, transparent: true, opacity: 0.34,
         depthTest: false, blending: THREE.AdditiveBlending,
       }),
     );
     shaft.renderOrder = 998;
-    shaft.position.y = 1.75;
+    shaft.position.y = 2.8;
     g.add(shaft);
-    const ring = new THREE.Mesh(
-      new THREE.RingGeometry(0.55, 0.78, 24),
-      new THREE.MeshBasicMaterial({
-        color: 0xe8c96a, transparent: true, opacity: 0.28, depthTest: false,
-        side: THREE.DoubleSide, blending: THREE.AdditiveBlending,
-      }),
-    );
-    ring.rotation.x = -Math.PI / 2;
-    ring.renderOrder = 998;
-    ring.position.y = 0.06;
-    g.add(ring);
+    for (const [ri, rad] of [[0, 0.7], [1, 1.15]] as const) {
+      const ring = new THREE.Mesh(
+        new THREE.RingGeometry(rad, rad + 0.2, 28),
+        new THREE.MeshBasicMaterial({
+          color: 0xffd76a, transparent: true, opacity: 0.3, depthTest: false,
+          side: THREE.DoubleSide, blending: THREE.AdditiveBlending,
+        }),
+      );
+      ring.name = ri === 0 ? 'ring' : 'ring2';
+      ring.rotation.x = -Math.PI / 2;
+      ring.renderOrder = 998;
+      ring.position.y = 0.06 + ri * 0.04;
+      g.add(ring);
+    }
     g.visible = false;
     this.engine.scene.add(g);
     this.questBeacon = g;
@@ -2233,12 +2473,24 @@ export class Game {
   private tickQuestBeacon(dt: number): void {
     const g = this.questBeacon;
     if (!g || !g.visible) return;
+    const now = performance.now();
     const diamond = g.getObjectByName('diamond') as THREE.Mesh | undefined;
     if (diamond) {
       diamond.rotation.y += dt * 2.2;
-      diamond.position.y = 3.2 + Math.sin(performance.now() * 0.0021) * 0.22;
+      diamond.position.y = 5.0 + Math.sin(now * 0.0021) * 0.3;
     }
-    g.scale.setScalar(0.94 + Math.sin(performance.now() * 0.0031) * 0.05);
+    const diamond2 = g.getObjectByName('diamond2') as THREE.Mesh | undefined;
+    if (diamond2) {
+      diamond2.rotation.y -= dt * 3.4;
+      diamond2.position.y = 6.4 + Math.sin(now * 0.0027 + 1.3) * 0.22;
+    }
+    const ring2 = g.getObjectByName('ring2') as THREE.Mesh | undefined;
+    if (ring2) {
+      const pulse = 1 + Math.sin(now * 0.0035) * 0.16;
+      ring2.scale.setScalar(pulse);
+      (ring2.material as THREE.MeshBasicMaterial).opacity = 0.22 + Math.sin(now * 0.0035) * 0.12;
+    }
+    g.scale.setScalar(0.94 + Math.sin(now * 0.0031) * 0.05);
   }
 
   /**
@@ -2292,13 +2544,26 @@ export class Game {
         return npc.position.clone();
       }
     }
+    // 3.5) Fase 12 — bounty hunts: point at the NEAREST bandit camp
+    if (obj.type === 'kill' && t === 'bandit' && this.player) {
+      const CAMPS: Array<[number, number]> = [
+        [62, 58], [-206, -112], [-118, -232], [-286, 170],
+      ];
+      let best: [number, number] | null = null;
+      let bestD = Infinity;
+      for (const c of CAMPS) {
+        const d = Math.hypot(c[0] - this.player.position.x, c[1] - this.player.position.z);
+        if (d < bestD) { bestD = d; best = c; }
+      }
+      if (best) return new THREE.Vector3(best[0], 0, best[1]);
+    }
     // 4) collect items → known source areas
     const SOURCES: Record<string, [number, number]> = {
       petalo: [22, 158],        // plaza + prado norte (the mission text)
       madera: [14, 252],        // Bram's stamped crates — the dock first
       lona: [26, 170],          // Rosa prepares the canvas (market row)
       cuerda: [34, 176],        // Tom has the hemp rope (market row)
-      sello: [-505, -378],      // aboard the Gaviota Sangrienta
+      sello: [-425, -308],      // aboard the Gaviota Sangrienta
       escama: [40, -320],       // the dragons of the frozen peaks
     };
     if (obj.type === 'collect' && SOURCES[t]) {
@@ -2307,7 +2572,7 @@ export class Game {
     // 5) flag objectives → hand-mapped landmarks
     const FLAGS: Record<string, [number, number]> = {
       reached_crow: [-560, -420],   // Crow Isle waters
-      morwen_defeated: [-505, -378],
+      morwen_defeated: [-425, -308],
       maren_herbs_done: [26, 170],
       read_letter: [20, 150],
     };
@@ -2362,8 +2627,8 @@ export class Game {
     if (this.state.exploredMap.length !== size * size) {
       this.state.exploredMap = new Array(size * size).fill(false);
     }
-    const cx = Math.floor(((x + 1024) / 2048) * size);
-    const cz = Math.floor(((z + 1024) / 2048) * size);
+    const cx = Math.floor(((x + 716) / 1432) * size);
+    const cz = Math.floor(((z + 716) / 1432) * size);
     for (let dz = -radiusCells; dz <= radiusCells; dz++) {
       for (let dx = -radiusCells; dx <= radiusCells; dx++) {
         const ix = cx + dx;
