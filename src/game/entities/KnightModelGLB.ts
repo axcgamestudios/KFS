@@ -557,13 +557,24 @@ export class KnightModelGLB implements CharacterVisual {
 
   // ------------------------------------------------------------ animation
 
+  /** Fase 14 — scratch reutilizable: zero() creaba un objeto + 15 arrays por
+   *  frame POR MODELO (17 caballeros = 270 arrays/frame de presión de GC). */
+  private zeroScratch: PoseTarget = {};
   private zero(): PoseTarget {
-    const p: PoseTarget = {};
-    for (const n of BONE_NAMES) p[n] = [0, 0, 0];
+    const p = this.zeroScratch;
+    for (const n of BONE_NAMES) {
+      const e = p[n];
+      if (e) { e[0] = 0; e[1] = 0; e[2] = 0; }
+      else p[n] = [0, 0, 0];
+    }
     return p;
   }
 
   update(p: AnimParams): void {
+    // Fase 14 — culling de animación: lejos del jugador el sistema dueño
+    // pasa dt = 0 y la pose queda congelada (invisible a esa distancia,
+    // todo el álgebra de huesos ahorrada). El propio modelo sigue en su sitio.
+    if (p.dt <= 0) return;
     this.t += p.dt;
     const dt = Math.max(1e-4, p.dt);
     const target = this.zero();

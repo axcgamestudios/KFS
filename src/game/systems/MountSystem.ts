@@ -304,6 +304,12 @@ export class MountSystem {
     for (const h of this.horses) {
       const ridden = h.id === this.ridingId;
 
+      // Fase 14 — culling de monturas: lejos no se dibuja y la pose se
+      // congela (el caballo montaño sigue pastando, solo que gratis).
+      const hd2 = (h.pos.x - playerPos.x) ** 2 + (h.pos.z - playerPos.z) ** 2;
+      const farAnim = !ridden && hd2 > 70 * 70;
+      if (!ridden) h.model.root.visible = hd2 < 300 * 300;
+
       if (ridden && controlsActive) {
         hud = this.updateRiding(dt, input, h, waterHeightAt);
       } else if (h.ai === 'coming') {
@@ -333,7 +339,7 @@ export class MountSystem {
       h.model.root.position.copy(h.pos);
       h.model.root.rotation.y = h.yaw;
       const grazing = !ridden && h.speed < 0.2 && h.ai === 'idle';
-      h.model.update(dt, h.gait, h.speed, grazing);
+      if (!farAnim) h.model.update(dt, h.gait, h.speed, grazing);
 
       // Hoofbeats: fire when the stride phase wraps
       if (h.gait !== 'idle' && h.speed > 0.5) {

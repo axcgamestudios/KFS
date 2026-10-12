@@ -4,11 +4,12 @@ import { Input } from './core/Input';
 import { buildWorld, type WorldRefs, type Interactable } from './GameWorld';
 import { ColliderRegistry } from './systems/ColliderRegistry';
 import { GameState, SKILLS, xpForLevel } from './systems/GameState';
+import { getFlameFX } from './world/FlameFX';
 import { DialogueSystem } from './systems/DialogueSystem';
 import { AudioSystem } from './systems/AudioSystem';
 import { SaveSystem, type SaveData, type Settings, resolveSettings } from './systems/SaveSystem';
 import {
-  gfxRuntime, graphicsOf, applyPreset, fogMulForChunks, cameraFarForChunks, ASSET_BASE,
+  gfxRuntime, graphicsOf, applyPreset, fogMulForChunks, cameraFarForChunks, ASSET_BASE, CLOUD_QUAL, FLAME_BUDGET,
 } from './core/Graphics';
 import { QUALITY_PRESETS, type QualityLevel } from './core/Engine';
 import { Player } from './entities/Player';
@@ -160,7 +161,9 @@ export class Game {
     this.settings = resolveSettings(SaveSystem.readSettings());
     const bootGfx = graphicsOf(this.settings);
     const bootTier: QualityLevel = this.settings.tier;
-    const antialias = bootGfx.resolution >= 0.85 && this.settings.quality !== 'xlow' && this.settings.quality !== 'low';
+    // Fase 14 — el MSAA multiplica TODO el coste de fragmentos ×2-3 (agua,
+    // cielo, pasto…). Solo en alta/ultra: en media el fill-rate vale más.
+    const antialias = bootGfx.resolution >= 1.0 && (bootTier === 'high' || bootTier === 'ultra');
 
     this.engine = new Engine(canvas, { antialias });
     this.engine.applyGraphics(bootGfx, bootTier);
@@ -237,6 +240,13 @@ export class Game {
       refl: gfx0.reflections,
       waves: gfx0.waves,
     });
+    // Fase 14 — nubes por escalón + pasto fuera del reflejo + llenado suave
+    world.sky.setCloudQuality(CLOUD_QUAL[this.settings.tier]);
+    world.water.reflHide = world.vegetation.grassMeshes;
+    const fills0 = this.settings.tier === 'ultra' ? 8 : this.settings.tier === 'high' ? 6 : this.settings.tier === 'medium' ? 3 : 4;
+    world.vegetation.setGrassDensity(q0.grassDensity, fills0);
+    // Fase 14 — presupuesto de llamas simultáneas por escalón
+    try { getFlameFX().setBudget(FLAME_BUDGET[this.settings.tier]); } catch { /* sin escena aún */ }
     this.npcAnimDistance = q0.npcAnimDistance;
     this.engine.camera.far = cameraFarForChunks(gfx0.renderChunks);
     this.engine.camera.updateProjectionMatrix();
@@ -1748,7 +1758,8 @@ export class Game {
       w.water.setSky(w.sky.sunDir, w.sky.sunColor, w.sky.zenithColor, w.sky.horizonColor, w.sky.nightFactor);
       w.terrain.update(p.position.x, p.position.z);
       w.vegetation.update(p.position.x, p.position.z);
-      w.gulls.update(dt);
+      // Fase 14 — gaviotas con culling de distancia
+      w.gulls.update(dt, p.position);
       return;
     }
 
@@ -2043,7 +2054,8 @@ export class Game {
     // Fase 13 — la distancia de stream de estructuras sigue la distancia de
     // renderizado del jugador (chunks): nada de cargar lo que no se ve.
     w.streamer.update(dt, focusX, focusZ, this.engine.quality.viewChunkRadius * 64 * 1.15);
-    w.gulls.update(dt);
+    // Fase 14 — gaviotas con culling de distancia
+    w.gulls.update(dt, p.position);
     w.village.torches.update(dt, w.sky.nightFactor, p.position);
     updateChests(dt, w.chests.map((c) => c.handles));
 
@@ -2806,7 +2818,9 @@ export class Game {
       this.postfx?.setEnabled(this.engine.quality.postfx);
       this.world?.terrain.setChunkRadius(gfx.renderChunks);
       const q = this.engine.quality;
-      this.world?.vegetation.setGrassDensity(q.grassDensity);
+      // Fase 14 — ritmo de relleno del pasto por escalón (anti-stutter)
+      const fillsPerFrame = tier === 'ultra' ? 8 : tier === 'high' ? 6 : tier === 'medium' ? 3 : 4;
+      this.world?.vegetation.setGrassDensity(q.grassDensity, fillsPerFrame);
       this.world?.water.applyGraphicsOptions({
         segments: q.waterSegments,
         waveRadius: q.waveMotionRadius,
@@ -2815,7 +2829,13 @@ export class Game {
       });
       if (this.world) {
         this.world.sky.qualityFogMul = fogMulForChunks(q.fogMul, gfx.renderChunks, QUALITY_PRESETS[tier].viewChunkRadius);
+        // Fase 14 — nubes por escalón; el pasto se recrea al cambiar densidad:
+        // re-anclar los meshes vivos al excluidor del reflejo.
+        this.world.sky.setCloudQuality(CLOUD_QUAL[tier]);
+        this.world.water.reflHide = this.world.vegetation.grassMeshes;
       }
+      // Fase 14 — presupuesto de llamas simultáneas por escalón
+      try { getFlameFX().setBudget(FLAME_BUDGET[tier]); } catch { /* sin escena aún */ }
       this.engine.camera.far = cameraFarForChunks(gfx.renderChunks);
       this.engine.camera.updateProjectionMatrix();
       this.npcAnimDistance = q.npcAnimDistance;
@@ -3018,6 +3038,11 @@ export class Game {
       chunkRadius: w?.terrain.chunkRadius,
       fogMul: w?.sky.qualityFogMul,
       pointLights: gfxRuntime.pointLights,
+      // Fase 14 — métricas de rendimiento para E2E
+      cloudQual: w?.sky.cloudQual,
+      grassBlades: w?.vegetation.stats.blades,
+      waterSegments: (w?.water as unknown as { mesh?: { geometry: { parameters?: { widthSegments?: number } } } })
+        ?.mesh?.geometry?.parameters?.widthSegments,
       settings: { ...this.settings },
     };
   }

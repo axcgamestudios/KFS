@@ -44,12 +44,14 @@ export const PRESET_GRAPHICS: Record<QualityLevel, GraphicsSettings> = {
     renderChunks: 4, reflections: 0, postfx: false, resolution: 0.75, showFps: true,
   },
   medium: {
+    // Fase 14 — la reflexión planar re-renderiza la escena entera: en Media
+    // se queda APAGADA (solo cielo procedural). High = baja, Ultra = alta.
     waves: true, shadows: true, realLights: true, grass3d: true,
-    renderChunks: 5, reflections: 1, postfx: false, resolution: 1.0, showFps: true,
+    renderChunks: 5, reflections: 0, postfx: false, resolution: 1.0, showFps: true,
   },
   high: {
     waves: true, shadows: true, realLights: true, grass3d: true,
-    renderChunks: 6, reflections: 2, postfx: false, resolution: 1.25, showFps: true,
+    renderChunks: 6, reflections: 1, postfx: false, resolution: 1.25, showFps: true,
   },
   ultra: {
     waves: true, shadows: true, realLights: true, grass3d: true,
@@ -59,6 +61,20 @@ export const PRESET_GRAPHICS: Record<QualityLevel, GraphicsSettings> = {
 
 /** Preset por defecto: Media — nada de "ultra y todo eso" de fábrica. */
 export const DEFAULT_TIER: QualityLevel = 'medium';
+
+/** Fase 14 — calidad de nubes del domo por escalón (ver SkySystem.uCloudQual):
+ *  xlow sin nubes · baja/media la capa cúmulo (media con auto-sombra) ·
+ *  alta añade las dos capas superiores · ultra todo. El pase de reflexión
+ *  del mar SIEMPRE va sin nubes (el agua las distorsiona igual). */
+export const CLOUD_QUAL: Record<QualityLevel, number> = {
+  xlow: 0, low: 1, medium: 2, high: 3, ultra: 3,
+};
+
+/** Fase 14 — llamas transitorias simultáneas (aliento de dragón, impactos,
+ *  fogonazos): cada una es un quad aditivo = un draw call transparente. */
+export const FLAME_BUDGET: Record<QualityLevel, number> = {
+  xlow: 16, low: 24, medium: 44, high: 90, ultra: 150,
+};
 
 /** Estado global de runtime que consultan los dueños de PointLights
  *  (VFX, antorchas, farol, caballeros, dragones) cada frame. */

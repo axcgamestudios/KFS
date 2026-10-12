@@ -8,6 +8,7 @@ import { StructureStreamer } from './world/StructureStreamer';
 import { AssetSystem } from './world/AssetSystem';
 import { KitSystem } from './world/KitSystem';
 import { dressWithKits } from './world/Dressing';
+import { mergeStaticGroup } from './world/MergeUtils';
 import { WeatherSystem } from './world/WeatherSystem';
 import { buildCastle } from './structures/Castle';
 import { buildVillage, type VillageLayout } from './structures/Village';
@@ -157,8 +158,9 @@ export async function buildWorld(
   prog(0.10, 'Plantando los bosques antiguos…');
   // Fase 13 — densidad inicial del pasto: interruptor del jugador si llegó,
   // escalón de calidad en caso contrario.
-  const baseGrass = quality === 'xlow' || quality === 'low' ? 0 : quality === 'medium' ? 0.4 : quality === 'high' ? 0.75 : 1;
-  const initialGrass = gfx ? (gfx.grass3d ? Math.max(gfx.grassDensity ?? 0.5, 0.4) : 0) : baseGrass;
+  const baseGrass = quality === 'xlow' || quality === 'low' ? 0 : quality === 'medium' ? 0.26 : quality === 'high' ? 0.65 : 1;
+  // Fase 14 — sin suelo artificial: la densidad del escalón, tal cual.
+  const initialGrass = gfx ? (gfx.grass3d ? (gfx.grassDensity ?? 0.5) : 0) : baseGrass;
   const vegetation = new VegetationSystem(
     terrainHeight, initialGrass, scene,
     assets.mapleBark && assets.mapleLeaf ? { bark: assets.mapleBark, leaf: assets.mapleLeaf } : undefined,
@@ -199,6 +201,12 @@ export async function buildWorld(
     squareCenter: village.squareCenter,
     castleGate: castle.gatePos,
   });
+  // Fase 14 — los ~45 props del vestuario pasan de 150-200 meshes a ~30
+  // buffers fusionados por material (mismo visual, una fracción de draws).
+  const merged = mergeStaticGroup(dressed);
+  if (typeof console !== 'undefined') {
+    console.info(`[KFS] kits fusionados: ${merged.before} meshes → ${merged.after} draw batches`);
+  }
   streamer.register(dressed, 20, 200, 150);
 
   prog(0.45, 'Sembrando ruinas y misterios…');

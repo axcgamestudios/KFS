@@ -441,11 +441,25 @@ export class VegetationSystem {
     this.treeColliderRemove = removePrefix;
   }
 
-  setGrassDensity(d: number): void {
+  setGrassDensity(d: number, fillsPerFrame?: number): void {
+    // Fase 14 — ritmo de relleno por escalón: menos tiles/frame = sin picos
+    // de stutter al caminar (el pop-in es lejano, nadie lo ve).
+    this.grassField.setDensity(d, fillsPerFrame);
+    this.farGrass.setDensity(Math.min(1, d * 1.1));
     if (Math.abs(d - this.grassDensity) < 0.001) return;
     this.grassDensity = d;
-    this.grassField.setDensity(d);
-    this.farGrass.setDensity(Math.min(1, d * 1.1));
+  }
+
+  /** Fase 14 — meshes del pasto, para excluirlos del pase de reflexión del
+   *  mar (medio millón de triángulos re-dibujados que el agua distorsiona
+   * igual: pura pérdida). */
+  get grassMeshes(): THREE.Object3D[] {
+    const out: THREE.Object3D[] = [];
+    const g = this.grassField.meshObject;
+    if (g) out.push(g);
+    const f = this.farGrass.meshObject;
+    if (f) out.push(f);
+    return out;
   }
 
   /** Fase 6 — el GrassField se autogestiona por frame en update(); esta

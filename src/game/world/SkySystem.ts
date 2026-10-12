@@ -1,6 +1,17 @@
 import * as THREE from 'three';
 import { clamp, lerp, smoothstep } from '../core/MathUtils';
 
+/** Fase 14 — scratch colors compartidos: el update() mezclaba 13 colores
+ *  nuevos por frame (presión de GC constante en el bucle). */
+const SCRATCH = {
+  tmp: new THREE.Color(),
+  fog: new THREE.Color(),
+  hemiSky: new THREE.Color(),
+  hemiGround: new THREE.Color(),
+  moonLight: new THREE.Color(0x8fa8cc),
+  lightning: new THREE.Color(0xd8e2ee),
+};
+
 /** Length of a full in-game day in real seconds. */
 export const DAY_LENGTH_SECONDS = 600;
 
@@ -80,6 +91,10 @@ export class SkySystem {
         uTime: { value: 0 },
         uCloudCover: { value: 0.18 },
         uCloudDark: { value: 0 },
+        /** Fase 14 — calidad de nubes: 0 = solo gradiente (xlow/baja y pase
+         *  de reflexión), 1 = capa cúmulus sin auto-sombra (media),
+         *  2 = cúmulus + auto-sombra (alta), 3 = las tres capas (ultra). */
+        uCloudQual: { value: 3 },
       },
       vertexShader: /* glsl */ `
         varying vec3 vDir;
@@ -99,6 +114,7 @@ export class SkySystem {
         uniform float uTime;
         uniform float uCloudCover;
         uniform float uCloudDark;
+        uniform float uCloudQual;
         varying vec3 vDir;
 
         float hash21(vec2 p) {
@@ -194,9 +210,14 @@ export class SkySystem {
             // soft rounded edge: the mass feather is wider than the threshold
             m = m * (0.72 + 0.28 * smoothstep(thLo, thHi + 0.12, f));
             // depth toward the sun: denser between us and the light = darker
-            vec2 towardSun = sun.xz * 0.5;
-            float f2 = fbm((cuv + towardSun) * 0.5 + 11.3) * 0.72 + fbm((cuv + towardSun) * 1.9 + 31.7) * 0.28;
-            float denser = clamp((f - f2) * 2.4, -0.3, 0.85);
+            // (Fase 14 — la auto-sombra es la mitad del coste de la capa:
+            // solo con calidad >= 2)
+            float denser = 0.0;
+            if (uCloudQual >= 1.5) {
+              vec2 towardSun = sun.xz * 0.5;
+              float f2 = fbm((cuv + towardSun) * 0.5 + 11.3) * 0.72 + fbm((cuv + towardSun) * 1.9 + 31.7) * 0.28;
+              denser = clamp((f - f2) * 2.4, -0.3, 0.85);
+            }
             vec3 lc = cloudCol * (1.0 - max(0.0, denser) * 1.1);
             lc += cloudCol * pow(sunAmt, 6.0) * 0.35;      // rim light
             float horizonFade = smoothstep(0.008, 0.12, dir.y);
@@ -207,7 +228,8 @@ export class SkySystem {
           // ---- LAYER 2 — altocumulus deck: a clearly SEPARATE stratum ----
           // Plain fbm (no warp — warp reads as ink), small cellular scale,
           // cooler tint, own band above the cumulus.
-          {
+          // (Fase 14 — solo con calidad 3/ultra: es la capa menos visible)
+          if (uCloudQual >= 2.5) {
             vec2 cuv = dir.xz / (dir.y * 0.42 + 0.10) * 0.21 - drift * 1.15 + 77.0;
             float f = fbm(cuv * 1.7 + 3.1) * 0.75 + fbm(cuv * 3.4 + 5.3) * 0.25;
             float thLo = mix(0.62, 0.32, uCloudCover);
@@ -222,7 +244,7 @@ export class SkySystem {
           // ---- LAYER 3 — cirrus filaments, ONLY near the zenith ----
           // Retune: sharper anisotropy (longer, thinner), weaker warp and a
           // higher band so the mid sky belongs to the cumulus.
-          {
+          if (uCloudQual >= 2.5) {
             vec2 cuv = dir.xz / (dir.y * 0.8 + 0.22) * 0.13 + drift * 1.8;
             // stretched noise = long thin strands
             float f = fbm(cuv * vec2(2.2, 0.18) + 19.0);
@@ -248,6 +270,16 @@ export class SkySystem {
     this.dome = new THREE.Mesh(domeGeo, this.domeMat);
     this.dome.renderOrder = -10;
     this.dome.frustumCulled = false;
+    // Fase 14 — el pase de reflexión del mar re-dibuja el domo entero: allí
+    // las nubes se saltan (la distorsión del agua las borra igual) y queda
+    // solo el gradiente. Se detecta por la marca de la cámara espejo.
+    this.dome.onBeforeRender = (_r, _s, cam) => {
+      if ((cam as THREE.Camera).userData?.kfsRefl) {
+        this.domeMat.uniforms.uCloudQual.value = 0;
+      } else {
+        this.domeMat.uniforms.uCloudQual.value = this.cloudQual;
+      }
+    };
 
     this.sunLight = new THREE.DirectionalLight(0xfff2dd, 2.4);
     this.sunLight.castShadow = true;
@@ -301,41 +333,37 @@ export class SkySystem {
     const nightWeight = 1 - smoothstep(-0.16, 0.02, sy);
     const wSum = dawnWeight + dayWeight + nightWeight;
 
-    const mixColor = (
+    // Fase 14 — mezcla SIN allocar: escribe directo en el destino
+    const mixInto = (
+      out: THREE.Color,
       key: 'zenith' | 'horizon' | 'fog' | 'sunColor' | 'hemiSky' | 'hemiGround',
-    ): THREE.Color => {
-      const c = new THREE.Color(0, 0, 0);
-      const tmp = new THREE.Color();
-      tmp.copy(PALETTE_DAWN[key]).multiplyScalar(dawnWeight / wSum);
-      c.add(tmp);
-      tmp.copy(PALETTE_DAY[key]).multiplyScalar(dayWeight / wSum);
-      c.add(tmp);
-      tmp.copy(PALETTE_NIGHT[key]).multiplyScalar(nightWeight / wSum);
-      c.add(tmp);
-      return c;
+    ): void => {
+      out.setRGB(0, 0, 0);
+      SCRATCH.tmp.copy(PALETTE_DAWN[key]).multiplyScalar(dawnWeight / wSum);
+      out.add(SCRATCH.tmp);
+      SCRATCH.tmp.copy(PALETTE_DAY[key]).multiplyScalar(dayWeight / wSum);
+      out.add(SCRATCH.tmp);
+      SCRATCH.tmp.copy(PALETTE_NIGHT[key]).multiplyScalar(nightWeight / wSum);
+      out.add(SCRATCH.tmp);
     };
     const mixNum = (key: 'hemiIntensity' | 'fogDensity'): number =>
       ((PALETTE_DAWN[key] as number) * dawnWeight +
         (PALETTE_DAY[key] as number) * dayWeight +
         (PALETTE_NIGHT[key] as number) * nightWeight) / wSum;
 
-    const zenith = mixColor('zenith');
-    const horizon = mixColor('horizon');
-    const fog = mixColor('fog');
-    const sunCol = mixColor('sunColor');
-    const hemiSky = mixColor('hemiSky');
-    const hemiGround = mixColor('hemiGround');
+    mixInto(this.zenithColor, 'zenith');
+    mixInto(this.horizonColor, 'horizon');
+    mixInto(SCRATCH.fog, 'fog');
+    mixInto(this.sunColor, 'sunColor');
+    mixInto(SCRATCH.hemiSky, 'hemiSky');
+    mixInto(SCRATCH.hemiGround, 'hemiGround');
     const hemiInt = mixNum('hemiIntensity');
     const fogDensity = mixNum('fogDensity');
-
-    this.zenithColor.copy(zenith);
-    this.horizonColor.copy(horizon);
-    this.sunColor.copy(sunCol);
 
     // Directional light: sun by day, moon by night (single shadow caster)
     const isDay = this.dayFactor > 0.5;
     const dir = isDay ? this.sunDir : this.moonDir;
-    this.sunLight.color.copy(isDay ? sunCol : new THREE.Color(0x8fa8cc));
+    this.sunLight.color.copy(isDay ? this.sunColor : SCRATCH.moonLight);
     this.sunLight.intensity =
       (isDay
         ? 0.35 + this.dayFactor * 2.3
@@ -345,15 +373,15 @@ export class SkySystem {
     this.sunLight.target.updateMatrixWorld();
     this.sunLight.castShadow = shadowsEnabled && this.sunLight.intensity > 0.12;
 
-    this.hemiLight.color.copy(hemiSky);
-    this.hemiLight.groundColor.copy(hemiGround);
+    this.hemiLight.color.copy(SCRATCH.hemiSky);
+    this.hemiLight.groundColor.copy(SCRATCH.hemiGround);
     this.hemiLight.intensity = hemiInt * this.weatherLightMul + this.lightning * 0.9;
 
     const scene = this.dome.parent as THREE.Scene | null;
     if (scene && scene.fog) {
       const f = scene.fog as THREE.FogExp2;
-      f.color.copy(fog);
-      if (this.lightning > 0.01) f.color.lerp(new THREE.Color(0xd8e2ee), this.lightning * 0.55);
+      f.color.copy(SCRATCH.fog);
+      if (this.lightning > 0.01) f.color.lerp(SCRATCH.lightning, this.lightning * 0.55);
       f.density = fogDensity * this.weatherFogMul * this.qualityFogMul;
     }
 
@@ -367,6 +395,14 @@ export class SkySystem {
   /** Serializable clock state. */
   serialize(): { dayFraction: number; dayCount: number } {
     return { dayFraction: this.dayFraction, dayCount: this.dayCount };
+  }
+
+  /** Fase 14 — calidad de nubes por escalón (ver uCloudQual en el shader).
+   *  xlow/baja 0 · media 1 · alta 2 · ultra 3. */
+  cloudQual = 3;
+  setCloudQuality(q: number): void {
+    this.cloudQual = Math.max(0, Math.min(3, Math.round(q)));
+    this.domeMat.uniforms.uCloudQual.value = this.cloudQual;
   }
 
   /** Fase 4 — weather hooks (called by Game before update()). */

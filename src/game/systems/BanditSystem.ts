@@ -235,6 +235,9 @@ class Bandit {
     terrain: TerrainHeight,
     playerVulnerable: boolean,
     hooks: BanditHooks,
+    /** Fase 14 — true cuando está lejos: la IA sigue (barata) pero la pose
+     *  del caballero se congela (dt 0) — el álgebra de huesos es lo caro. */
+    farAnim = false,
   ): void {
     const g = this.group;
 
@@ -418,7 +421,7 @@ class Bandit {
     // --- animation ---
     this.phase += dt * (this.speedSm > 3.2 ? 8.6 : 5.4) * (this.moving ? 1 : 0);
     this.model?.update({
-      dt,
+      dt: farAnim ? 0 : dt,
       speed: this.speedSm,
       moving: this.moving,
       grounded: true,
@@ -795,10 +798,14 @@ export class BanditSystem {
         this.attachVisual(b, b.captain);
         continue;
       }
-      // culling: far camps animate cheap (pose frozen, schedules continue)
+      // culling Fase 14 — tres anillos:
+      //  · >330 m: ni se dibuja (los vivos; los muertos gestionan su visible)
+      //  · >210 m: ni IA (comportamiento previo, se re-engancha al volver)
+      //  · >70 m: IA sí, pose congelada (el hueso es lo caro, no el steering)
       const d2 = (b.pos.x - playerPos.x) ** 2 + (b.pos.z - playerPos.z) ** 2;
+      if (!b.dead) b.group.visible = d2 < 330 * 330;
       if (d2 > 210 * 210) continue;
-      b.update(dt, playerPos, this.terrain, playerVulnerable, this.hooks);
+      b.update(dt, playerPos, this.terrain, playerVulnerable, this.hooks, d2 > 70 * 70);
     }
   }
 

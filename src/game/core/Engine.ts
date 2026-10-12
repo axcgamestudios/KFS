@@ -36,12 +36,19 @@ const SHADOW_SIZE_BY_TIER: Record<QualityLevel, number> = {
   xlow: 1024, low: 1024, medium: 1024, high: 2048, ultra: 4096,
 };
 
+/** Cada cuántos frames se re-renderiza el mapa de sombras (Fase 14 — el sol
+ *  se mueve despacio: a 30+ fps una sombra con 2 frames de antigüedad es
+ *  invisible y ahorra un pase completo de la escena cada 2º frame). */
+const SHADOW_RATE_BY_TIER: Record<QualityLevel, number> = {
+  xlow: 4, low: 3, medium: 2, high: 1, ultra: 1,
+};
+
 export const QUALITY_PRESETS: Record<QualityLevel, QualitySettings> = {
-  xlow:   { pixelRatioCap: 0.62, shadowMapSize: 0,    shadowsEnabled: false, viewChunkRadius: 2, grassDensity: 0.0,  anisotropy: 1, postfx: false, fogMul: 3.4, waterSegments: 96,  waveMotionRadius: 45,  waterRefl: 0, npcAnimDistance: 28, streamDistance: 0.45 },
-  low:    { pixelRatioCap: 0.75, shadowMapSize: 0,    shadowsEnabled: false, viewChunkRadius: 4, grassDensity: 0.0,  anisotropy: 1, postfx: false, fogMul: 1.7, waterSegments: 160, waveMotionRadius: 80, waterRefl: 0, npcAnimDistance: 45, streamDistance: 0.7 },
-  medium: { pixelRatioCap: 1.0,  shadowMapSize: 1024, shadowsEnabled: true,  viewChunkRadius: 5, grassDensity: 0.4,  anisotropy: 2, postfx: false, fogMul: 1.15, waterSegments: 224, waveMotionRadius: 110, waterRefl: 0, npcAnimDistance: 70, streamDistance: 0.9 },
-  high:   { pixelRatioCap: 1.25, shadowMapSize: 2048, shadowsEnabled: true,  viewChunkRadius: 6, grassDensity: 1.0, anisotropy: 4, postfx: false, fogMul: 1.0, waterSegments: 320, waveMotionRadius: 130, waterRefl: 1, npcAnimDistance: 95, streamDistance: 1.0 },
-  ultra:  { pixelRatioCap: 1.5,  shadowMapSize: 4096, shadowsEnabled: true,  viewChunkRadius: 7, grassDensity: 1.35,  anisotropy: 8, postfx: true,  fogMul: 0.92, waterSegments: 384, waveMotionRadius: 160, waterRefl: 1, npcAnimDistance: 130, streamDistance: 1.0 },
+  xlow:   { pixelRatioCap: 0.62, shadowMapSize: 0,    shadowsEnabled: false, viewChunkRadius: 2, grassDensity: 0.0,  anisotropy: 1, postfx: false, fogMul: 3.4, waterSegments: 80,  waveMotionRadius: 45,  waterRefl: 0, npcAnimDistance: 28, streamDistance: 0.45 },
+  low:    { pixelRatioCap: 0.75, shadowMapSize: 0,    shadowsEnabled: false, viewChunkRadius: 4, grassDensity: 0.0,  anisotropy: 1, postfx: false, fogMul: 1.7, waterSegments: 112, waveMotionRadius: 80,  waterRefl: 0, npcAnimDistance: 45, streamDistance: 0.7 },
+  medium: { pixelRatioCap: 1.0,  shadowMapSize: 1024, shadowsEnabled: true,  viewChunkRadius: 5, grassDensity: 0.26, anisotropy: 2, postfx: false, fogMul: 1.25, waterSegments: 152, waveMotionRadius: 95,  waterRefl: 0, npcAnimDistance: 55, streamDistance: 0.9 },
+  high:   { pixelRatioCap: 1.25, shadowMapSize: 2048, shadowsEnabled: true,  viewChunkRadius: 6, grassDensity: 0.65, anisotropy: 4, postfx: false, fogMul: 1.0, waterSegments: 208, waveMotionRadius: 130, waterRefl: 1, npcAnimDistance: 95, streamDistance: 1.0 },
+  ultra:  { pixelRatioCap: 1.5,  shadowMapSize: 4096, shadowsEnabled: true,  viewChunkRadius: 7, grassDensity: 1.0,  anisotropy: 8, postfx: true,  fogMul: 0.92, waterSegments: 280, waveMotionRadius: 160, waterRefl: 1, npcAnimDistance: 130, streamDistance: 1.0 },
 };
 
 /**
@@ -57,6 +64,9 @@ export class Engine {
   private updaters: Array<(dt: number, elapsed: number) => void> = [];
   private running = false;
   private frameHandle = 0;
+  /** Fase 14 — sombras cada N frames (1 = cada frame). */
+  private shadowEvery = 1;
+  private frameIdx = 0;
   fps = 60;
   private fpsAccum = 0;
   private fpsFrames = 0;
@@ -78,7 +88,9 @@ export class Engine {
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.05;
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // Fase 14 — PCF (no soft) salvo en high/ultra: el filtro soft son muchas
+    // más muestras de textura por píxel iluminado y en integradas duele.
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
 
     this.scene = new THREE.Scene();
     this.scene.fog = new THREE.FogExp2(0x9db4c0, 0.0022);
@@ -149,6 +161,7 @@ export class Engine {
   applyGraphics(gfx: GraphicsSettings, tier: QualityLevel): void {
     const prevShadows = this.quality.shadowsEnabled;
     const prevShadowSize = this.quality.shadowMapSize;
+    const prevShadowType = this.renderer.shadowMap.type;
     const base = QUALITY_PRESETS[tier];
     this.quality = {
       ...base,
@@ -156,10 +169,18 @@ export class Engine {
       shadowsEnabled: gfx.shadows,
       shadowMapSize: gfx.shadows ? SHADOW_SIZE_BY_TIER[tier] : 0,
       viewChunkRadius: gfx.renderChunks,
-      grassDensity: gfx.grass3d ? Math.max(base.grassDensity, 0.4) : 0,
+      // Fase 14 — sin suelo de 0.4: la densidad de pasto es la del escalón.
+      grassDensity: gfx.grass3d ? base.grassDensity : 0,
       postfx: gfx.postfx,
       waterRefl: gfx.reflections > 0 ? 1 : 0,
     };
+    // Fase 14 — cadencia + filtro de sombras por escalón
+    this.shadowEvery = this.quality.shadowsEnabled ? SHADOW_RATE_BY_TIER[tier] : 1;
+    const wantSoft = tier === 'high' || tier === 'ultra';
+    const shadowTypeChanged = prevShadowType !== (wantSoft ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap);
+    this.renderer.shadowMap.type = wantSoft ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
+    this.renderer.shadowMap.autoUpdate = this.shadowEvery <= 1;
+    if (!this.renderer.shadowMap.autoUpdate) this.renderer.shadowMap.needsUpdate = true;
     const pr = Math.min(window.devicePixelRatio, this.quality.pixelRatioCap);
     this.renderer.setPixelRatio(pr);
     this.renderer.shadowMap.enabled = this.quality.shadowsEnabled;
@@ -188,8 +209,8 @@ export class Engine {
         mats.forEach((m) => {
           const std = m as THREE.MeshStandardMaterial;
           if (std.map) std.map.anisotropy = this.quality.anisotropy;
-          // Shadow on/off & shadow map size require shader recompilation
-          if ((shadowsToggled || shadowSizeChanged) && m.type !== 'ShaderMaterial') {
+          // Shadow on/off, map size and filter type require shader recompilation
+          if ((shadowsToggled || shadowSizeChanged || shadowTypeChanged) && m.type !== 'ShaderMaterial') {
             std.needsUpdate = true;
           }
         });
@@ -229,6 +250,12 @@ export class Engine {
         this.fpsFrames = 0;
       }
       for (const u of this.updaters) u(dt, elapsed);
+      // Fase 14 — cadencia de sombras: con autoUpdate apagado solo marcamos
+      // needsUpdate cada N frames (el sol no corre, nadie lo nota).
+      if (this.renderer.shadowMap.enabled && !this.renderer.shadowMap.autoUpdate) {
+        this.frameIdx++;
+        this.renderer.shadowMap.needsUpdate = this.frameIdx % this.shadowEvery === 0;
+      }
       if (this.postfx?.enabled) {
         this.postfx.render();
       } else {

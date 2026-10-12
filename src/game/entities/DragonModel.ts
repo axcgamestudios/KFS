@@ -130,7 +130,8 @@ export class DragonModel {
     this.mouthGlowSprite.position.set(0, 0.02, 0.62);
     this.mouthGlowLight = new THREE.PointLight(0xff8a30, 0, 26, 1.8);
     this.mouthGlowLight.position.set(0, 0.05, 0.8);
-    this.head.add(this.mouthGlowLight);
+    // Fase 14 — luz compartida por el DragonManager (ver DragonModelGLB)
+    if (!DragonModel.SHARED_MOUTH_LIGHT) this.head.add(this.mouthGlowLight);
   }
 
   private buildTorso(): void {
@@ -321,11 +322,22 @@ export class DragonModel {
     this.flashT = 1;
   }
 
-  /** Mouth charge glow 0..1 (fire telegraph). */
+  /** Fase 14 — igual que DragonModelGLB: una sola luz de aliento global
+   *  (el glow visual de la boca sigue siendo por-dragón). */
+  static SHARED_MOUTH_LIGHT = false;
+  private glowK = 0;
+
   mouthGlow(k: number): void {
+    this.glowK = k;
     this.mouthGlowSprite.material.opacity = k * 0.95;
     this.mouthGlowSprite.scale.setScalar(1.1 + k * 1.5);
-    this.mouthGlowLight.intensity = gfxRuntime.pointLights ? k * 5.5 : 0;
+    if (this.mouthGlowLight.parent) this.mouthGlowLight.intensity = gfxRuntime.pointLights ? k * 5.5 : 0;
+  }
+
+  /** Fase 14 — carga de fuego actual (0..1) para la luz compartida.
+   *  (mouthWorldPos ya existe más abajo en la sección de queries). */
+  get glowValue(): number {
+    return this.glowK;
   }
 
   /** Eye glow intensity (aggression / enrage). */

@@ -321,7 +321,17 @@ export class FlameFX {
 
   // ---------------------------------------------------------- transients
 
+  /** Fase 14 — presupuesto de llamas transitorias activas a la vez (el
+   *  aliento de dragón generaba >100 quads aditivos por segundo: cada uno
+   *  es un draw call transparente). Por calidad: media 44, baja 24. */
+  private budget = 150;
+  setBudget(n: number): void { this.budget = Math.max(8, Math.min(150, Math.round(n))); }
+
+  private activeCount = 0;
+
   private takeTransient(): TransientFlame | null {
+    // el presupuesto cuenta ACTIVAS (no el tamaño del pool)
+    if (this.activeCount >= this.budget) return null; // Fase 14 — presupuesto
     for (const f of this.pool) if (!f.active) return f;
     if (this.pool.length >= 150) return null; // hard cap
     // grow the pool lazily
@@ -351,6 +361,7 @@ export class FlameFX {
     const f = this.takeTransient();
     if (!f) return;
     f.active = true;
+    this.activeCount++;
     f.t = 0;
     f.dur = dur;
     f.vel.copy(vel);
@@ -400,6 +411,7 @@ export class FlameFX {
       const k = f.t / f.dur;
       if (k >= 1) {
         f.active = false;
+        this.activeCount = Math.max(0, this.activeCount - 1);
         f.mesh.visible = false;
         continue;
       }

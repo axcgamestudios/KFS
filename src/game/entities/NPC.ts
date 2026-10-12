@@ -96,9 +96,25 @@ export class WildlifeSystem {
     }
   }
 
-  update(dt: number): void {
+  update(dt: number, playerPos?: THREE.Vector3): void {
     this.t += dt;
-    for (const g of this.gulls) g.update(dt, this.t, this.center);
+    // Fase 14 — gaviotas: a más de 380 m del jugador no se dibujan ni se
+    // animan (píxeles invisibles costando trig y draws).
+    let cullAll = false;
+    if (playerPos) {
+      const d2 = (this.center.x - playerPos.x) ** 2 + (this.center.z - playerPos.z) ** 2;
+      cullAll = d2 > 380 * 380;
+    }
+    if (cullAll) {
+      for (const g of this.gulls) {
+        if (g.group.visible) g.group.visible = false;
+      }
+      return;
+    }
+    for (const g of this.gulls) {
+      if (!g.group.visible) g.group.visible = true;
+      g.update(dt, this.t, this.center);
+    }
   }
 
   private center = new THREE.Vector3(20, 2, 240);

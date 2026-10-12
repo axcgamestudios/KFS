@@ -1,9 +1,12 @@
 import * as THREE from 'three';
 import { Dragon, type DragonDef } from '../entities/Dragon';
+import { DragonModel } from '../entities/DragonModel';
+import { DragonModelGLB } from '../entities/DragonModelGLB';
 import type { TerrainHeight } from '../world/TerrainHeight';
 import type { GameState } from './GameState';
 import type { VfxSystem } from './VfxSystem';
 import type { AssetSystem } from '../world/AssetSystem';
+import { gfxRuntime } from '../core/Graphics';
 
 /** Hooks the manager needs from the game (same pattern as NavalSystem). */
 export interface DragonManagerHooks {
@@ -128,6 +131,11 @@ export const DRAGON_DEFS: DragonDef[] = [
 export class DragonManager {
   private dragons: Dragon[] = [];
   private byId = new Map<string, Dragon>();
+  /** Fase 14 — la ÚNICA luz de aliento de la escena: se coloca en la boca
+   *  del dragón que esté cargando fuego (antes eran 4-6 PointLights fijas
+   *  multiplicando el coste PBR de cada píxel del juego). */
+  private breathLight = new THREE.PointLight(0xff7a2a, 0, 60, 1.8);
+  private breathTmp = new THREE.Vector3();
 
   /** Fase 12 — public live lookup (admin/E2E). */
   dragonById(id: string): Dragon | undefined {
@@ -156,6 +164,11 @@ export class DragonManager {
     this.hooks = hooks;
     this.scene = scene;
     this.assets = assets ?? null;
+
+    // Fase 14 — los modelos no cuelgan su propia luz: una compartida arriba
+    DragonModel.SHARED_MOUTH_LIGHT = true;
+    DragonModelGLB.SHARED_MOUTH_LIGHT = true;
+    scene.add(this.breathLight);
 
     // Spawn the world dragons (skarnvind waits for its sea event;
     // kraivenn waits for the black altar awakening)
@@ -515,6 +528,23 @@ export class DragonManager {
         continue;
       }
       d.update(dt, targetPos, targetAlive, this.terrain, this.dragonHooksFor(d));
+    }
+
+    // Fase 14 — una sola luz de aliento: sigue al dragón con más carga.
+    // (dos dragones escupiendo a la vez es rarísimo; el flare visual
+    //  de la boca sigue siendo por-dragón en cualquier caso)
+    let bestK = 0;
+    let bestDragon: Dragon | null = null;
+    for (const d of this.dragons) {
+      const k = d.model.glowValue;
+      if (k > bestK && d.group.visible) { bestK = k; bestDragon = d; }
+    }
+    if (bestDragon) {
+      bestDragon.model.mouthWorldPos(this.breathTmp);
+      this.breathLight.position.copy(this.breathTmp);
+      this.breathLight.intensity = gfxRuntime.pointLights ? bestK * 26 : 0;
+    } else {
+      this.breathLight.intensity = 0;
     }
 
     // --- Boss HUD ---

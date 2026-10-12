@@ -41,8 +41,28 @@ export class TerrainHeight {
     }));
   }
 
-  /** Terrain height in meters at world (x, z). Sea level = 0. */
+  /** Terrain height in meters at world (x, z). Sea level = 0.
+   *
+   * Fase 14 — caché persistente: el terreno es analítico y determinista (el
+   * mismo (x,z) SIEMPRE da la misma altura), pero cada frame hay ~70-100
+   * llamadas (jugador, brazo de cámara, barcos, bandidos, caballos, olas)
+   * y cada una son ~20 evaluaciones de ruido. Cuantizado a 10 cm el error
+   * es imperceptible y las consultas repetidas salen gratis. */
+  private hCache = new Map<number, number>();
+
   height(x: number, z: number): number {
+    const qx = Math.round(x * 10) + 32768;
+    const qz = Math.round(z * 10) + 32768;
+    const key = qx * 65536 + qz;
+    const hit = this.hCache.get(key);
+    if (hit !== undefined) return hit;
+    const h = this.heightRaw(x, z);
+    if (this.hCache.size > 80_000) this.hCache.clear(); // techo de memoria (~5 MB)
+    this.hCache.set(key, h);
+    return h;
+  }
+
+  private heightRaw(x: number, z: number): number {
     // --- Island mask with organic coastline ---
     const dxI = x - WORLD.islandCenter.x;
     const dzI = z - WORLD.islandCenter.z;

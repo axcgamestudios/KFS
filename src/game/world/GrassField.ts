@@ -43,8 +43,11 @@ function bandCapacity(ringDist: number): number {
   return 130;                         // silueta lejana     ~2/m²
 }
 
-/** Tiles re-llenados por frame (pop-in progresivo y sin tirones). */
-const FILLS_PER_FRAME = 8;
+/** Tiles re-llenados por frame (pop-in progresivo y sin tirones).
+ *  Fase 14 — escalonable: cada tile son cientos de briznas × ~5 llamadas a
+ *  altura de terreno; con 8/frame cruzar el borde de un tile clavaba el
+ *  frame 100+ ms (el famoso “trabado”). Ahora el ritmo lo decide el escalón. */
+let FILLS_PER_FRAME = 8;
 
 export interface GrassFieldOpts {
   /** Multiplicador global de densidad 0..1 (calidad). */
@@ -210,7 +213,8 @@ gl_Position = projectionMatrix * mvPosition;`,
   }
 
   /** Calidad cambiada en caliente (misma semántica que el sistema anterior). */
-  setDensity(d: number): void {
+  setDensity(d: number, fillsPerFrame?: number): void {
+    if (fillsPerFrame && fillsPerFrame > 0) FILLS_PER_FRAME = fillsPerFrame;
     if (Math.abs(d - this.density) < 0.001) return;
     this.density = d;
     this.destroy();
@@ -218,6 +222,9 @@ gl_Position = projectionMatrix * mvPosition;`,
   }
 
   get enabled(): boolean { return this.density > 0.01 && !!this.mesh; }
+
+  /** Fase 14 — el mesh del prado (para excluirlo del pase de reflexión). */
+  get meshObject(): THREE.InstancedMesh | null { return this.mesh; }
 
   // ------------------------------------------------------------------ update
 

@@ -186,6 +186,9 @@ gl_Position = projectionMatrix * mvPosition;`,
 
   get enabled(): boolean { return this.density > 0.01 && !!this.mesh; }
 
+  /** Fase 14 — el mesh de la pradera lejana (exclusión del reflejo del mar). */
+  get meshObject(): THREE.InstancedMesh | null { return this.mesh; }
+
   // ----------------------------------------------------------------- update
 
   update(px: number, pz: number): void {

@@ -62,7 +62,8 @@ export class DragonModelGLB {
     // Fire glow follows the mouth even before the mesh arrives
     // (Fase 9 — 60 m range: the giants are 3× bigger, the glow must reach)
     this.mouthLight = new THREE.PointLight(0xff7a2a, 0, 60, 1.8);
-    this.mouthAnchor.add(this.mouthLight);
+    // Fase 14 — fuera de la escena salvo modo clásico (ver SHARED_MOUTH_LIGHT)
+    if (!DragonModelGLB.SHARED_MOUTH_LIGHT) this.mouthAnchor.add(this.mouthLight);
     const c = document.createElement('canvas');
     c.width = c.height = 64;
     const ctx = c.getContext('2d')!;
@@ -217,8 +218,19 @@ export class DragonModelGLB {
     void this.colors;
   }
 
+  /** Fase 14 — luces de aliento compartidas: cada dragón añadía su propia
+   *  PointLight a la escena (4-6 slots permanentes multiplicando el bucle
+   *  PBR de CADA píxel). Con el flag activo la luz no se cuelga y el
+   *  DragonManager posiciona UNA luz compartida en quien esté escupiendo. */
+  static SHARED_MOUTH_LIGHT = false;
+
   mouthGlow(k: number): void {
     this.glow = k;
+  }
+
+  /** Fase 14 — carga de fuego actual (0..1) para la luz compartida. */
+  get glowValue(): number {
+    return this.glow;
   }
 
   headWorldPos(out: THREE.Vector3): THREE.Vector3 {
@@ -245,7 +257,9 @@ export class DragonModelGLB {
     this.t += dt;
     // Mouth glow visual (fire charge)
     const g = this.glow;
-    this.mouthLight.intensity = gfxRuntime.pointLights ? g * 26 : 0;
+    // Fase 14 — la luz propia solo existe en modo clásico; en compartido
+    // la lleva el DragonManager.
+    if (this.mouthLight.parent) this.mouthLight.intensity = gfxRuntime.pointLights ? g * 26 : 0;
     this.mouthFlare.scale.setScalar(0.001 + g * 2.6);
     (this.mouthFlare.material as THREE.SpriteMaterial).opacity = Math.min(1, g * 1.4);
 

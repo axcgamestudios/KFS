@@ -48,6 +48,10 @@ export interface Settings extends GraphicsSettings {
   /** Escalón de calidad sobre el que se apoya la config (aunque sea custom):
    *  decide sombra, detalle de agua, niebla, anisotropía… */
   tier: QualityLevel;
+  /** Fase 14 — revisión del equilibrio de gráficos. Los guardados con una
+   *  revisión anterior heredan el preset NUEVO del escalón que tuvieran
+   *  (venían con reflexión ON en Media y MSAA fijo: había que liberarlos). */
+  settingsRev: number;
   masterVolume: number;
   musicVolume: number;
   sfxVolume: number;
@@ -61,6 +65,7 @@ export const DEFAULT_SETTINGS: Settings = {
   quality: DEFAULT_TIER,
   tier: DEFAULT_TIER,
   ...PRESET_GRAPHICS[DEFAULT_TIER],
+  settingsRev: 3,
   masterVolume: 0.8,
   musicVolume: 0.6,
   sfxVolume: 0.9,
@@ -86,7 +91,14 @@ export function resolveSettings(raw: Partial<Settings> | null | undefined): Sett
   if (typeof raw.waves !== 'boolean') {
     const tier: QualityLevel =
       raw.quality && raw.quality !== 'custom' ? raw.quality : DEFAULT_TIER;
-    return { quality: tier, tier, ...PRESET_GRAPHICS[tier], ...audio };
+    return { quality: tier, tier, ...PRESET_GRAPHICS[tier], settingsRev: 3, ...audio };
+  }
+  // Fase 14 — guardado con el equilibrio VIEJO (reflexión en Media, MSAA
+  // fijo, densidades altas): conservamos el escalón y el audio, pero los
+  // interruptores gráficos pasan a ser los del preset NUEVO de ese escalón.
+  if ((raw.settingsRev ?? 0) < 3) {
+    const tier14: QualityLevel = raw.tier ?? DEFAULT_TIER;
+    return { quality: tier14, tier: tier14, ...PRESET_GRAPHICS[tier14], settingsRev: 3, ...audio };
   }
   const tier: QualityLevel = raw.tier ?? DEFAULT_TIER;
   return {
@@ -101,6 +113,7 @@ export function resolveSettings(raw: Partial<Settings> | null | undefined): Sett
     postfx: raw.postfx ?? false,
     resolution: clamp(raw.resolution ?? 1, 0.5, 1.5),
     showFps: raw.showFps ?? true,
+    settingsRev: 3,
     ...audio,
   };
 }

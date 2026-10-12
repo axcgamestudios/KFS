@@ -62,7 +62,13 @@ export class WaterSystem {
 
   // ------------------------------------------------------------- reflection
   private reflRT: THREE.WebGLRenderTarget | null = null;
-  private reflCam = new THREE.PerspectiveCamera();
+  private reflCam = (() => {
+    const c = new THREE.PerspectiveCamera();
+    // Fase 14 — marca para que el domo del cielo sepa que este pase es el
+    // reflejo y se salte las nubes (ver SkySystem dome.onBeforeRender).
+    c.userData.kfsRefl = true;
+    return c;
+  })();
   private reflOn = false;
   private reflFrame = 0;
   private reflVisibleK = 1;
@@ -179,9 +185,12 @@ export class WaterSystem {
           float wakeH = 0.0;
           float wakeFoam = 0.0;
           if (motionK > 0.004) {
+            // Fase 14 — las estelas ACTIVAS van primero en el uniform (ver
+            // packWakes): el bucle corta en la primera vacante en vez de
+            // recorrer los 28 slots siempre.
             for (int i = 0; i < ${WAKE_SLOTS}; i++) {
               vec4 w = uWakes[i];
-              if (w.w < 0.004) continue;
+              if (w.w < 0.004) break;
               float d = distance(pos.xz, w.xy);
               float ring = exp(-pow((d - w.z) * 0.55, 2.0));
               wakeH += ring * w.w * 0.5;
@@ -434,8 +443,7 @@ export class WaterSystem {
     if (!slot) return;
     slot.x = x; slot.z = z; slot.r = 0.6; slot.s = s; slot.v = speed; slot.maxR = maxR;
     // pack immediately so the very next draw already shows the ring
-    const idx = this.wakes.indexOf(slot);
-    if (idx >= 0) this.wakeArr[idx].set(slot.x, slot.z, slot.r, slot.s);
+    this.packWakes();
   }
 
   private updateWakes(dt: number): void {
@@ -449,18 +457,29 @@ export class WaterSystem {
         dirty = true;
       }
     }
-    // pack the uniform array (nearest first for the shader's early-outs)
+    // pack the uniform array — Fase 14: partición estable, activas al frente
     if (dirty || this.wakePackDirty) {
       this.wakePackDirty = false;
-      const arr = this.wakeArr;
-      for (let i = 0; i < WAKE_SLOTS; i++) {
-        const w = this.wakes[i];
-        if (w && w.s > 0.01) arr[i].set(w.x, w.z, w.r, w.s);
-        else arr[i].set(0, 0, 0, 0);
-      }
+      this.packWakes();
     }
   }
   private wakePackDirty = false;
+
+  /** Compacta las estelas vivas al frente del array (el shader hace break
+   *  en la primera vacante) y sincroniza el uniform. */
+  private packWakes(): void {
+    const ws = this.wakes;
+    let n = 0;
+    for (let i = 0; i < ws.length; i++) {
+      const w = ws[i];
+      if (w && w.s > 0.01) {
+        if (n !== i) { const t = ws[n]; ws[n] = w; ws[i] = t; }
+        this.wakeArr[n].set(ws[n].x, ws[n].z, ws[n].r, ws[n].s);
+        n++;
+      }
+    }
+    for (let i = n; i < WAKE_SLOTS; i++) this.wakeArr[i].set(0, 0, 0, 0);
+  }
 
   // ------------------------------------------------------------ reflection
 
@@ -492,6 +511,11 @@ export class WaterSystem {
   /** Fase 13 — reflection update rate: alta = cada 2º frame,
    *  baja = cada 3º (menos escenas re-renderizadas por segundo). */
   private reflRate = 2;
+
+  /** Fase 14 — objetos que NO se dibujan en el pase de reflexión (el pasto
+   *  son ~500k triángulos en un solo draw: su reflejo es invisible bajo la
+   *  distorsión del agua y cuesta un re-render entero). */
+  reflHide: THREE.Object3D[] = [];
 
   /**
    * Fase 12 — REAL planar reflection: render the scene from a camera mirrored
@@ -563,6 +587,11 @@ export class WaterSystem {
     // --- render the mirrored scene (the sea itself stays out of its own image)
     const prevVis = this.mesh.visible;
     this.mesh.visible = false;
+    // Fase 14 — fuera del reflejo lo que no aporta visuals y pesa un mundo
+    const hidden: THREE.Object3D[] = [];
+    for (const o of this.reflHide) {
+      if (o.visible) { o.visible = false; hidden.push(o); }
+    }
     const prevRT = renderer.getRenderTarget();
     const prevXrEnabled = renderer.xr.enabled;
     renderer.xr.enabled = false;
@@ -571,6 +600,7 @@ export class WaterSystem {
     renderer.render(scene, rc);
     renderer.setRenderTarget(prevRT);
     renderer.xr.enabled = prevXrEnabled;
+    for (const o of hidden) o.visible = true;
     this.mesh.visible = prevVis;
   }
 
