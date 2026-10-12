@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { DragonColors, DragonAnimState } from './DragonModel';
+import { gfxRuntime } from '../core/Graphics';
 
 /**
  * Fase 4 — the black dragon from the asset repository, driven by its own
@@ -244,7 +245,7 @@ export class DragonModelGLB {
     this.t += dt;
     // Mouth glow visual (fire charge)
     const g = this.glow;
-    this.mouthLight.intensity = g * 26;
+    this.mouthLight.intensity = gfxRuntime.pointLights ? g * 26 : 0;
     this.mouthFlare.scale.setScalar(0.001 + g * 2.6);
     (this.mouthFlare.material as THREE.SpriteMaterial).opacity = Math.min(1, g * 1.4);
 

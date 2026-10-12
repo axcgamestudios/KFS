@@ -2,6 +2,7 @@
 
 import { useGameStore } from '@/store/gameStore';
 import { Embers, EpicTitle, SeaWaves } from './menuFx';
+import { ASSET_BASE } from '@/game/core/Graphics';
 
 const TIPS = [
   'Los pétalos de marfil florecen donde el agua canta: cascadas y ruinas.',
@@ -41,7 +42,7 @@ export default function LoadingScreen() {
       {/* Key-art backdrop with slow ken-burns breathing */}
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
         <img
-          src="/menu/fondo_menu.jpg"
+          src={`${ASSET_BASE}/menu/fondo_menu.jpg`}
           alt=""
           className="kfs-load-art absolute inset-0 h-full w-full object-cover object-top"
           draggable={false}

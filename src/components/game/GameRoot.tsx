@@ -35,6 +35,9 @@ export default function GameRoot() {
       try {
         const game = new Game(canvasRef.current!);
         gameRef.current = game;
+        // Fase 13 — asa de depuración para las sondas E2E (solo lectura:
+        // permite verificar uniforms/calidad en caliente desde el navegador).
+        (window as unknown as { __kfs?: Game }).__kfs = game;
         await game.boot();
         if (!disposed) setBooted(true);
       } catch (err) {

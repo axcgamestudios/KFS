@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { getFlameFX } from '../world/FlameFX';
+import { gfxRuntime } from '../core/Graphics';
 
 /**
  * Pooled combat/creature VFX (Fase 3): dragon fire, embers, smoke, weapon
@@ -308,6 +309,7 @@ export class VfxSystem {
 
   /** Grab one of the shared point lights for a moment (fire glow). */
   private borrowLight(pos: THREE.Vector3, intensity: number, time: number): void {
+    if (!gfxRuntime.pointLights) return; // Fase 13 — luces realistas OFF
     let idx = 0;
     let best = Infinity;
     for (let i = 0; i < this.lights.length; i++) {
@@ -331,6 +333,12 @@ export class VfxSystem {
     this.storm.update(dt);
     for (let i = 0; i < this.lights.length; i++) {
       if (this.lightTimers[i] > 0) {
+        if (!gfxRuntime.pointLights) { // Fase 13 — apagado instantáneo
+          this.lightTimers[i] = 0;
+          this.lights[i].intensity = 0;
+          this.lights[i].visible = false;
+          continue;
+        }
         this.lightTimers[i] -= dt;
         this.lights[i].intensity *= Math.max(0, 1 - dt * 6);
         if (this.lightTimers[i] <= 0) {

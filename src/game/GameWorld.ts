@@ -120,6 +120,7 @@ export async function buildWorld(
   state: GameState,
   quality: 'xlow' | 'low' | 'medium' | 'high' | 'ultra',
   onProgress?: (frac: number, label: string) => void,
+  gfx?: { renderChunks?: number; grass3d?: boolean; grassDensity?: number },
 ): Promise<WorldRefs> {
   const prog = (f: number, l: string) => onProgress?.(f, l);
 
@@ -139,7 +140,7 @@ export async function buildWorld(
     grass: assets.pbr.grass?.map,
     dirt: assets.pbr.dirt?.map,
     stone: assets.pbr.stone_wall?.map,
-  });
+  }, gfx?.renderChunks);
 
   const water = new WaterSystem(terrainHeight);
   const sky = new SkySystem();
@@ -154,8 +155,12 @@ export async function buildWorld(
   const weather = new WeatherSystem(scene);
 
   prog(0.10, 'Plantando los bosques antiguos…');
+  // Fase 13 — densidad inicial del pasto: interruptor del jugador si llegó,
+  // escalón de calidad en caso contrario.
+  const baseGrass = quality === 'xlow' || quality === 'low' ? 0 : quality === 'medium' ? 0.4 : quality === 'high' ? 0.75 : 1;
+  const initialGrass = gfx ? (gfx.grass3d ? Math.max(gfx.grassDensity ?? 0.5, 0.4) : 0) : baseGrass;
   const vegetation = new VegetationSystem(
-    terrainHeight, quality === 'xlow' || quality === 'low' ? 0 : quality === 'medium' ? 0.4 : quality === 'high' ? 0.75 : 1, scene,
+    terrainHeight, initialGrass, scene,
     assets.mapleBark && assets.mapleLeaf ? { bark: assets.mapleBark, leaf: assets.mapleLeaf } : undefined,
   );
   // Trees are solid trunks: register/unregister colliders with the streaming

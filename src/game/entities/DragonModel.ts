@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { gfxRuntime } from '../core/Graphics';
 
 /**
  * Procedural articulated dragon: body segments, S-curve neck with a hinged
@@ -324,7 +325,7 @@ export class DragonModel {
   mouthGlow(k: number): void {
     this.mouthGlowSprite.material.opacity = k * 0.95;
     this.mouthGlowSprite.scale.setScalar(1.1 + k * 1.5);
-    this.mouthGlowLight.intensity = k * 5.5;
+    this.mouthGlowLight.intensity = gfxRuntime.pointLights ? k * 5.5 : 0;
   }
 
   /** Eye glow intensity (aggression / enrage). */

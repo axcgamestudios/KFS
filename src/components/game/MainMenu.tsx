@@ -7,6 +7,7 @@ import { gameApi } from '@/game/api';
 import { SaveSystem } from '@/game/systems/SaveSystem';
 import { Play, ScrollText, Settings2, Sparkles, ChevronRight, Ship } from 'lucide-react';
 import { Embers, SeaWaves } from './menuFx';
+import { ASSET_BASE } from '@/game/core/Graphics';
 
 /**
  * Fase 6 menu — the repository key art (Fondo_Menu.JPG: the grimdark fortress
@@ -82,7 +83,7 @@ export default function MainMenu() {
 
   // Ambient menu theme from the repository (needs a user gesture to start)
   useEffect(() => {
-    const audio = new Audio('/game/audio/menu_theme.mp3');
+    const audio = new Audio(`${ASSET_BASE}/game/audio/menu_theme.mp3`);
     audio.loop = true;
     audio.volume = 0;
     musicRef.current = audio;
@@ -122,7 +123,7 @@ export default function MainMenu() {
       {/* The key art: the fortress over the forgotten sea (title baked in the sky) */}
       <div className="kotfs-kenburns">
         <Image
-          src="/menu/fondo_menu.jpg"
+          src={`${ASSET_BASE}/menu/fondo_menu.jpg`}
           alt="Kingdoms of the Forgotten Seas"
           fill
           priority

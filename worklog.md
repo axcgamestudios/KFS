@@ -358,3 +358,29 @@ Stage Summary:
 - Misiones con dopamina: emboscadas sorpresa al recolectar, rachas de matanza con XP, cartel de recompensas con caza encadenada.
 - Marcador de misión de verdad: pin dorado clavado en el mundo + flecha de borde + baliza doble.
 - Animaciones con movimiento secundario (caderas, codos, tobillos, vaivén) en jugador, bandidos y aldeanos.
+
+---
+Task ID: 13
+Agent: Super Z (main agent)
+Task: Fase 13 — RENDIMIENTO: ajustes gráficos individuales estilo Minecraft (oleaje, sombras, luces realistas, pasto 3D, reflejo del mar, efectos, FPS), distancia de renderizado en chunks, resolución, optimización de lo innecesariamente pesado y despliegue a GitHub Pages (rama main).
+
+Work Log:
+- INVESTIGACIÓN de peso innecesario: (1) el MSAA nacía SIEMPRE activo (caro, y no se puede alternar en caliente — se decide al crear el contexto); (2) PostFX reservaba un render target multisample HalfFloat a pantalla completa (~80 MB GPU) aunque estuviera DESACTIVADO; (3) la reflexión planar re-renderizaba la escena entera a 512² cada 2º frame sin niveles; (4) la resolución interna no tenía control (cap 1.25/1.5 según preset); (5) ~10 PointLights vivas en el loop de fragmentos del renderer forward sin interruptor; (6) la distancia de stream de estructuras era fija (560 m) sin importar la distancia de render.
+- NUEVO MÓDULO core/Graphics.ts: GraphicsSettings (9 interruptores), PRESET_GRAPHICS por escalón, gfxRuntime (flag global de luces), ASSET_BASE (prefijo /KFS para Pages), helpers de niebla/cámara adaptativas.
+- AJUSTES INDIVIDUALES (SettingsPanel rediseñado): presets X-BAJA/LOW/MEDIUM/HIGH/ULTRA + interruptores OLEAJE, SOMBRAS, LUCES REALISTAS, PASTO 3D, EFECTOS CINE, MOSTRAR FPS; REFLEJO DEL MAR en 3 niveles (APAGADO/BAJA 384² cada 3er frame/ALTA 512² cada 2º); DISTANCIA DE RENDERIZADO en chunks de 64 m (2–10, como Minecraft) con metros en vivo; RESOLUCIÓN 50–150%. Cualquier retoque individual → estado PERSONALIZADO. Por defecto MEDIA (nada de ultra de fábrica).
+- MOTOR: Engine.applyGraphics(gfx, tier) — pixel ratio por resolución, sombras on/off con tamaño por escalón (1024/2048/4096), anisotropía, recompilación de shaders solo al alternar sombras. El contexto WebGL se crea SIN antialias si la config guardada es ligera (se lee ANTES de crear el renderer).
+- AGUA: uniform uWaveAmp espejado GPU (vertex Gerstner ×amp) + CPU (waveHeightAt) — oleaje OFF = mar espejo con estelas vivas; reflejo en 3 niveles con tamaño y tasa por nivel.
+- TERRENO: setChunkRadius() en caliente + niebla adaptativa (fogMul × presetChunks/chunks, clamp 0.6–2.8) + camera.far adaptativo (máx(1400, chunks×128+500)) + streamer de estructuras atado a la distancia.
+- LUCES REALISTAS: gfxRuntime.pointLights consultado cada frame por VfxSystem (fuego), TorchSystem (antorchas), Player (farol), KnightModelGLB (antorcha de caballero), DragonModel/GLB (brasa de boca) — apagado instantáneo sin traverse.
+- POSTFX perezoso: el composer y su RT solo se construyen la primera vez que se activa — las calidades bajas jamás reservan esos ~80 MB.
+- PERSISTENCIA: Settings v2 en localStorage con migración (los guardados viejos reconstruyen los interruptores desde su preset); el menú principal ya persiste ajustes ANTES del boot (bug preexistente: no se guardaban).
+- HUD: contador de FPS opcional (verde ≥50, ámbar ≥30, rojo) + sonda de depuración window.__kfs.debugProbe()/debugApplySettings() para E2E.
+- GITHUB PAGES: next.config con output=export + basePath=/KFS + trailingSlash (solo con NEXT_OUTPUT=export; el sandbox sigue en standalone); ASSET_BASE prefija TODAS las rutas (texturas, GLB, música, fondo de menú); script build:pages; .nojekyll para que Pages no ignore _next/; eliminada la ruta API plantilla que estorbaba al export estático.
+- E2E en navegador real contra el build estático servido en /KFS/ (SwiftShader): página carga sin errores; el juego arranca detrás del menú con TODOS los assets 200 OK desde /KFS/; calidad por defecto MEDIA verificada; batería de toggles en caliente TODO OK (waveAmp 0/1, sombras off, pointLights off, grassDensity 0, chunkRadius 3→5→8, fogMul 1.92↔0.72 (fórmula verificada en ambas direcciones), cameraFar 1400/1524, pixelRatio 0.5/0.75/1, waterRefl 0/1); preset MEDIUM desde la UI OK; slider de distancia desde la UI OK (8 chunks); toggle OLEAJE desde la UI OK con persistencia localStorage verificada; 0 errores de página/consola.
+- Desplegado: fuente → rama game-source; sitio estático completo (71 MB, autocontenido) → rama main (Pages).
+
+Stage Summary:
+- Configuración gráfica estilo Minecraft: cada cosa pesada se activa/desactiva en caliente, con distancia de renderizado en chunks y resolución interna.
+- Lo innecesariamente pesado eliminado: MSAA condicional, PostFX perezoso (~80 MB), reflejo por niveles, luces con interruptor, stream atado a la distancia.
+- Por defecto calidad MEDIA (antes HIGH con todo casi al máximo).
+- El juego completo corre 100% estático en https://axcgamestudios.github.io/KFS/

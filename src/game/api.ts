@@ -1,4 +1,5 @@
 import type { SaveMeta, Settings } from './systems/SaveSystem';
+import { SaveSystem, resolveSettings } from './systems/SaveSystem';
 import type { JournalEntry, SkillDef } from './systems/GameState';
 
 /** Inventory entry for the UI. */
@@ -44,6 +45,8 @@ export interface GameApi {
   // Settings
   settings(): Settings;
   applySettings(s: Settings): void;
+  /** Fase 13 — FPS actuales del motor (para el HUD). */
+  fps(): number;
   // Cinematic
   skipIntro(): void;
   /** Fase 4 — skip the ending cinematic. */
@@ -75,6 +78,19 @@ export interface GameApi {
 }
 
 /** Live implementation is installed by the Game instance at boot. */
+
+/** Pre-boot settings: read whatever is saved so the MAIN MENU shows the real
+ *  configuration before the engine exists (Fase 13). */
+function readSettingsRaw(): Partial<Settings> {
+  try {
+    if (typeof window === 'undefined') return {};
+    const raw = window.localStorage.getItem('kotfs_settings');
+    return raw ? (JSON.parse(raw) as Partial<Settings>) : {};
+  } catch {
+    return {};
+  }
+}
+
 export const gameApi: GameApi = {
   startNewGame: () => undefined,
   continueGame: () => false,
@@ -97,11 +113,11 @@ export const gameApi: GameApi = {
   levelInfo: () => ({ level: 1, xp: 0, xpToNext: 100 }),
   mapCanvas: () => null,
   playerMap: () => ({ x: 0, z: 0, yaw: 0, discovered: [], explored: [] }),
-  settings: () => ({
-    quality: 'high', masterVolume: 0.8, musicVolume: 0.6, sfxVolume: 0.9,
-    sensitivity: 1, invertY: false,
-  }),
-  applySettings: () => undefined,
+  settings: () => resolveSettings(readSettingsRaw()),
+  // Pre-boot (menú principal): persistir aunque el motor aún no exista —
+  // el Game leerá estos ajustes al arrancar.
+  applySettings: (s) => { SaveSystem.writeSettings(s); },
+  fps: () => 0,
   skipIntro: () => undefined,
   skipEnding: () => undefined,
   mountInfo: () => null,

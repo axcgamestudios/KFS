@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { MAT } from './Materials';
+import { gfxRuntime } from '../core/Graphics';
 import type { ColliderRegistry } from '../systems/ColliderRegistry';
 import { getFlameFX, type PersistentFlameHandle } from '../world/FlameFX';
 
@@ -72,7 +73,7 @@ export class TorchSystem {
         const t = near[i].t;
         l.position.copy(t.pos);
         const flick = 0.8 + Math.sin(this.time * 9 + i * 2.7) * 0.14 + Math.sin(this.time * 27 + i) * 0.06;
-        l.intensity = (0.25 + nightFactor * 1.65) * flick;
+        l.intensity = gfxRuntime.pointLights ? (0.25 + nightFactor * 1.65) * flick : 0;
         l.distance = 20 + nightFactor * 8;
       } else {
         l.intensity = 0;

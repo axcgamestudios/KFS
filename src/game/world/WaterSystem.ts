@@ -128,6 +128,9 @@ export class WaterSystem {
         uCameraPos: { value: new THREE.Vector3() },
         /** Radius (m) around the camera where waves still move. */
         uWaveMotion: { value: 2000.0 },
+        /** Fase 13 — interruptor de oleaje: 1 = mar Gerstner vivo,
+         *  0 = mar espejo (las estelas interactivas siguen funcionando). */
+        uWaveAmp: { value: 1.0 },
         /** 1 = procedural sky/sun reflection (fallback + distant blend). */
         uReflQuality: { value: 1 },
         // Fase 12 — REAL planar reflection
@@ -143,6 +146,7 @@ export class WaterSystem {
         uniform float uWorldHalf;
         uniform vec3 uCameraPos;
         uniform float uWaveMotion;
+        uniform float uWaveAmp;
         uniform mat4 uReflTexMat;
         uniform vec4 uWakes[${WAKE_SLOTS}];
         varying vec3 vWorldPos;
@@ -206,6 +210,8 @@ export class WaterSystem {
           float t = uTime;
           // swell sets: las olas llegan en grupos (mar real)
           float set = 0.82 + 0.22 * sin(t * 0.11) * sin(t * 0.073 + 1.7);
+          // Fase 13 — oleaje apagado: set = 0 y el mar queda en espejo
+          set *= uWaveAmp;
 
           // Tres olas Gerstner épicas: el desplazamiento horizontal afila las crestas
           float amp1 = 1.35 * shallowK * set * motionK, len1 = 34.0;
@@ -458,25 +464,34 @@ export class WaterSystem {
 
   // ------------------------------------------------------------ reflection
 
-  /** Create/destroy the reflection render target (quality change). */
+  /** Create/destroy the reflection render target (quality change).
+   *  Fase 13 — recreates the target when the requested size changes
+   *  (baja = 384², alta = 512²). */
   setReflection(on: boolean, size = 512): void {
     this.reflOn = on;
-    if (on && !this.reflRT) {
+    if (on && (!this.reflRT || this.reflRTSize !== size)) {
+      this.reflRT?.dispose();
       this.reflRT = new THREE.WebGLRenderTarget(size, size, {
         minFilter: THREE.LinearFilter,
         magFilter: THREE.LinearFilter,
       });
       this.reflRT.texture.colorSpace = THREE.SRGBColorSpace;
       this.reflRT.texture.generateMipmaps = false;
+      this.reflRTSize = size;
       this.material.uniforms.uReflMap.value = this.reflRT.texture;
       this.material.uniforms.uReflOn.value = 1;
     } else if (!on && this.reflRT) {
       this.reflRT.dispose();
       this.reflRT = null;
+      this.reflRTSize = 0;
       this.material.uniforms.uReflMap.value = null;
       this.material.uniforms.uReflOn.value = 0;
     }
   }
+  private reflRTSize = 0;
+  /** Fase 13 — reflection update rate: alta = cada 2º frame,
+   *  baja = cada 3º (menos escenas re-renderizadas por segundo). */
+  private reflRate = 2;
 
   /**
    * Fase 12 — REAL planar reflection: render the scene from a camera mirrored
@@ -494,7 +509,7 @@ export class WaterSystem {
     else if (camY > 30) vis = 1 - (camY - 30) / 16;
     this.reflVisibleK += (vis - this.reflVisibleK) * 0.2;
     this.material.uniforms.uReflOn.value = this.reflVisibleK > 0.15 ? 1 : 0;
-    if (vis <= 0 || this.reflFrame % 2 !== 0) return; // half rate
+    if (vis <= 0 || this.reflFrame % this.reflRate !== 0) return; // tiered rate
 
     // --- mirror the camera across the sea plane (normal +Y through origin)
     this.reflPos.set(camera.position.x, -camera.position.y, camera.position.z);
@@ -563,11 +578,38 @@ export class WaterSystem {
    * Quality ladder: rebuild the sea mesh at a new segment count and set the
    * radius around the camera within which waves actually move.
    * Fase 12 — reflQuality 1 also enables the REAL planar reflection pass.
-   */
+   * (Compat: boot anterior — Fase 13 usa applyGraphicsOptions). */
   setDetail(segments: number, waveMotionRadius: number, reflQuality = 1): void {
     this.material.uniforms.uWaveMotion.value = Math.max(20, waveMotionRadius);
     this.material.uniforms.uReflQuality.value = reflQuality > 0.5 ? 1 : 0;
     this.setReflection(reflQuality > 0.5, 512);
+    this.reflRate = 2;
+    this.rebuildSegments(segments);
+  }
+
+  /**
+   * Fase 13 — ajustes individuales del mar:
+   *  · waves: oleaje Gerstner ON/OFF (las estelas y salpicaduras siguen)
+   *  · refl: 0 apagado · 1 baja (384², cada 3er frame) · 2 alta (512², cada 2º)
+   */
+  applyGraphicsOptions(o: { segments: number; waveRadius: number; refl: 0 | 1 | 2; waves: boolean }): void {
+    this.material.uniforms.uWaveMotion.value = Math.max(20, o.waveRadius);
+    this.material.uniforms.uWaveAmp.value = o.waves ? 1 : 0;
+    this.material.uniforms.uReflQuality.value = o.refl > 0 ? 1 : 0;
+    if (o.refl === 1) {
+      this.setReflection(true, 384);
+      this.reflRate = 3;
+    } else if (o.refl === 2) {
+      this.setReflection(true, 512);
+      this.reflRate = 2;
+    } else {
+      this.setReflection(false);
+      this.reflRate = 2;
+    }
+    this.rebuildSegments(o.segments);
+  }
+
+  private rebuildSegments(segments: number): void {
     const seg = Math.max(48, Math.min(384, Math.round(segments)));
     const params = this.mesh.geometry as THREE.PlaneGeometry;
     if (params.parameters?.widthSegments === seg) return; // same detail
@@ -594,7 +636,10 @@ export class WaterSystem {
     const d = Math.hypot(x - this.motionCenter.x, z - this.motionCenter.z);
     const motionK = 1 - smoothstep(r * 0.55, r, d);
     if (motionK < 0.004) return 0;
-    const set = swellSet(this.time) * motionK;
+    // Fase 13 — el interruptor de oleaje también se refleja aquí (espejo CPU)
+    const amp = this.material.uniforms.uWaveAmp.value as number;
+    if (amp < 0.004) return 0;
+    const set = swellSet(this.time) * motionK * amp;
     let h = 0;
     for (let i = 0; i < 3; i++) {
       const k = (Math.PI * 2) / WAVES.len[i];

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { CharacterModel, PLAYER_PALETTE, type CharacterVisual, type WeaponKind } from './CharacterModel';
+import { gfxRuntime } from '../core/Graphics';
 import type { Input } from '../core/Input';
 import type { TerrainHeight } from '../world/TerrainHeight';
 import type { ColliderRegistry } from '../systems/ColliderRegistry';
@@ -630,7 +631,9 @@ export class Player {
 
     // Lantern flicker
     if (this.lanternOn) {
-      this.lanternLight.intensity = 2.1 + Math.sin(performance.now() * 0.011) * 0.25;
+      this.lanternLight.intensity = gfxRuntime.pointLights
+        ? 2.1 + Math.sin(performance.now() * 0.011) * 0.25
+        : 0;
     } else {
       this.lanternLight.intensity = 0;
     }

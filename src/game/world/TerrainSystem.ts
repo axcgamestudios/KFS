@@ -47,8 +47,9 @@ export class TerrainSystem {
     private terrain: TerrainHeight,
     quality: QualityLevel = 'high',
     groundTextures?: { grass?: THREE.Texture; dirt?: THREE.Texture; stone?: THREE.Texture },
+    chunkRadius?: number,
   ) {
-    this.radius = QUALITY_PRESETS[quality].viewChunkRadius;
+    this.radius = chunkRadius ?? QUALITY_PRESETS[quality].viewChunkRadius;
     this.res = quality === 'low' ? 20 : quality === 'medium' ? 24 : 32;
     this.material = new THREE.MeshStandardMaterial({
       vertexColors: true,
@@ -145,6 +146,12 @@ vec3 terrainTex(sampler2D t, vec2 uv, float s1, float s2) {
   updateQuality(quality: QualityLevel): void {
     this.radius = QUALITY_PRESETS[quality].viewChunkRadius;
     // Resolution stays; only radius changes at runtime to avoid chunk churn.
+  }
+
+  /** Fase 13 — distancia de renderizado del jugador (chunks de 64 m,
+   *  como Minecraft): se puede cambiar en caliente desde los ajustes. */
+  setChunkRadius(radius: number): void {
+    this.radius = Math.max(2, Math.min(12, Math.round(radius)));
   }
 
   get chunkRadius(): number {

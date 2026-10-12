@@ -2,10 +2,31 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useGameStore, type Notification, type SailingHud, type BossHud, type WeaponSlotHud } from '@/store/gameStore';
+import { gameApi } from '@/game/api';
 import {
   Compass, Heart, Wind, Anchor, Ship, Sword, Axe, Navigation, BowArrow,
   Scroll, Package, Trophy, Save, MapPin, Info, Lock, Shield, Gauge, Rabbit,
 } from 'lucide-react';
+
+/** Fase 13 — contador de FPS opcional (ajustes → Mostrar FPS). */
+function FpsCounter() {
+  const [fps, setFps] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setFps(gameApi.fps()), 500);
+    return () => clearInterval(id);
+  }, []);
+  const color = fps >= 50 ? '#9fe08a' : fps >= 30 ? '#e8c96a' : '#e88a6a';
+  return (
+    <div
+      className="kfs-frame pointer-events-none absolute left-1/2 top-3 -translate-x-1/2 px-3 py-1"
+      style={{ background: 'rgba(12,10,8,0.72)' }}
+    >
+      <span className="kotfs-title text-[0.72rem] tracking-[0.18em]" style={{ color }}>
+        {fps} FPS
+      </span>
+    </div>
+  );
+}
 
 /* ================================================================
    Fase 7 — HUD AAA "Brass & Iron": beveled frames, rivets, ghost
@@ -496,12 +517,23 @@ export default function HUD() {
   const staminaOut = stamina <= 0.5;
 
   const hidden = overlay !== null || dialogue !== null;
+
+  // Fase 13 — contador de FPS opcional (ajustes → Mostrar FPS)
+  const [showFps, setShowFps] = useState(false);
+  useEffect(() => {
+    const id = setInterval(() => {
+      const v = !!gameApi.settings().showFps;
+      setShowFps((prev) => (prev === v ? prev : v));
+    }, 800);
+    return () => clearInterval(id);
+  }, []);
   if (hidden) return null;
 
   const lowHp = health / maxHealth < 0.28;
 
   return (
     <div className="pointer-events-none absolute inset-0 z-20 select-none">
+      {showFps && <FpsCounter />}
       {/* --- Top center: compass + clock --- */}
       <div className="absolute left-1/2 top-3 flex -translate-x-1/2 flex-col items-center gap-1">
         <CompassStrip />

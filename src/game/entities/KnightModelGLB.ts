@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { type AnimParams, type CharacterVisual, type WeaponKind } from './CharacterModel';
 import { damp } from '../core/MathUtils';
+import { gfxRuntime } from '../core/Graphics';
 import { getFlameFX, type PersistentFlameHandle } from '../world/FlameFX';
 import { applyHeroSwordTier, applyHeroSwordElement, type SwordElement } from '../world/HeroSword';
 
@@ -660,7 +661,7 @@ export class KnightModelGLB implements CharacterVisual {
       this.torchFlame.position.y += 0.55;
       if (this.torchLight) {
         const fl = 0.8 + Math.sin(this.torchT * 11.3) * 0.14 + Math.sin(this.torchT * 23.7) * 0.07;
-        this.torchLight.intensity = 2.4 * fl;
+        this.torchLight.intensity = gfxRuntime.pointLights ? 2.4 * fl : 0;
       }
     }
     // the kit weapon stays in the hand; while swimming it is shouldered up

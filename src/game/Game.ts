@@ -6,7 +6,11 @@ import { ColliderRegistry } from './systems/ColliderRegistry';
 import { GameState, SKILLS, xpForLevel } from './systems/GameState';
 import { DialogueSystem } from './systems/DialogueSystem';
 import { AudioSystem } from './systems/AudioSystem';
-import { SaveSystem, type SaveData, type Settings } from './systems/SaveSystem';
+import { SaveSystem, type SaveData, type Settings, resolveSettings } from './systems/SaveSystem';
+import {
+  gfxRuntime, graphicsOf, applyPreset, fogMulForChunks, cameraFarForChunks, ASSET_BASE,
+} from './core/Graphics';
+import { QUALITY_PRESETS, type QualityLevel } from './core/Engine';
 import { Player } from './entities/Player';
 import { KnightModelGLB } from './entities/KnightModelGLB';
 import { KitSystem } from './world/KitSystem';
@@ -150,14 +154,19 @@ export class Game {
   private endingPlayed = false;
 
   constructor(canvas: HTMLCanvasElement) {
-    this.engine = new Engine(canvas);
+    // Fase 13 — los ajustes se leen ANTES de crear el renderer: el antialias
+    // (MSAA) pertenece al contexto WebGL y no se puede alternar en caliente,
+    // así que la resolución/calidad guardada decide aquí mismo.
+    this.settings = resolveSettings(SaveSystem.readSettings());
+    const bootGfx = graphicsOf(this.settings);
+    const bootTier: QualityLevel = this.settings.tier;
+    const antialias = bootGfx.resolution >= 0.85 && this.settings.quality !== 'xlow' && this.settings.quality !== 'low';
+
+    this.engine = new Engine(canvas, { antialias });
+    this.engine.applyGraphics(bootGfx, bootTier);
     this.input = new Input(canvas);
     this.dialogue = new DialogueSystem(this.state);
-    this.settings = {
-      quality: 'high', masterVolume: 0.8, musicVolume: 0.6, sfxVolume: 0.9,
-      sensitivity: 1, invertY: false,
-      ...SaveSystem.readSettings(),
-    };
+    gfxRuntime.pointLights = bootGfx.realLights;
 
     this.state.onChange = () => this.syncProgression();
 
@@ -209,15 +218,28 @@ export class Game {
     await new Promise((r) => setTimeout(r, 30));
 
     const world = await buildWorld(
-      this.engine.scene, this.colliders, this.state, this.settings.quality,
+      this.engine.scene, this.colliders, this.state, this.settings.tier,
       (frac, label) => store.setProgress(0.05 + frac * 0.75, label),
+      {
+        renderChunks: graphicsOf(this.settings).renderChunks,
+        grass3d: graphicsOf(this.settings).grass3d,
+        grassDensity: QUALITY_PRESETS[this.settings.tier].grassDensity,
+      },
     );
     this.world = world;
-    // Fase 8 — boot-time quality ladder (fog · water detail · NPC distance)
+    // Fase 8/13 — boot-time quality ladder (fog · water detail · NPC distance)
+    const gfx0 = graphicsOf(this.settings);
     const q0 = this.engine.quality;
-    world.sky.qualityFogMul = q0.fogMul;
-    world.water.setDetail(q0.waterSegments, q0.waveMotionRadius, q0.waterRefl);
+    world.sky.qualityFogMul = fogMulForChunks(q0.fogMul, gfx0.renderChunks, QUALITY_PRESETS[this.settings.tier].viewChunkRadius);
+    world.water.applyGraphicsOptions({
+      segments: q0.waterSegments,
+      waveRadius: q0.waveMotionRadius,
+      refl: gfx0.reflections,
+      waves: gfx0.waves,
+    });
     this.npcAnimDistance = q0.npcAnimDistance;
+    this.engine.camera.far = cameraFarForChunks(gfx0.renderChunks);
+    this.engine.camera.updateProjectionMatrix();
 
     // Fase 4 — cinematic post chain (Ultra), attached to the engine loop
     this.postfx = new PostFX(this.engine.renderer, this.engine.scene, this.engine.camera);
@@ -226,7 +248,7 @@ export class Game {
 
     // Fase 4 — repository music (ambient sea theme) as a soft bed under the
     // procedural score. Starts muted until a user gesture unlocks audio.
-    this.musicEl = new Audio('/game/audio/ambient_sea.mp3');
+    this.musicEl = new Audio(`${ASSET_BASE}/game/audio/ambient_sea.mp3`);
     this.musicEl.loop = true;
     this.musicEl.volume = 0;
 
@@ -2018,7 +2040,9 @@ export class Game {
     w.terrain.update(focusX, focusZ);
     w.vegetation.update(focusX, focusZ);
     this.refreshGrass(focusX, focusZ);
-    w.streamer.update(dt, focusX, focusZ);
+    // Fase 13 — la distancia de stream de estructuras sigue la distancia de
+    // renderizado del jugador (chunks): nada de cargar lo que no se ve.
+    w.streamer.update(dt, focusX, focusZ, this.engine.quality.viewChunkRadius * 64 * 1.15);
     w.gulls.update(dt);
     w.village.torches.update(dt, w.sky.nightFactor, p.position);
     updateChests(dt, w.chests.map((c) => c.handles));
@@ -2774,17 +2798,30 @@ export class Game {
     gameApi.applySettings = (s) => {
       this.settings = { ...s };
       SaveSystem.writeSettings(s);
-      this.engine.applyQuality(s.quality);
-      // Fase 4 — post chain follows the quality preset (Ultra only)
+      // Fase 13 — cada interruptor gráfico se aplica EN CALIENTE:
+      // resolución, sombras, niebla, agua, pasto, luces, distancia de chunks…
+      const gfx = graphicsOf(s);
+      const tier: QualityLevel = s.tier ?? 'medium';
+      this.engine.applyGraphics(gfx, tier);
       this.postfx?.setEnabled(this.engine.quality.postfx);
-      this.world?.terrain.updateQuality(s.quality);
-      // Fase 8 — quality drives the whole optimisation ladder:
-      //   grass density · water detail & wave-motion radius · fog · NPC pose
+      this.world?.terrain.setChunkRadius(gfx.renderChunks);
       const q = this.engine.quality;
       this.world?.vegetation.setGrassDensity(q.grassDensity);
-      this.world?.water.setDetail(q.waterSegments, q.waveMotionRadius, q.waterRefl);
-      if (this.world) this.world.sky.qualityFogMul = q.fogMul;
+      this.world?.water.applyGraphicsOptions({
+        segments: q.waterSegments,
+        waveRadius: q.waveMotionRadius,
+        refl: gfx.reflections,
+        waves: gfx.waves,
+      });
+      if (this.world) {
+        this.world.sky.qualityFogMul = fogMulForChunks(q.fogMul, gfx.renderChunks, QUALITY_PRESETS[tier].viewChunkRadius);
+      }
+      this.engine.camera.far = cameraFarForChunks(gfx.renderChunks);
+      this.engine.camera.updateProjectionMatrix();
       this.npcAnimDistance = q.npcAnimDistance;
+      // Luces realistas: flag global — cada dueño de PointLight lo consulta
+      // al frame siguiente (antorchas, farol, brasas de dragón, fuego VFX).
+      gfxRuntime.pointLights = gfx.realLights;
       // Rebuild the grass ring at the new density right away
       if (this.player) {
         this.world?.vegetation.refreshGrassNear(this.player.position.x, this.player.position.z);
@@ -2794,6 +2831,7 @@ export class Game {
       this.rig!.invertY = s.invertY;
       this.audio.setVolumes({ master: s.masterVolume, music: s.musicVolume, sfx: s.sfxVolume });
     };
+    gameApi.fps = () => this.engine.fps;
     gameApi.skipIntro = () => this.finishIntro();
     gameApi.skipEnding = () => this.endings?.skip();
     gameApi.mountInfo = () => {
@@ -2961,6 +2999,32 @@ export class Game {
         this.rig?.snapBehind(p.position);
       },
     });
+  }
+
+  /** Fase 13 — sonda de depuración para las sondas E2E del navegador
+   *  (solo lectura: estado de los ajustes gráficos aplicados en caliente). */
+  debugProbe(): Record<string, unknown> {
+    const w = this.world as WorldRefs | undefined;
+    const u = (w?.water as unknown as { material?: { uniforms?: Record<string, { value: unknown }> } })
+      ?.material?.uniforms;
+    return {
+      fps: this.engine.fps,
+      quality: this.engine.quality,
+      cameraFar: this.engine.camera.far,
+      pixelRatio: this.engine.renderer.getPixelRatio(),
+      shadowsEnabled: this.engine.renderer.shadowMap.enabled,
+      waveAmp: u?.uWaveAmp?.value,
+      waveMotion: u?.uWaveMotion?.value,
+      chunkRadius: w?.terrain.chunkRadius,
+      fogMul: w?.sky.qualityFogMul,
+      pointLights: gfxRuntime.pointLights,
+      settings: { ...this.settings },
+    };
+  }
+
+  /** Fase 13 — E2E: aplicar ajustes por el mismo camino que el panel UI. */
+  debugApplySettings(s: Settings): void {
+    gameApi.applySettings(s);
   }
 
   /** Fase 9 (PDF §6.2) — chapter milestone cinematic (short panoramic card).

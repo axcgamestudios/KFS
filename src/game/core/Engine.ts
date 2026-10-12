@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { PostFX } from '../world/PostFX';
+import type { GraphicsSettings } from './Graphics';
 
 /** Graphics quality presets. */
 export type QualityLevel = 'xlow' | 'low' | 'medium' | 'high' | 'ultra';
@@ -29,6 +30,12 @@ export interface QualitySettings {
   streamDistance: number;
 }
 
+/** Sombra por escalón de calidad (aunque el jugador la encienda en xlow
+ *  no le damos un mapa 4096 — sería castigarle por probar). */
+const SHADOW_SIZE_BY_TIER: Record<QualityLevel, number> = {
+  xlow: 1024, low: 1024, medium: 1024, high: 2048, ultra: 4096,
+};
+
 export const QUALITY_PRESETS: Record<QualityLevel, QualitySettings> = {
   xlow:   { pixelRatioCap: 0.62, shadowMapSize: 0,    shadowsEnabled: false, viewChunkRadius: 2, grassDensity: 0.0,  anisotropy: 1, postfx: false, fogMul: 3.4, waterSegments: 96,  waveMotionRadius: 45,  waterRefl: 0, npcAnimDistance: 28, streamDistance: 0.45 },
   low:    { pixelRatioCap: 0.75, shadowMapSize: 0,    shadowsEnabled: false, viewChunkRadius: 4, grassDensity: 0.0,  anisotropy: 1, postfx: false, fogMul: 1.7, waterSegments: 160, waveMotionRadius: 80, waterRefl: 0, npcAnimDistance: 45, streamDistance: 0.7 },
@@ -57,10 +64,13 @@ export class Engine {
   /** Fase 4 — cinematic post-processing chain (Ultra). */
   postfx: PostFX | null = null;
 
-  constructor(canvas: HTMLCanvasElement) {
+  constructor(canvas: HTMLCanvasElement, opts?: { antialias?: boolean }) {
     this.renderer = new THREE.WebGLRenderer({
       canvas,
-      antialias: true,
+      // Fase 13 — el MSAA nace apagado en calidades bajas: es de lo más
+      // caro en escenas con mucho fill-rate y no se puede alternar en
+      // caliente (pertenece al contexto WebGL), así que se decide aquí.
+      antialias: opts?.antialias !== false,
       powerPreference: 'high-performance',
       stencil: false,
     });
@@ -92,6 +102,64 @@ export class Engine {
     const prevShadows = this.quality.shadowsEnabled;
     const prevShadowSize = this.quality.shadowMapSize;
     this.quality = { ...QUALITY_PRESETS[level] };
+    const pr = Math.min(window.devicePixelRatio, this.quality.pixelRatioCap);
+    this.renderer.setPixelRatio(pr);
+    this.renderer.shadowMap.enabled = this.quality.shadowsEnabled;
+    const shadowsToggled = prevShadows !== this.quality.shadowsEnabled;
+    const shadowSizeChanged = prevShadowSize !== this.quality.shadowMapSize;
+
+    this.scene.traverse((obj) => {
+      // Shadow-casting lights: apply the new shadow map size.
+      const light = obj as THREE.DirectionalLight;
+      if ((light as THREE.DirectionalLight).isDirectionalLight && light.shadow) {
+        if (this.quality.shadowMapSize > 0) {
+          if (light.shadow.mapSize.x !== this.quality.shadowMapSize) {
+            light.shadow.mapSize.set(this.quality.shadowMapSize, this.quality.shadowMapSize);
+            // Dispose the old map so three.js regenerates it at the new size
+            light.shadow.map?.dispose();
+            light.shadow.map = null;
+          }
+          light.castShadow = true;
+        } else {
+          light.castShadow = false;
+        }
+      }
+      if ((obj as THREE.Mesh).isMesh) {
+        const mesh = obj as THREE.Mesh;
+        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        mats.forEach((m) => {
+          const std = m as THREE.MeshStandardMaterial;
+          if (std.map) std.map.anisotropy = this.quality.anisotropy;
+          // Shadow on/off & shadow map size require shader recompilation
+          if ((shadowsToggled || shadowSizeChanged) && m.type !== 'ShaderMaterial') {
+            std.needsUpdate = true;
+          }
+        });
+      }
+    });
+    this.handleResize();
+  }
+
+  /**
+   * Fase 13 — ajustes gráficos individuales (oleaje, sombras, luces, pasto,
+   * reflejo, distancia de renderizado, resolución) sobre el escalón de
+   * calidad `tier`. Es la única puerta de entrada real: los presets solo
+   * escriben los interruptores y todos pasan por aquí.
+   */
+  applyGraphics(gfx: GraphicsSettings, tier: QualityLevel): void {
+    const prevShadows = this.quality.shadowsEnabled;
+    const prevShadowSize = this.quality.shadowMapSize;
+    const base = QUALITY_PRESETS[tier];
+    this.quality = {
+      ...base,
+      pixelRatioCap: gfx.resolution,
+      shadowsEnabled: gfx.shadows,
+      shadowMapSize: gfx.shadows ? SHADOW_SIZE_BY_TIER[tier] : 0,
+      viewChunkRadius: gfx.renderChunks,
+      grassDensity: gfx.grass3d ? Math.max(base.grassDensity, 0.4) : 0,
+      postfx: gfx.postfx,
+      waterRefl: gfx.reflections > 0 ? 1 : 0,
+    };
     const pr = Math.min(window.devicePixelRatio, this.quality.pixelRatioCap);
     this.renderer.setPixelRatio(pr);
     this.renderer.shadowMap.enabled = this.quality.shadowsEnabled;
