@@ -68,6 +68,19 @@ export interface WeaponSlotHud {
   kind: string;
 }
 
+/** Fase 18 — archery HUD: selected arrow family, ammo counts, overdraw
+ *  clock, recurve streak and the G/T ability cooldowns (one push per frame
+ *  while a bow is equipped; null when it is not). */
+export interface BowHud {
+  ammo: string;
+  ammoName: string;
+  counts: Record<string, number>;
+  overdraw: number;
+  streak: number;
+  rainCd: number;
+  pierceCd: number;
+}
+
 /** Mount HUD state (Fase 4): gait, speed and cart while riding. */
 export interface MountHud {
   horseName: string;
@@ -111,6 +124,8 @@ interface GameStore {
   boss: BossHud | null;
   weaponSlots: WeaponSlotHud[];
   bowDraw: number;
+  /** Fase 18 — archery state (null while no bow is the active weapon). */
+  bowHud: BowHud | null;
   /** True while steering the ship (weapon HUD hidden at the helm). */
   atHelm: boolean;
   /** Increments on every hit taken — triggers the red vignette flash. */
@@ -167,6 +182,7 @@ interface GameStore {
   setBoss: (b: BossHud | null) => void;
   setWeaponSlots: (s: WeaponSlotHud[]) => void;
   setBowDraw: (v: number) => void;
+  setBowHud: (s: BowHud | null) => void;
   setMount: (m: MountHud | null) => void;
   setEndingActive: (v: boolean) => void;
   setEndingCard: (c: EndingCard | null) => void;
@@ -222,6 +238,7 @@ export const useGameStore = create<GameStore>((set) => ({
   combo: null,
   weaponSlots: [],
   bowDraw: -1,
+  bowHud: null,
   atHelm: false,
   hurtFlash: 0,
   level: 1,
@@ -251,6 +268,7 @@ export const useGameStore = create<GameStore>((set) => ({
   setCombo: (c) => set({ combo: c }),
   setWeaponSlots: (s) => set({ weaponSlots: s }),
   setBowDraw: (v) => set({ bowDraw: v }),
+  setBowHud: (s) => set({ bowHud: s }),
   triggerHurtFlash: () => set((s) => ({ hurtFlash: s.hurtFlash + 1 })),
   setDialogue: (d) => set({ dialogue: d }),
   setDiscovery: (d) => set({ discovery: d }),

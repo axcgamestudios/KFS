@@ -23,9 +23,50 @@ export interface WeaponDef {
   recovery: number;       // post-swing gate (s)
   lightStamina: number;
   heavyStamina: number;
-  ranged?: { drawTime: number; dmg: number; minDmgFrac: number; speed: number };
+  /** Fase 18 — the full archery spec lives here. */
+  ranged?: RangedDef;
   /** Fase 12 — elemental legendary swords (late-game boss loot). */
   element?: 'fire' | 'frost' | 'storm';
+}
+
+/** Fase 18 — BOW CLASSES (the user's archery spec).
+ *
+ *  SHORT / LIGHT  — very high cadence, minimal stamina, DODGE SHOT
+ *                   (can draw & loose while rolling).
+ *  LONG / RECURVE — balanced; cumulative damage bonus for consecutive
+ *                   long-range hits.
+ *  GREATBOW       — massive damage, breaks posture / knocks down; PLANTED
+ *                   stance (cannot move while aiming) and heavy javelin
+ *                   projectiles.
+ */
+export type BowClass = 'short' | 'long' | 'greatbow';
+
+export interface RangedDef {
+  /** Seconds from click to 100% draw (Archer's Eye speeds it +30%). */
+  drawTime: number;
+  /** Damage at FULL draw (100%). A tap deals dmg × tapFrac. */
+  dmg: number;
+  /** Tap (quick shot) damage fraction — the spec says 30%. */
+  tapFrac: number;
+  /** Projectile speed at full draw (m/s). Taps fly at 55% of this. */
+  speed: number;
+  bowClass: BowClass;
+  /** Gravity while at full draw (near-linear flight). */
+  gravityFull: number;
+  /** Gravity on a tap (pronounced parabola). */
+  gravityTap: number;
+  /** Seconds at full draw before the overdraw drain accelerates. */
+  overdrawGrace: number;
+  /** Stamina/s burned while in overdraw (accelerates with time). */
+  overdrawDrain: number;
+  /** Greatbow: the stance plants — no movement while aiming. */
+  planted?: boolean;
+  /** Short bow: draw & loose even mid-roll (Dodge Shot). */
+  dodgeShot?: boolean;
+  /** Greatbow javelins are fat, slow, heavy things. */
+  projKind?: 'arrow' | 'javelin';
+  /** Legacy min-damage fraction (kept for save compatibility reads). */
+  minDmgFrac?: number;
 }
 
 export const WEAPONS: Record<string, WeaponDef> = {
@@ -67,11 +108,35 @@ export const WEAPONS: Record<string, WeaponDef> = {
     lightDmg: 15, heavyDmg: 27, reach: 3.8, arc: 0.62,
     lightDur: 0.45, heavyDur: 0.66, recovery: 0.4, lightStamina: 7, heavyStamina: 13,
   },
+  arco_corto: {
+    id: 'arco_corto', kind: 'bow',
+    lightDmg: 0, heavyDmg: 0, reach: 0, arc: 0,
+    lightDur: 0.3, heavyDur: 0.3, recovery: 0.18, lightStamina: 0, heavyStamina: 0,
+    ranged: {
+      drawTime: 0.42, dmg: 22, tapFrac: 0.3, speed: 30, bowClass: 'short',
+      gravityFull: 6.5, gravityTap: 15, overdrawGrace: 3.0, overdrawDrain: 5,
+      dodgeShot: true, projKind: 'arrow',
+    },
+  },
   arco_naufragio: {
     id: 'arco_naufragio', kind: 'bow',
     lightDmg: 0, heavyDmg: 0, reach: 0, arc: 0,
     lightDur: 0.35, heavyDur: 0.35, recovery: 0.25, lightStamina: 0, heavyStamina: 0,
-    ranged: { drawTime: 1.05, dmg: 30, minDmgFrac: 0.4, speed: 36 },
+    ranged: {
+      drawTime: 1.0, dmg: 34, tapFrac: 0.3, speed: 38, bowClass: 'long',
+      gravityFull: 4.5, gravityTap: 16, overdrawGrace: 2.4, overdrawDrain: 7,
+      projKind: 'arrow',
+    },
+  },
+  gran_arco: {
+    id: 'gran_arco', kind: 'bow',
+    lightDmg: 0, heavyDmg: 0, reach: 0, arc: 0,
+    lightDur: 0.55, heavyDur: 0.55, recovery: 0.5, lightStamina: 0, heavyStamina: 0,
+    ranged: {
+      drawTime: 1.85, dmg: 72, tapFrac: 0.3, speed: 34, bowClass: 'greatbow',
+      gravityFull: 3.4, gravityTap: 13, overdrawGrace: 2.0, overdrawDrain: 11,
+      planted: true, projKind: 'javelin',
+    },
   },
   // ---- Fase 16 — LA HERRERÍA: espadas de comercio (Torvald + Borin) ----
   espada_plata: {
@@ -107,6 +172,19 @@ export const SWORD_PRIORITY = [
   'espada_guardian', 'espada_eirik', 'espada_plata', 'espada_acero',
 ];
 export const WEAPON_SLOTS = ['espada_acero', 'hacha_orden', 'lanza_caza', 'arco_naufragio'];
+/** Fase 18 — the bow family, in cycle order (slot 4 presses walk this list). */
+export const BOW_CYCLE = ['arco_corto', 'arco_naufragio', 'gran_arco'];
+
+/** Fase 18 — arrow families. Basic arrows are INFINITE (standard ammo);
+ *  the special ones are consumable items. */
+export type AmmoKind = 'basic' | 'piercing' | 'fire' | 'shock' | 'poison';
+export const AMMO_DEFS: Array<{ kind: AmmoKind; item: string | null; name: string; hint: string }> = [
+  { kind: 'basic', item: null, name: 'Arrow', hint: 'Infinite. Balanced piercing damage.' },
+  { kind: 'piercing', item: 'flecha_perforante', name: 'Piercing Arrow', hint: 'Ignores armour — ships, plate, drake scales.' },
+  { kind: 'fire', item: 'flecha_fuego', name: 'Fire Arrow', hint: 'Burns over time; lights decks and powder.' },
+  { kind: 'shock', item: 'flecha_electrica', name: 'Shock Arrow', hint: 'Chains between foes; stuns in water or rain.' },
+  { kind: 'poison', item: 'flecha_veneno', name: 'Poison Arrow', hint: 'Blights healing and strength.' },
+];
 
 /** Fase 12 — element of an equipped weapon id (null = mundane steel). */
 export function swordElementOf(id: string | null | undefined): 'fire' | 'frost' | 'storm' | null {
@@ -179,6 +257,18 @@ interface Arrow {
   life: number;
   dmg: number;
   stuck: boolean;
+  /** Fase 18 — archery spec fields. */
+  ammo: AmmoKind;
+  /** Gravity acceleration (m/s²) — taps arc, full draws fly flat. */
+  gravity: number;
+  /** Launch point (for longbow streak range checks). */
+  origin?: THREE.Vector3;
+  /** Piercing shots pass through everything they kill. */
+  pierce?: boolean;
+  /** Already-hit targets (piercing shot — no double ticks). */
+  hitSet?: Set<unknown>;
+  /** Boss-part crit already applied. */
+  headshot?: boolean;
 }
 
 interface ArrowPickup {
@@ -223,6 +313,31 @@ export class CombatSystem {
   private tmp = new THREE.Vector3();
   private tmp2 = new THREE.Vector3();
   private tmpDir = new THREE.Vector3();
+
+  // ---- Fase 18: the archery spec state ----
+  /** Selected arrow family (X cycles; only owned specials are offered). */
+  ammoKind: AmmoKind = 'basic';
+  /** Seconds the string has been held at 100% (overdraw clock). */
+  private overdrawT = 0;
+  /** Fatigue stagger after a fumbled overdraw. */
+  private fumbleT = 0;
+  /** Recurve streak: consecutive long-range hits, +8% each (max +40%). */
+  private streak = 0;
+  /** Arrow Rain (G): scheduled barrage. */
+  private arrowRain: { center: THREE.Vector3; t: number; spawned: number; ammo: AmmoKind; dmg: number } | null = null;
+  private arrowRainCd = 0;
+  /** Concentrated Piercing Shot (T). */
+  private pierceShotCd = 0;
+  /** True while the player draws a bow mid-air / mounted — Game slows time. */
+  airAiming = false;
+  /** Set by Game every frame: riding a horse (air-aim counts mounted). */
+  mountedNow = false;
+  /** HUD callback for ammo/ability state. */
+  onBowHud?: (s: {
+    ammo: AmmoKind; ammoName: string; counts: Record<AmmoKind, number>;
+    overdraw: number; streak: number;
+    rainCd: number; pierceCd: number;
+  }) => void;
 
   // ---- Fase 9/11: combo chain state ----
   /** Position in the chain (0 = fresh ... 3 = route finisher). */
@@ -414,11 +529,23 @@ export class CombatSystem {
     const p = this.player;
     const weapon = this.weapon;
 
-    // --- Weapon switching (1-4) ---
+    // --- Weapon switching (1-3 melee; 4 CYCLES the bow family, Fase 18) ---
     for (let i = 0; i < WEAPON_SLOTS.length; i++) {
       if (input.anyPressed(`Digit${i + 1}`)) {
-        const slotId = i === 0 ? this.currentSwordId() : WEAPON_SLOTS[i];
-        if (slotId) this.switchTo(slotId);
+        if (i === 3) {
+          // slot 4: walk BOW_CYCLE through every bow the player owns
+          const owned = BOW_CYCLE.filter((id) => this.state.hasItem(id));
+          if (owned.length > 0) {
+            const cur = owned.indexOf(this.state.equippedWeapon ?? owned[0]);
+            const next = owned[(cur + 1) % owned.length];
+            this.switchTo(next);
+          } else {
+            this.hooks.notify('info', 'No bow carried', 'The smiths of Crowhaven sell short bows; the Mist Isles hide a good recurve.');
+          }
+        } else {
+          const slotId = i === 0 ? this.currentSwordId() : WEAPON_SLOTS[i];
+          if (slotId) this.switchTo(slotId);
+        }
       }
     }
 
@@ -506,8 +633,34 @@ export class CombatSystem {
 
     // --- Bow ---
     if (weapon.kind === 'bow') {
+      // Fase 18 — PRECISION AIM (RMB): the view tightens, the stride slows
+      // 40% (Player reads these every frame). RMB is free while a bow is
+      // out because blocking requires a melee weapon.
+      p.bowAiming = input.rightDown && !p.rolling && !p.swimming;
+      p.bowDrawMult = weapon.ranged!.bowClass === 'short' ? 0.8
+        : weapon.ranged!.bowClass === 'greatbow' ? 0.5 : 0.6;
+      // Fase 18 — ammo cycling (X): only families the player carries.
+      if (input.pressed('ammo')) this.cycleAmmo();
+      // Ability cooldowns + the Arrow Rain barrage scheduler run every frame.
+      if (this.arrowRainCd > 0) this.arrowRainCd -= dt;
+      if (this.pierceShotCd > 0) this.pierceShotCd -= dt;
+      if (this.fumbleT > 0) this.fumbleT -= dt;
+      this.tickArrowRain(dt);
+      // AIR AIM (slow-mo while drawing mid-air or from the saddle).
+      this.airAiming = p.bowDraw >= 0
+        && (!p.grounded || this.mountedNow)
+        && p.stamina > 1
+        && !p.swimming;
+      if (this.airAiming) {
+        // the held breath burns: time slows, stamina pours
+        p.stamina = Math.max(0, p.stamina - dt * 11);
+      }
       this.updateBow(dt, input, weapon);
+      // Abilities (bow only): G = Arrow Rain, T = Piercing Shot
+      if (input.pressed('special1')) this.tryArrowRain(weapon);
+      if (input.pressed('special2')) this.tryPierceShot(weapon);
       this.updateArrows(dt);
+      this.pushBowHud(weapon);
       return;
     }
 
@@ -1401,94 +1554,227 @@ export class CombatSystem {
 
   // ---------------------------------------------------------------- bow
 
+  // ---------------------------------------------------------------- bow
+  // Fase 18 — THE FULL ARCHERY SPEC:
+  //  * TAP = quick shot: 30% damage, steep arc, short range (status applier)
+  //  * HOLD = full draw: 100% damage, near-linear flight
+  //  * OVERDRAW past 100% drains stamina at an accelerating rate; hitting
+  //    empty FUMBLES the shot and staggers the archer
+  //  * AIM (RMB) slows movement 40%; the GREATBOW plants (no movement)
+  //  * Headshots on bosses crit x2.25 and interrupt; three bow classes;
+  //  * Infinite basic arrows + piercing / fire / shock / poison families
+  //  * ARROW RAIN (G) and PIERCING SHOT (T); AIR AIM slows time mid-air
+
   private updateBow(dt: number, input: Input, weapon: WeaponDef): void {
     const p = this.player;
     const ranged = weapon.ranged!;
     const drawSpeed = this.state.learnedSkills.has('comb_punteria') ? 1.3 : 1;
 
-    if (
-      input.leftDown && p.attackT === 0 && p.attackRecovery <= 0 && !p.rolling
-      && p.grounded && p.stamina > 1
-    ) {
-      // Drawing
+    // Greatbow: PLANTED — the stance commits (movement zeroed by Player).
+    p.bowPlanted = ranged.planted === true && p.bowDraw >= 0;
+
+    // Fatigue stagger from a fumbled overdraw: no drawing while it lasts.
+    if (this.fumbleT > 0) {
+      if (p.bowDraw >= 0) p.bowDraw = -1;
+      this.overdrawT = 0;
+      return;
+    }
+
+    const canHold = input.leftDown
+      && p.attackT === 0 && p.attackRecovery <= 0
+      // DODGE SHOT: short bows keep drawing straight through a roll
+      && (ranged.dodgeShot ? !p.swimming : (!p.rolling && p.grounded && !p.swimming))
+      && p.stamina > 1;
+
+    if (canHold) {
       if (p.bowDraw < 0) {
-        if (this.state.countItem('flecha') > 0) {
+        // basic arrows are infinite; specials need stock
+        if (this.ammoReady()) {
           p.bowDraw = 0.001;
+          this.overdrawT = 0;
           this.hooks.sound('bow_draw');
         } else if (input.leftPressed) {
-          this.hooks.notify('info', 'Out of arrows', 'Your quiver is empty. Missed shots can be recovered, and drakelings carry a few.');
+          const def = AMMO_DEFS.find((d) => d.kind === this.ammoKind)!;
+          this.hooks.notify('info', `Out of ${def.name.toLowerCase()}s`,
+            'X switches to plain arrows — those never run out.');
         }
       } else {
         p.bowDraw = Math.min(1, p.bowDraw + (dt / ranged.drawTime) * drawSpeed);
+        if (p.bowDraw >= 0.999) {
+          // OVERDRAW: hold past 100%. Grace first, then the accelerating
+          // burn — empty the bar and the shot FAILS with a fatigue stagger.
+          this.overdrawT += dt;
+          const drain = this.overdrawT <= ranged.overdrawGrace
+            ? 2.0
+            : ranged.overdrawDrain * (1 + Math.max(0, this.overdrawT - ranged.overdrawGrace) * 0.8);
+          p.stamina = Math.max(0, p.stamina - drain * dt);
+          if (p.stamina <= 0.01) {
+            // FUMBLE — the string slips, the arms shake, the shot is lost
+            p.bowDraw = -1;
+            this.overdrawT = 0;
+            this.fumbleT = 1.15;
+            p.attackRecovery = Math.max(p.attackRecovery, 1.05);
+            this.onCameraPunch?.(0.35);
+            this.hooks.sound('thud');
+            this.flashEvent('OVERDRAWN!');
+            this.hooks.notify('info', 'The shot fails',
+              'Your arms give out — the string slips. Keep an eye on the bar when you hold past full draw.');
+            if (this.ammoKind !== 'basic') this.spendAmmo();
+            return;
+          }
+        } else {
+          // drawing costs a trickle (short bows barely feel it)
+          p.stamina = Math.max(0, p.stamina - dt * (ranged.bowClass === 'short' ? 0.6 : 1.4));
+        }
       }
     } else if (p.bowDraw >= 0) {
-      // Released (or interrupted) -> fire if meaningfully drawn
+      // Released (or interrupted) -> loose if meaningfully drawn
       const draw = p.bowDraw;
       p.bowDraw = -1;
-      if (draw > 0.25 && this.state.countItem('flecha') > 0 && p.attackT === 0) {
-        this.fireArrow(weapon, draw);
+      const held = this.overdrawT;
+      this.overdrawT = 0;
+      if (draw > 0.16 && p.attackT === 0 && this.ammoReady()) {
+        this.fireArrow(weapon, draw, held);
       }
-    }
-
-    // Draw drains a little stamina at full draw
-    if (p.bowDraw >= 0.999) {
-      p.stamina = Math.max(0, p.stamina - dt * 2);
     }
   }
 
-  private fireArrow(weapon: WeaponDef, draw: number): void {
+  /** Basic arrows are infinite; specials need one in the quiver. */
+  private ammoReady(): boolean {
+    if (this.ammoKind === 'basic') return true;
+    const def = AMMO_DEFS.find((d) => d.kind === this.ammoKind)!;
+    return def.item !== null && this.state.countItem(def.item) > 0;
+  }
+
+  private spendAmmo(): void {
+    if (this.ammoKind === 'basic') return;
+    const def = AMMO_DEFS.find((d) => d.kind === this.ammoKind)!;
+    if (def.item) this.state.removeItem(def.item, 1);
+  }
+
+  /** X — cycle arrow families (skips specials you don't carry). */
+  private cycleAmmo(): void {
+    const order: AmmoKind[] = ['basic', 'piercing', 'fire', 'shock', 'poison'];
+    for (let step = 1; step <= order.length; step++) {
+      const next = order[(order.indexOf(this.ammoKind) + step) % order.length];
+      if (next === 'basic') { this.ammoKind = next; break; }
+      const def = AMMO_DEFS.find((d) => d.kind === next)!;
+      if (def.item && this.state.countItem(def.item) > 0) { this.ammoKind = next; break; }
+    }
+    const def = AMMO_DEFS.find((d) => d.kind === this.ammoKind)!;
+    this.hooks.sound('swap');
+    this.flashEvent(def.name.toUpperCase() + 'S');
+  }
+
+  private fireArrow(weapon: WeaponDef, draw: number, overdrawHeld = 0, ammo: AmmoKind = this.ammoKind): void {
     const p = this.player;
-    if (!this.state.removeItem('flecha', 1)) return;
+    this.spendAmmoFor(ammo);
     const ranged = weapon.ranged!;
     const { origin, dir } = this.hooks.aimRay();
-    // Aim point 48m along the camera ray, fired from the player's chest —
-    // classic third-person converging projectile.
-    const aimPoint = this.tmp.copy(origin).addScaledVector(dir, 48);
+    // Aim point along the camera ray (taps aim closer — short range feel),
+    // fired from the player's chest: classic third-person convergence.
+    const isTap = draw < 0.25;
+    const aimDist = isTap ? 26 : 52;
+    const aimPoint = this.tmp.copy(origin).addScaledVector(dir, aimDist);
     const chest = this.tmp2.set(p.position.x, p.position.y + 1.35, p.position.z);
     const flightDir = new THREE.Vector3().copy(aimPoint).sub(chest).normalize();
-    const mesh = this.buildArrowMesh();
+    const javelin = ranged.projKind === 'javelin';
+    const mesh = this.buildArrowMesh(ammo, javelin);
     mesh.position.copy(chest).addScaledVector(flightDir, 0.6);
     mesh.lookAt(mesh.position.clone().add(flightDir));
     this.scene.add(mesh);
-    let dmg = ranged.dmg * (ranged.minDmgFrac + (1 - ranged.minDmgFrac) * draw);
+
+    // --- damage model: tap 30% ... full 100%, overdraw steadies a touch ---
+    let dmg = ranged.dmg * (ranged.tapFrac + (1 - ranged.tapFrac) * Math.min(1, draw / 0.98));
+    if (overdrawHeld > 0) dmg *= 1 + Math.min(0.25, overdrawHeld * 0.08);
     if (this.state.learnedSkills.has('comb_punteria')) dmg *= 1.3;
+    // Recurve streak: consecutive long-range connects pay +8% each (max 40%)
+    if (ranged.bowClass === 'long' && this.streak > 0) dmg *= 1 + Math.min(0.4, this.streak * 0.08);
+    // Ammo families tweak the payload
+    if (ammo === 'piercing') dmg *= 1.15;
+
     this.arrows.push({
       mesh,
-      vel: flightDir.clone().multiplyScalar(ranged.speed),
-      life: 6,
+      vel: flightDir.clone().multiplyScalar(ranged.speed * (isTap ? 0.55 : 1)),
+      life: isTap ? 2.4 : 6,
       dmg,
       stuck: false,
+      ammo,
+      gravity: isTap ? ranged.gravityTap : ranged.gravityFull,
+      origin: chest.clone(),
     });
-    // Release animation
+    // Release animation (short bows snap, greatbows heave)
     p.attackKind = 'bowRelease';
-    p.attackDur = 0.35;
+    p.attackDur = ranged.bowClass === 'short' ? 0.24 : ranged.bowClass === 'greatbow' ? 0.5 : 0.35;
     p.attackT = 0.001;
     this.swingHitDone = true;
     this.hooks.sound('bow_release');
   }
 
-  private buildArrowMesh(): THREE.Group {
+  /** Special arrows burn stock; basic ones are free. */
+  private spendAmmoFor(ammo: AmmoKind): boolean {
+    if (ammo === 'basic') return true;
+    const def = AMMO_DEFS.find((d) => d.kind === ammo)!;
+    if (!def.item || this.state.countItem(def.item) <= 0) return false;
+    return this.state.removeItem(def.item, 1);
+  }
+
+  private buildArrowMesh(ammo: AmmoKind = 'basic', javelin = false): THREE.Group {
     const g = new THREE.Group();
-    const shaft = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.012, 0.012, 0.62, 5),
-      new THREE.MeshStandardMaterial({ color: 0x6a5232, roughness: 0.8 }),
-    );
+    const shaftMat = new THREE.MeshStandardMaterial({
+      color: javelin ? 0x5c452a : 0x6a5232, roughness: 0.8,
+    });
+    const tipMat = new THREE.MeshStandardMaterial({
+      color: 0x9aa2a8, roughness: 0.4, metalness: 0.7,
+    });
+    // element tints
+    if (ammo === 'fire') tipMat.color.set(0xd05a1e);
+    else if (ammo === 'shock') tipMat.color.set(0x62d8e8);
+    else if (ammo === 'poison') tipMat.color.set(0x74a832);
+    else if (ammo === 'piercing') tipMat.color.set(0x40464e);
+    const L = javelin ? 1.55 : 0.62;
+    const R = javelin ? 0.026 : 0.012;
+    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(R, R, L, 5), shaftMat);
     shaft.rotation.x = Math.PI / 2;
     g.add(shaft);
     const tip = new THREE.Mesh(
-      new THREE.ConeGeometry(0.02, 0.09, 5),
-      new THREE.MeshStandardMaterial({ color: 0x9aa2a8, roughness: 0.4, metalness: 0.7 }),
+      new THREE.ConeGeometry(javelin ? 0.05 : 0.02, javelin ? 0.22 : 0.09, 5), tipMat,
     );
     tip.rotation.x = Math.PI / 2;
-    tip.position.z = 0.35;
+    tip.position.z = L / 2 + 0.04;
     g.add(tip);
-    const fletch = new THREE.Mesh(
-      new THREE.ConeGeometry(0.028, 0.12, 4),
-      new THREE.MeshStandardMaterial({ color: 0xd8d2c0, roughness: 0.9 }),
-    );
-    fletch.rotation.x = -Math.PI / 2;
-    fletch.position.z = -0.28;
-    g.add(fletch);
+    if (!javelin) {
+      const fletchMat = new THREE.MeshStandardMaterial({
+        color: ammo === 'fire' ? 0xc04020 : ammo === 'shock' ? 0x3a8898 : ammo === 'poison' ? 0x5a7a20 : 0xd8d2c0,
+        roughness: 0.9,
+      });
+      const fletch = new THREE.Mesh(new THREE.ConeGeometry(0.028, 0.12, 4), fletchMat);
+      fletch.rotation.x = -Math.PI / 2;
+      fletch.position.z = -0.28;
+      g.add(fletch);
+    } else {
+      // javelin grip wrap
+      const grip = new THREE.Mesh(
+        new THREE.CylinderGeometry(R * 1.35, R * 1.35, 0.22, 5),
+        new THREE.MeshStandardMaterial({ color: 0x2c2018, roughness: 0.95 }),
+      );
+      grip.rotation.x = Math.PI / 2;
+      grip.position.z = -L / 2 + 0.28;
+      g.add(grip);
+    }
+    // elemental glow aura on the tip
+    if (ammo === 'fire' || ammo === 'shock' || ammo === 'poison') {
+      const aura = new THREE.Mesh(
+        new THREE.SphereGeometry(javelin ? 0.09 : 0.045, 6, 5),
+        new THREE.MeshStandardMaterial({
+          color: 0x101010,
+          emissive: ammo === 'fire' ? 0xff7a2a : ammo === 'shock' ? 0x48c8e8 : 0x7ab02a,
+          emissiveIntensity: 2.2, roughness: 0.5,
+        }),
+      );
+      aura.position.z = L / 2 + 0.06;
+      g.add(aura);
+    }
     return g;
   }
 
@@ -1498,8 +1784,8 @@ export class CombatSystem {
       const a = this.arrows[i];
       if (a.stuck) continue;
       a.life -= dt;
-      // Ballistic arc — remember the previous position for swept collision
-      a.vel.y -= 16 * dt;
+      // Ballistic arc — taps arc hard, full draws fly flat (per-arrow gravity)
+      a.vel.y -= a.gravity * dt;
       const prevX = a.mesh.position.x;
       const prevY = a.mesh.position.y;
       const prevZ = a.mesh.position.z;
@@ -1507,29 +1793,67 @@ export class CombatSystem {
       a.mesh.position.add(step);
       a.mesh.lookAt(this.tmp.copy(a.mesh.position).add(a.vel));
 
-      // Dragon hit (swept segment so fast arrows can't tunnel at low fps)
       const prev = this.tmp2.set(prevX, prevY, prevZ);
-      const dragon = this.hooksAimDragon(a.mesh.position, 0.4, prev);
-      if (dragon) {
-        this.hooks.damageDragon(dragon, a.dmg, false);
+
+      // --- Dragon hit: headshots crit and interrupt (swept segment) ---
+      const dragonPart = this.dragonHitPartRef?.(a.mesh.position, 0.4, prev) ?? null;
+      if (dragonPart) {
+        let dmg = a.dmg;
+        if (dragonPart.head) {
+          dmg *= a.pierce ? 2.0 : 2.25; // weak points: 200-250%
+          this.flashEvent('WEAK POINT!');
+          this.onCameraPunch?.(0.4);
+          this.hooks.sound('hit_scale');
+        }
+        this.hooks.damageDragon(dragonPart.dragon, dmg, dragonPart.head || a.pierce === true);
+        this.applyArrowEffects(a, a.mesh.position, null, dragonPart.dragon);
         this.vfx.weaponImpact(a.mesh.position);
         this.hooks.sound('arrow_hit');
-        this.removeArrow(i);
-        continue;
+        this.noteStreak(a);
+        if (!a.pierce) { this.removeArrow(i); continue; }
+        a.hitSet?.add(dragonPart.dragon);
       }
-      // Fase 10 — bandit hit (swept, same protocol)
+      // --- Bandit hit: headshot crits x2.2 + knockdown ---
       const bandit = this.banditHitRef?.(a.mesh.position, 0.4, prev) ?? null;
-      if (bandit) {
-        this.damageBanditRef?.(bandit, a.dmg);
+      if (bandit && !a.hitSet?.has(bandit)) {
+        let dmg = a.dmg;
+        const headY = (this.banditHeadYRef?.(bandit)) ?? Infinity;
+        if (a.mesh.position.y >= headY) {
+          dmg *= a.pierce ? 1.9 : 2.2;
+          this.flashEvent('HEADSHOT');
+          this.onCameraPunch?.(0.35);
+          this.hooks.sound('hit_scale');
+          this.banditKnockdownRef?.(bandit, 0.7);
+        } else if (a.pierce) {
+          // greatbow + piercing javelins break posture outright
+          this.banditKnockdownRef?.(bandit, 0.9);
+        }
+        // piercing ammo ignores the guard entirely
+        this.damageBanditRef?.(bandit, dmg, a.ammo === 'piercing' || a.pierce === true);
+        this.applyArrowEffects(a, a.mesh.position, bandit, null);
         this.vfx.weaponImpact(a.mesh.position);
         this.hooks.sound('arrow_hit');
-        this.removeArrow(i);
-        continue;
+        this.noteStreak(a);
+        if (!a.pierce) { this.removeArrow(i); continue; }
+        a.hitSet?.add(bandit);
       }
-      // Terrain hit -> stick (some can be recovered); over open water the
-      // arrow is simply lost to the sea.
+      // --- Sea serpents (Fase 15 beasts can be arrowed too) ---
+      if (this.seaBeastHitRef) {
+        const beast = this.seaBeastHitRef(a.mesh.position, 0.4, prev);
+        if (beast && !a.hitSet?.has(beast)) {
+          this.seaBeastDamageRef?.(beast, a.dmg * (a.ammo === 'piercing' ? 1.2 : 1));
+          this.applyArrowEffects(a, a.mesh.position, null, null);
+          this.vfx.weaponImpact(a.mesh.position);
+          this.hooks.sound('arrow_hit');
+          this.noteStreak(a);
+          if (!a.pierce) { this.removeArrow(i); continue; }
+          a.hitSet?.add(beast);
+        }
+      }
+      // Terrain hit -> stick; some can be recovered; over water: lost
       const ground = this.terrainHeight(a.mesh.position.x, a.mesh.position.z);
       if (a.mesh.position.y <= Math.max(ground, -0.4) + 0.02) {
+        if (a.pierce) { this.removeArrow(i); continue; }
         if (ground < -0.4) {
           this.vfx.arrowDust(a.mesh.position);
           this.removeArrow(i);
@@ -1538,13 +1862,13 @@ export class CombatSystem {
         a.mesh.position.y = ground + 0.02;
         a.stuck = true;
         this.vfx.arrowDust(a.mesh.position);
-        if (Math.random() < 0.55) {
+        if (a.ammo === 'basic' && Math.random() < 0.55) {
           this.pickups.push({ mesh: a.mesh, pos: a.mesh.position.clone() });
           this.arrows.splice(i, 1); // keep mesh alive as pickup
         } else {
-          a.life = 4; // fade non-recoverable stuck arrows
-          this.arrows[i].stuck = true;
+          a.life = 4; // fade stuck arrows
         }
+        this.streak = 0; // the ground is not a target
         continue;
       }
       if (a.life <= 0) this.removeArrow(i);
@@ -1557,16 +1881,194 @@ export class CombatSystem {
         if (a.life <= 0) this.removeArrow(i);
       }
     }
-    // Pickups: walk close to recover the arrow
+    // Pickups: walk close to recover (basic arrows only — specials are spent)
     for (let i = this.pickups.length - 1; i >= 0; i--) {
       const pu = this.pickups[i];
       if (pu.pos.distanceTo(p.position) < 1.8) {
-        this.state.addItem('flecha', 1);
         this.hooks.sound('pickup');
         this.scene.remove(pu.mesh);
         this.pickups.splice(i, 1);
       }
     }
+    // --- elemental damage-over-time ticks (fire arrows on dragons) ---
+    this.tickDots(dt);
+  }
+
+  /** Active damage-over-time effects (fire arrows). */
+  private dots: Array<{ dragon: Dragon; dps: number; t: number }> = [];
+
+  private tickDots(dt: number): void {
+    for (let i = this.dots.length - 1; i >= 0; i--) {
+      const d = this.dots[i];
+      d.t -= dt;
+      this.hooks.damageDragon(d.dragon, d.dps * dt, false);
+      if (d.t <= 0) this.dots.splice(i, 1);
+    }
+  }
+
+  /** Recurve streak bookkeeping (longbow: consecutive 28 m+ connects). */
+  private noteStreak(a: Arrow): void {
+    if (!a.origin) return;
+    const dist = Math.hypot(
+      a.mesh.position.x - a.origin.x,
+      a.mesh.position.z - a.origin.z,
+    );
+    if (dist >= 28) {
+      this.streak = Math.min(5, this.streak + 1);
+      if (this.streak >= 2) this.flashEvent(`DEAD EYE x${this.streak}`);
+    } else {
+      this.streak = 0;
+    }
+  }
+
+  /** Ammo on-hit effects: burn / chain-shock / poison. */
+  private applyArrowEffects(a: Arrow, at: THREE.Vector3, bandit: unknown | null, dragon: Dragon | null): void {
+    if (a.ammo === 'fire') {
+      this.vfx.elementalBurst(at, 'fire');
+      if (dragon) {
+        this.dots.push({ dragon, dps: a.dmg * 0.14, t: 4 });
+        this.flashEvent('BURNING');
+      }
+      if (bandit) this.banditStatusRef?.(bandit, 'burn', 3.5);
+    } else if (a.ammo === 'shock') {
+      this.vfx.elementalBurst(at, 'storm');
+      // chain arcing to nearby foes (60% damage, up to 3)
+      const near = this.banditsNearRef?.(at, 9) ?? [];
+      let chained = 0;
+      for (const other of near) {
+        if (other === bandit || chained >= 3) continue;
+        chained++;
+        this.damageBanditRef?.(other, a.dmg * 0.6, false);
+        this.vfx.elementalBurst(
+          new THREE.Vector3((other as { pos?: THREE.Vector3 }).pos?.x ?? at.x, at.y, (other as { pos?: THREE.Vector3 }).pos?.z ?? at.z),
+          'storm',
+        );
+      }
+      if (chained > 0) this.flashEvent(`CHAIN x${chained}`);
+      // stun if the target stands in water or it's raining
+      const bpos = bandit ? this.banditPosRef?.(bandit) : undefined;
+      const wet = this.isRainingRef?.() === true
+        || (bpos !== undefined && this.terrainHeightOf(bpos) < 0.25);
+      if (bandit && wet) {
+        this.banditKnockdownRef?.(bandit, 2.2);
+        this.flashEvent('STUNNED');
+      }
+    } else if (a.ammo === 'poison') {
+      this.vfx.elementalBurst(at, 'frost');
+      if (bandit) this.banditStatusRef?.(bandit, 'poison', 8);
+      if (dragon) this.dots.push({ dragon, dps: a.dmg * 0.06, t: 8 });
+    }
+  }
+
+  private terrainHeightOf(pos: { x: number; z: number }): number {
+    return this.terrainHeight(pos.x, pos.z);
+  }
+
+  // ------------------------------------------------------ archery abilities
+
+  /** G — ARROW RAIN: a parabolic volley that bombs an area for 3 seconds. */
+  private tryArrowRain(weapon: WeaponDef): void {
+    const p = this.player;
+    if (this.arrowRainCd > 0 || p.stamina < 35 || this.arrowRain) return;
+    const { origin, dir } = this.hooks.aimRay();
+    const center = origin.clone().addScaledVector(dir, 42);
+    center.y = Math.max(this.terrainHeight(center.x, center.z), 0.2);
+    p.stamina -= 35;
+    this.arrowRain = { center, t: 0, spawned: 0, ammo: this.ammoKind, dmg: weapon.ranged!.dmg * 0.5 };
+    this.arrowRainCd = 20;
+    this.hooks.sound('bow_release');
+    this.flashEvent('ARROW RAIN');
+    this.hooks.notify('info', 'Arrow Rain!', 'A volley darkens the sky — get out of the circle.');
+  }
+
+  /** Spawns the falling volley over 3 s. */
+  private tickArrowRain(dt: number): void {
+    if (!this.arrowRain) return;
+    const r = this.arrowRain;
+    r.t += dt;
+    const want = Math.min(20, Math.floor(r.t / 0.15));
+    while (r.spawned < want) {
+      r.spawned++;
+      const ang = Math.random() * Math.PI * 2;
+      const rad = Math.random() * 7;
+      const x = r.center.x + Math.cos(ang) * rad;
+      const z = r.center.z + Math.sin(ang) * rad;
+      const mesh = this.buildArrowMesh(r.ammo, false);
+      mesh.position.set(x, r.center.y + 30 + Math.random() * 6, z);
+      mesh.lookAt(x, r.center.y - 5, z);
+      this.scene.add(mesh);
+      this.arrows.push({
+        mesh,
+        vel: new THREE.Vector3((Math.random() - 0.5) * 1.6, -26, (Math.random() - 0.5) * 1.6),
+        life: 4.5,
+        dmg: r.dmg,
+        stuck: false,
+        ammo: r.ammo,
+        gravity: 12,
+      });
+    }
+    if (r.t >= 3.2) this.arrowRain = null;
+  }
+
+  /** T — CONCENTRATED PIERCING SHOT: a javelin that passes through
+   *  everything in a straight line (long cooldown). */
+  private tryPierceShot(weapon: WeaponDef): void {
+    const p = this.player;
+    if (this.pierceShotCd > 0 || p.stamina < 25) return;
+    const ranged = weapon.ranged!;
+    p.stamina -= 25;
+    this.pierceShotCd = 28;
+    const { origin, dir } = this.hooks.aimRay();
+    const chest = new THREE.Vector3(p.position.x, p.position.y + 1.35, p.position.z);
+    const flightDir = origin.clone().addScaledVector(dir, 60).sub(chest).normalize();
+    const mesh = this.buildArrowMesh('piercing', true);
+    // a blazing heavy bolt
+    mesh.scale.setScalar(1.5);
+    mesh.position.copy(chest).addScaledVector(flightDir, 0.8);
+    mesh.lookAt(mesh.position.clone().add(flightDir));
+    this.scene.add(mesh);
+    let dmg = ranged.dmg * 1.6;
+    if (this.state.learnedSkills.has('comb_punteria')) dmg *= 1.3;
+    this.arrows.push({
+      mesh,
+      vel: flightDir.clone().multiplyScalar(95),
+      life: 1.4,
+      dmg,
+      stuck: false,
+      ammo: 'piercing',
+      gravity: 0,
+      pierce: true,
+      hitSet: new Set<unknown>(),
+    });
+    p.attackKind = 'bowRelease';
+    p.attackDur = 0.5;
+    p.attackT = 0.001;
+    this.swingHitDone = true;
+    this.hooks.sound('bow_release');
+    this.onCameraPunch?.(0.3);
+    this.flashEvent('PIERCING SHOT');
+  }
+
+  /** HUD state push (Game wires this to the store). */
+  private pushBowHud(weapon: WeaponDef): void {
+    if (!this.onBowHud) return;
+    const counts = {
+      basic: Infinity,
+      piercing: this.state.countItem('flecha_perforante'),
+      fire: this.state.countItem('flecha_fuego'),
+      shock: this.state.countItem('flecha_electrica'),
+      poison: this.state.countItem('flecha_veneno'),
+    } as Record<AmmoKind, number>;
+    const def = AMMO_DEFS.find((d) => d.kind === this.ammoKind)!;
+    this.onBowHud({
+      ammo: this.ammoKind,
+      ammoName: weapon.ranged?.projKind === 'javelin' ? `${def.name} (bolt)` : def.name,
+      counts,
+      overdraw: this.overdrawT,
+      streak: this.streak,
+      rainCd: Math.max(0, this.arrowRainCd),
+      pierceCd: Math.max(0, this.pierceShotCd),
+    });
   }
 
   private hooksAimDragon(pos: THREE.Vector3, radius: number, prevPos?: THREE.Vector3): Dragon | null {
@@ -1575,9 +2077,22 @@ export class CombatSystem {
 
   /** Injected by the Game (avoids a circular hook dependency). */
   dragonHitRef: ((pos: THREE.Vector3, radius: number, prevPos?: THREE.Vector3) => Dragon | null) | null = null;
+  /** Fase 18 — part-aware dragon hit (head vs body) for arrow crits. */
+  dragonHitPartRef: ((pos: THREE.Vector3, radius: number, prevPos?: THREE.Vector3)
+    => { dragon: Dragon; head: boolean } | null) | null = null;
   /** Fase 10 — arrow collision against bandits (same swept protocol). */
   banditHitRef: ((pos: THREE.Vector3, radius: number, prevPos?: THREE.Vector3) => unknown | null) | null = null;
-  damageBanditRef: ((bandit: unknown, amount: number) => void) | null = null;
+  damageBanditRef: ((bandit: unknown, amount: number, heavy?: boolean) => void) | null = null;
+  /** Fase 18 — bandit helpers: head height, knockdown, statuses, area query. */
+  banditHeadYRef: ((bandit: unknown) => number) | null = null;
+  banditKnockdownRef: ((bandit: unknown, dur: number) => void) | null = null;
+  banditStatusRef: ((bandit: unknown, kind: 'burn' | 'poison', dur: number) => void) | null = null;
+  banditsNearRef: ((pos: THREE.Vector3, radius: number) => unknown[]) | null = null;
+  banditPosRef: ((bandit: unknown) => { x: number; z: number } | undefined) | null = null;
+  isRainingRef: (() => boolean) | null = null;
+  /** Fase 18 — sea serpents can be arrowed (projectile swept test + damage). */
+  seaBeastHitRef: ((pos: THREE.Vector3, radius: number, prevPos?: THREE.Vector3) => unknown | null) | null = null;
+  seaBeastDamageRef: ((beast: unknown, amount: number) => void) | null = null;
   terrainHeightRef: ((x: number, z: number) => number) | null = null;
 
   private terrainHeight(x: number, z: number): number {
@@ -1607,6 +2122,11 @@ export class CombatSystem {
     this.state.equip(id);
     this.player.attackT = 0;
     this.player.bowDraw = -1;
+    this.player.bowPlanted = false;
+    this.overdrawT = 0;
+    this.fumbleT = 0;
+    this.streak = 0;
+    this.airAiming = false;
     this.refreshVisuals();
     this.hooks.sound('swap');
   }

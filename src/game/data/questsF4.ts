@@ -153,14 +153,14 @@ export const QUESTS_F4: Record<string, QuestDef> = {
   sq_espejo: {
     id: 'sq_espejo',
     title: 'The Mirror Route',
-    description: 'Elin the shopkeeper collects rarities from the seas. The brass mirror of the Lighthouse Sea Stack would be the jewel of her counter.',
-    journal: 'Elin pays well for "anything that reflects stories." The lighthouse mirror, if it still lies in the chest on the Sea Stack, reflects a century of storms.',
+    description: 'Erica the shopkeeper collects rarities from the seas. The brass mirror of the Lighthouse Sea Stack would be the jewel of her counter.',
+    journal: 'Erica pays well for "anything that reflects stories." The lighthouse mirror, if it still lies in the chest on the Sea Stack, reflects a century of storms.',
     objectives: [
       { id: 'o1', text: 'Get the lighthouse mirror (chest on the Sea Stack)', type: 'collect', target: 'espejo', count: 1 },
-      { id: 'o2', text: 'Sell it to Elin', type: 'talk', target: 'elin_espejo' },
+      { id: 'o2', text: 'Sell it to Erica', type: 'talk', target: 'elin_espejo' },
     ],
     rewards: { xp: 80, items: [{ id: 'coin', count: 70 }] },
-    completionJournal: 'Elin set the mirror beside the till "to see who comes in twice." She paid me in gold and in laughter, which in Crowhaven are worth nearly the same.',
+    completionJournal: 'Erica set the mirror beside the till "to see who comes in twice." She paid me in gold and in laughter, which in Crowhaven are worth nearly the same.',
   },
   sq_fuegos: {
     id: 'sq_fuegos',
@@ -188,16 +188,16 @@ export const QUESTS_F4: Record<string, QuestDef> = {
   },
   sq_caravana: {
     id: 'sq_caravana',
-    title: 'Elin\'s Caravan',
-    description: 'Elin needs a cart of timber brought to her shop. You will need a horse and Halvard\'s cart.',
-    journal: 'Elin\'s warehouse is running out of timber, and "roads do not walk themselves." Halvard lends his cart: hitch it to a horse, load two planks, and bring them to her. Trade in Crowhaven is moving again.',
+    title: 'Erica\'s Caravan',
+    description: 'Erica needs a cart of timber brought to her shop. You will need a horse and Halvard\'s cart.',
+    journal: 'Erica\'s warehouse is running out of timber, and "roads do not walk themselves." Halvard lends his cart: hitch it to a horse, load two planks, and bring them to her. Trade in Crowhaven is moving again.',
     objectives: [
       { id: 'o1', text: 'Hitch the cart to a horse', type: 'flag', target: 'cart_hitched' },
       { id: 'o2', text: 'Gather 2 oak planks (0/2)', type: 'collect', target: 'madera', count: 2 },
-      { id: 'o3', text: 'Deliver the timber to Elin with the cart', type: 'talk', target: 'elin_caravana' },
+      { id: 'o3', text: 'Deliver the timber to Erica with the cart', type: 'talk', target: 'elin_caravana' },
     ],
     rewards: { xp: 110, items: [{ id: 'coin', count: 90 }] },
-    completionJournal: 'The cart creaked up to Elin\'s shop like an old woman carrying remedies. The timber was stacked, and Elin counted out twice the coins: "real freight pays better than promises."',
+    completionJournal: 'The cart creaked up to Erica\'s shop like an old woman carrying remedies. The timber was stacked, and Erica counted out twice the coins: "real freight pays better than promises."',
   },
   sq_caballos: {
     id: 'sq_caballos',
@@ -254,14 +254,14 @@ export const QUESTS_F4: Record<string, QuestDef> = {
   sq_moneda: {
     id: 'sq_moneda',
     title: 'Coins of Yesterday',
-    description: 'Elin collects the coins of Thalassar that the tide drags into the caves. Three are enough to make her happy.',
-    journal: 'The tide drags coins of the sunken kingdom into the island\'s most hidden corners. Elin pays generously for each one: "old gold tells stories better than new."',
+    description: 'Erica collects the coins of Thalassar that the tide drags into the caves. Three are enough to make her happy.',
+    journal: 'The tide drags coins of the sunken kingdom into the island\'s most hidden corners. Erica pays generously for each one: "old gold tells stories better than new."',
     objectives: [
       { id: 'o1', text: 'Find 3 Thalassar coins (0/3)', type: 'collect', target: 'moneda_antigua', count: 3 },
-      { id: 'o2', text: 'Bring them to Elin', type: 'talk', target: 'elin_moneda' },
+      { id: 'o2', text: 'Bring them to Erica', type: 'talk', target: 'elin_moneda' },
     ],
     rewards: { xp: 120, items: [{ id: 'coin', count: 150 }] },
-    completionJournal: 'Elin lined the coins up on a blue cloth and looked at them the way one looks at a memory. She paid without haggling. "An honest collector pays twice: in gold and in stories."',
+    completionJournal: 'Erica lined the coins up on a blue cloth and looked at them the way one looks at a memory. She paid without haggling. "An honest collector pays twice: in gold and in stories."',
   },
   sq_tesoro: {
     id: 'sq_tesoro',
@@ -364,14 +364,14 @@ export const QUESTS_F4: Record<string, QuestDef> = {
   sq_comercio: {
     id: 'sq_comercio',
     title: 'Trade Routes',
-    description: 'Elin says a true merchant carries 200 coins on him at some point. Prove it, and she will get you saddlebags for your mount.',
-    journal: '"Gold that is never counted makes no noise," says Elin. Gather 200 coins at once and return to her shop: she has set aside leather saddlebags for your mount.',
+    description: 'Erica says a true merchant carries 200 coins on him at some point. Prove it, and she will get you saddlebags for your mount.',
+    journal: '"Gold that is never counted makes no noise," says Erica. Gather 200 coins at once and return to her shop: she has set aside leather saddlebags for your mount.',
     objectives: [
       { id: 'o1', text: 'Hold 200 gold coins at once', type: 'flag', target: 'rich_200' },
-      { id: 'o2', text: 'Show off to Elin', type: 'talk', target: 'elin_comercio' },
+      { id: 'o2', text: 'Show off to Erica', type: 'talk', target: 'elin_comercio' },
     ],
     rewards: { xp: 130, items: [{ id: 'alforjas', count: 1 }] },
-    completionJournal: 'Elin counted my gold with a single glance and handed over the saddlebags: "good leather, double stitching." Tormenta carries them better than I carry the sword.',
+    completionJournal: 'Erica counted my gold with a single glance and handed over the saddlebags: "good leather, double stitching." Tormenta carries them better than I carry the sword.',
   },
 };
 

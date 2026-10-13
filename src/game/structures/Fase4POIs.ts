@@ -262,36 +262,11 @@ export function buildFase4World(
     });
   }
 
-  // ================= 5. ESTABLO DE HALVARD (34, 150) =================
-  const stablePos = new THREE.Vector3(34, terrain.height(34, 150), 150);
-  {
-    const b = new StaticBuilder(colliders, 'establo');
-    const [bx, bz] = [34, 150];
-    const gy = stablePos.y;
-    // Open stable: 6 posts + sloped roof + back wall
-    for (const [px, pz] of [[-4.5, -3], [4.5, -3], [-4.5, 3], [4.5, 3], [-4.5, 0], [4.5, 0]] as Array<[number, number]>) {
-      b.solidBox('timber', 0.3, 3.1, 0.3, bx + px, gy + 1.55, bz + pz, 0);
-    }
-    b.box('woodDark', 9.6, 0.22, 7.0, bx, gy + 3.2, bz, 0);
-    b.box('roofThatch', 10.2, 0.16, 7.6, bx, gy + 3.42, bz, 0);
-    b.box('wood', 9.4, 2.6, 0.24, bx, gy + 1.3, bz - 3.4, 0); // back wall
-    // Feeding trough & hay
-    b.solidBox('wood', 2.6, 0.5, 0.7, bx - 1.6, gy + 0.25, bz - 2.6, 0);
-    b.box('roofThatch', 1.6, 0.5, 1.2, bx + 0.4, gy + 0.3, bz - 2.2, 0.4); // hay pile
-    // Fence yard
-    for (let i = 0; i < 9; i++) {
-      const fz = bz + 5 + (i % 3);
-      b.box('timber', 0.16, 1.2, 0.16, bx - 8 + i * 2, gy + 0.6, fz, 0);
-    }
-    b.box('timber', 16, 0.12, 0.12, bx, gy + 0.95, bz + 6.5, 0);
-    b.box('timber', 16, 0.12, 0.12, bx, gy + 0.5, bz + 6.5, 0);
-    // Sign
-    b.box('wood', 1.4, 0.7, 0.08, bx + 5.6, gy + 1.6, bz + 4.6, 0.4);
-    const g = new THREE.Group();
-    b.build(g, { shadows: true });
-    scene.add(g);
-    groups.push({ group: g, x: bx, z: bz, r: 40 });
-  }
+  // ================= 5. ESTABLO — REMOVED (Fase 18) =================
+  // The village stable now lives INSIDE Crowhaven (buildVillageStable in
+  // BritishVillage.ts, west of the green at (-14, 187)). stablePos keeps
+  // pointing there for any consumer that wants it.
+  const stablePos = new THREE.Vector3(-14, terrain.height(-14, 187), 187);
 
   // ================= 6. TREASURE DIG SPOT (Faro plateau) =================
   const digPos = new THREE.Vector3(644, terrain.height(644, 142), 142);

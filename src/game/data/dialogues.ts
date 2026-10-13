@@ -21,7 +21,7 @@ export interface DialogueOption {
   cond?: string;   // flag must be set to show
   notCond?: string; // flag must NOT be set to show
   /** Fase 15 — inventory requirement: option only shows while the player
-   *  carries every listed item (Elin's sea-goods hub, Bram's forge). */
+   *  carries every listed item (Erica's sea-goods hub, Bram's forge). */
   requires?: Array<{ id: string; count: number }>;
 }
 
@@ -717,7 +717,7 @@ export const DIALOGUES: Record<string, NPCDialogue> = {
 
   elin: {
     npcId: 'elin',
-    name: 'Elin, shopkeeper',
+    name: 'Erica, shopkeeper',
     trees: [
       {
         start: 'e1',
@@ -924,7 +924,7 @@ export const LORE: Record<string, LoreInteraction> = {
   },
 };
 
-// ---- Fase 15 sea-trade dialogues (Elin's market, Bram's abyssal forge,
+// ---- Fase 15 sea-trade dialogues (Erica's market, Bram's abyssal forge,
 //      Tom's horn legend) — grafted onto the existing NPC trees. ----
 import { applyF15Dialogues } from './dialoguesF15';
 applyF15Dialogues(DIALOGUES);

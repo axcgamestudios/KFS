@@ -1,0 +1,679 @@
+     1→import * as THREE from 'three';
+     2→import { damp, dampAngle, clamp } from '../core/MathUtils';
+     3→import type { WaterSystem } from '../world/WaterSystem';
+     4→
+     5→/**
+     6→ * Fase 15 — SEA SERPENT ("Serpe de la Marea" / "El Rey del Mar").
+     7→ *
+     8→ * A procedural serpent: the head is driven by the AI and every body segment
+     9→ * follows the path HISTORY of the head (breadcrumb trail), so the whole
+    10→ * body carves organic curves through the water. Dorsal fins, an animated
+    11→ * jaw and (for the King) a gold crown + bioluminescent dots.
+    12→ */
+    13→
+    14→// ---- Shared materials & geometries (every serpent reuses them) ----
+    15→const MAT_COMMON = {
+    16→  body: new THREE.MeshStandardMaterial({ color: 0x23434a, roughness: 0.72, metalness: 0.08 }),
+    17→  belly: new THREE.MeshStandardMaterial({ color: 0x8fa89a, roughness: 0.8, metalness: 0.02 }),
+    18→  fin: new THREE.MeshStandardMaterial({ color: 0x17323a, roughness: 0.7, metalness: 0.05, side: THREE.DoubleSide }),
+    19→  eye: new THREE.MeshStandardMaterial({ color: 0x0a1416, emissive: 0x9fe8ff, emissiveIntensity: 2.1, roughness: 0.4 }),
+    20→};
+    21→const MAT_KING = {
+    22→  body: new THREE.MeshStandardMaterial({ color: 0x1c2f4a, roughness: 0.55, metalness: 0.25 }),
+    23→  belly: new THREE.MeshStandardMaterial({ color: 0xb8c4d4, roughness: 0.7, metalness: 0.05 }),
+    24→  fin: new THREE.MeshStandardMaterial({ color: 0x14263d, roughness: 0.6, metalness: 0.15, side: THREE.DoubleSide }),
+    25→  eye: new THREE.MeshStandardMaterial({ color: 0x140f06, emissive: 0xffc040, emissiveIntensity: 2.6, roughness: 0.4 }),
+    26→  crown: new THREE.MeshStandardMaterial({ color: 0xc9a227, roughness: 0.32, metalness: 0.85 }),
+    27→  glow: new THREE.MeshStandardMaterial({ color: 0x0a1a20, emissive: 0x35d8c0, emissiveIntensity: 1.4, roughness: 0.5 }),
+    28→};
+    29→
+    30→const GEO = {
+    31→  // one ellipsoid reused for every segment, scaled per segment
+    32→  seg: new THREE.SphereGeometry(1, 10, 8),
+    33→  fin: new THREE.ConeGeometry(0.55, 1.5, 5),
+    34→  fluke: new THREE.ConeGeometry(0.85, 1.6, 6),
+    35→  eye: new THREE.SphereGeometry(0.16, 7, 6),
+    36→  tooth: new THREE.ConeGeometry(0.05, 0.22, 4),
+    37→  crownSpike: new THREE.ConeGeometry(0.16, 0.85, 5),
+    38→  glowDot: new THREE.SphereGeometry(0.09, 6, 5),
+    39→};
+    40→
+    41→/** What the serpent needs from the world to think and bite. */
+    42→export interface SerpentContext {
+    43→  /** The ship it hunts (null = no target: idle lurk). */
+    44→  ship: {
+    45→    pos: THREE.Vector3;
+    46→    heading: number;
+    47→    speed: number;
+    48→    length: number;
+    49→  } | null;
+    50→  water: WaterSystem;
+    51→  /** Hull damage + effects. */
+    52→  hullDamage: (dmg: number, at: THREE.Vector3) => void;
+    53→  playerDamage: (dmg: number, fromX: number, fromZ: number, reason: string) => number;
+    54→  splash: (pos: THREE.Vector3, strength: number) => void;
+    55→  ink: (pos: THREE.Vector3, strength: number) => void;
+    56→  sound: (kind: 'splash' | 'hit_hull' | 'roar_big' | 'thud' | 'sink' | 'creak') => void;
+    57→  shake: (intensity: number) => void;
+    58→  /** Fase 15 — leave a wake ring on the water surface. */
+    59→  wake: (x: number, z: number, force: number, radius: number, decay: number) => void;
+    60→}
+    61→
+    62→export type SerpentState =
+    63→  | 'emerge' | 'lurk' | 'circle' | 'dive' | 'rush'
+    64→  | 'gnaw' | 'retreat' | 'flee' | 'sink' | 'gone';
+    65→
+    66→export class SeaSerpent {
+    67→  readonly group = new THREE.Group();
+    68→  readonly pos = new THREE.Vector3();
+    69→  yaw = 0;
+    70→  speed = 0;
+    71→  hp: number;
+    72→  readonly maxHp: number;
+    73→  readonly isKing: boolean;
+    74→  readonly name: string;
+    75→  state: SerpentState = 'emerge';
+    76→  stateT = 0;
+    77→  alive = true;
+    78→  /** Phase (King only): 1, 2, 3. */
+    79→  phase = 1;
+    80→  /** Callback when the king enters phase 2 (spawns adds). */
+    81→  onKingPhase2?: (king: SeaSerpent) => void;
+    82→
+    83→  // --- body parts ---
+    84→  private headG = new THREE.Group();
+    85→  private jawTop!: THREE.Mesh;
+    86→  private jawBottom = new THREE.Group();
+    87→  private segMeshes: THREE.Mesh[] = [];
+    88→  private segRadius: number[] = [];
+    89→  private eyeL!: THREE.Mesh;
+    90→  private eyeR!: THREE.Mesh;
+    91→  private jawOpen = 0;
+    92→
+    93→  // --- trail following ---
+    94→  private trail: Array<{ x: number; y: number; z: number }> = [];
+    95→  private trailLen = 0;
+    96→  private readonly segSpacing: number;
+    97→  private readonly segCount: number;
+    98→  private readonly scale: number;
+    99→
+   100→  // --- temp ---
+   101→  private tmpB = new THREE.Vector3();
+   102→  private t = 0;
+   103→  private wavePhase = Math.random() * Math.PI * 2;
+   104→  private bobPhase = Math.random() * Math.PI * 2;
+   105→  private lurkAngle: number;
+   106→  private attackCycles = 0;
+   107→
+   108→  constructor(opts: {
+   109→    x: number; z: number;
+   110→    king?: boolean;
+   111→    hp?: number;
+   112→    scale?: number;
+   113→    facing?: number;
+   114→  }) {
+   115→    this.isKing = !!opts.king;
+   116→    this.scale = opts.scale ?? (this.isKing ? 3.0 : 0.95 + Math.random() * 0.25);
+   117→    this.maxHp = opts.hp ?? (this.isKing ? 1400 : 150 + Math.round(Math.random() * 40));
+   118→    this.hp = this.maxHp;
+   119→    this.name = this.isKing ? 'The King of the Sea' : 'Tide Serpent';
+   120→    this.segCount = this.isKing ? 13 : 8;
+   121→    this.segSpacing = 1.85 * this.scale;
+   122→    this.lurkAngle = Math.random() * Math.PI * 2;
+   123→    this.yaw = opts.facing ?? Math.random() * Math.PI * 2;
+   124→    this.pos.set(opts.x, this.isKing ? -34 : -9, opts.z);
+   125→    this.build();
+   126→    this.group.add(this.headG);
+   127→    // Seed the trail straight behind so the body starts stretched out
+   128→    for (let i = 0; i < 60; i++) {
+   129→      this.trail.push({
+   130→        x: opts.x - Math.sin(this.yaw) * i * 0.9,
+   131→        y: this.pos.y,
+   132→        z: opts.z - Math.cos(this.yaw) * i * 0.9,
+   133→      });
+   134→    }
+   135→    this.syncBody(0);
+   136→    this.group.visible = false; // hidden until it emerges
+   137→  }
+   138→
+   139→  // ------------------------------------------------------------------ model
+   140→
+   141→  private build(): void {
+   142→    const M = this.isKing ? MAT_KING : MAT_COMMON;
+   143→    const s = this.scale;
+   144→    const cast = this.isKing; // only the giant pays the shadow cost
+   145→
+   146→    // --- Head: skull dome + snout + jaws + eyes + crest ---
+   147→    const skull = new THREE.Mesh(GEO.seg, M.body);
+   148→    skull.scale.set(0.95 * s, 0.85 * s, 1.25 * s);
+   149→    skull.castShadow = cast;
+   150→    this.headG.add(skull);
+   151→    const brow = new THREE.Mesh(GEO.seg, M.body);
+   152→    brow.scale.set(0.8 * s, 0.55 * s, 0.8 * s);
+   153→    brow.position.set(0, 0.42 * s, -0.3 * s);
+   154→    this.headG.add(brow);
+   155→
+   156→    // Upper jaw (fixed wedge)
+   157→    this.jawTop = new THREE.Mesh(GEO.seg, M.body);
+   158→    this.jawTop.scale.set(0.6 * s, 0.3 * s, 1.5 * s);
+   159→    this.jawTop.position.set(0, -0.12 * s, 1.05 * s);
+   160→    this.headG.add(this.jawTop);
+   161→
+   162→    // Lower jaw (pivots at the back of the mouth)
+   163→    this.jawBottom.position.set(0, -0.24 * s, 0.15 * s);
+   164→    const lower = new THREE.Mesh(GEO.seg, M.body);
+   165→    lower.scale.set(0.52 * s, 0.2 * s, 1.45 * s);
+   166→    lower.position.set(0, -0.05 * s, 1.0 * s);
+   167→    this.jawBottom.add(lower);
+   168→    this.headG.add(this.jawBottom);
+   169→
+   170→    // Teeth on both jaws
+   171→    for (const side of [-1, 1]) {
+   172→      for (let i = 0; i < 4; i++) {
+   173→        const up = new THREE.Mesh(GEO.tooth, M.belly);
+   174→        up.position.set(side * 0.34 * s, -0.16 * s, (0.5 + i * 0.34) * s);
+   175→        up.rotation.x = Math.PI;
+   176→        up.scale.setScalar(s);
+   177→        this.jawTop.add(up);
+   178→        const dn = new THREE.Mesh(GEO.tooth, M.belly);
+   179→        dn.position.set(side * 0.3 * s, 0.02 * s, (0.55 + i * 0.34) * s);
+   180→        dn.scale.setScalar(s);
+   181→        this.jawBottom.add(dn);
+   182→      }
+   183→    }
+   184→
+   185→    // Eyes
+   186→    for (const side of [-1, 1]) {
+   187→      const eye = new THREE.Mesh(GEO.eye, M.eye);
+   188→      eye.position.set(side * 0.6 * s, 0.28 * s, 0.55 * s);
+   189→      eye.scale.setScalar(s * 1.15);
+   190→      this.headG.add(eye);
+   191→      if (side < 0) this.eyeL = eye; else this.eyeR = eye;
+   192→    }
+   193→
+   194→    // Head crest fins (crown of spikes for the King)
+   195→    if (this.isKing) {
+   196→      for (let i = 0; i < 5; i++) {
+   197→        const spike = new THREE.Mesh(GEO.crownSpike, MAT_KING.crown);
+   198→        const a = (i / 4 - 0.5) * 1.5;
+   199→        spike.position.set(0, 0.62 * s, (-0.55 + i * 0.34) * s);
+   200→        spike.rotation.x = -0.35 - i * 0.06;
+   201→        spike.scale.setScalar(s * (i === 2 ? 1.5 : 1));
+   202→        this.headG.add(spike);
+   203→      }
+   204→      // Whisker-like glow dots
+   205→      for (const side of [-1, 1]) {
+   206→        const dot = new THREE.Mesh(GEO.glowDot, MAT_KING.glow);
+   207→        dot.position.set(side * 0.75 * s, -0.1 * s, 1.5 * s);
+   208→        dot.scale.setScalar(s * 1.6);
+   209→        this.headG.add(dot);
+   210→      }
+   211→    } else {
+   212→      const crest = new THREE.Mesh(GEO.fin, M.fin);
+   213→      crest.position.set(0, 0.68 * s, -0.15 * s);
+   214→      crest.rotation.x = -0.28;
+   215→      crest.scale.set(0.5 * s, 0.75 * s, 0.5 * s);
+   216→      this.headG.add(crest);
+   217→      // side whiskers
+   218→      for (const side of [-1, 1]) {
+   219→        const whisk = new THREE.Mesh(GEO.fin, M.fin);
+   220→        whisk.position.set(side * 0.8 * s, -0.05 * s, 0.9 * s);
+   221→        whisk.rotation.z = side * 1.35;
+   222→        whisk.scale.set(0.4 * s, 0.8 * s, 0.4 * s);
+   223→        this.headG.add(whisk);
+   224→      }
+   225→    }
+   226→
+   227→    // --- Body segments + dorsal fins ---
+   228→    for (let i = 0; i < this.segCount; i++) {
+   229→      const k = i / (this.segCount - 1);
+   230→      const r = (1 - k * 0.82) * (this.isKing ? 1.05 : 0.92) * s;
+   231→      const seg = new THREE.Mesh(GEO.seg, M.body);
+   232→      seg.scale.set(r, r * 0.9, r * 1.35);
+   233→      seg.castShadow = cast;
+   234→      this.segMeshes.push(seg);
+   235→      this.segRadius.push(r);
+   236→      this.group.add(seg);
+   237→      // pale belly plate
+   238→      const belly = new THREE.Mesh(GEO.seg, M.belly);
+   239→      belly.scale.set(r * 0.82, r * 0.5, r * 1.05);
+   240→      belly.position.y = -r * 0.55;
+   241→      seg.add(belly);
+   242→      // dorsal fin every other segment
+   243→      if (i % 2 === 1 && i < this.segCount - 2) {
+   244→        const fin = new THREE.Mesh(GEO.fin, M.fin);
+   245→        fin.position.y = r * 0.95;
+   246→        fin.rotation.x = -0.22;
+   247→        fin.scale.set(r * 0.7, r * 1.7, r * 0.35);
+   248→        seg.add(fin);
+   249→      }
+   250→      // King: bioluminescent flank dots
+   251→      if (this.isKing && i % 2 === 0) {
+   252→        for (const side of [-1, 1]) {
+   253→          const dot = new THREE.Mesh(GEO.glowDot, MAT_KING.glow);
+   254→          dot.position.set(side * r * 0.85, 0, 0);
+   255→          dot.scale.setScalar(s * 1.3);
+   256→          seg.add(dot);
+   257→        }
+   258→      }
+   259→    }
+   260→
+   261→    // --- Tail fluke (two flattened cones) ---
+   262→    const fluke = new THREE.Group();
+   263→    for (const side of [-1, 1]) {
+   264→      const f = new THREE.Mesh(GEO.fluke, M.fin);
+   265→      f.scale.set(0.5, 1.15, 0.22);
+   266→      f.position.x = side * 0.42 * s;
+   267→      f.rotation.z = side * 0.85;
+   268→      f.scale.multiplyScalar(s);
+   269→      fluke.add(f);
+   270→    }
+   271→    this.group.add(fluke);
+   272→    this.segMeshes.push(fluke as unknown as THREE.Mesh);
+   273→    this.segRadius.push(0.5 * s);
+   274→  }
+   275→
+   276→  // ------------------------------------------------------------------ state
+   277→
+   278→  get hpFrac(): number {
+   279→    return clamp(this.hp / this.maxHp, 0, 1);
+   280→  }
+   281→
+   282→  /** Near the surface (cannonballs can reach)? */
+   283→  get surfaced(): boolean {
+   284→    return this.pos.y > -2.6 && this.alive;
+   285→  }
+   286→
+   287→  /** Reusable hit-sphere centers (no per-frame allocation). */
+   288→  private hitPool: THREE.Vector3[] = Array.from({ length: 6 }, () => new THREE.Vector3());
+   289→
+   290→  /** Head + first segments as hit spheres (cannonball tests).
+   291→   *  NOTE: the returned centers are SCRATCH vectors — consume immediately. */
+   292→  getHitSpheres(out: Array<{ center: THREE.Vector3; radius: number }>): void {
+   293→    if (!this.surfaced) {
+   294→      out.length = 0;
+   295→      return;
+   296→    }
+   297→    out.length = 0;
+   298→    out.push({ center: this.hitPool[0].copy(this.pos), radius: 1.25 * this.scale });
+   299→    for (let i = 0; i < Math.min(4, this.segMeshes.length); i++) {
+   300→      const m = this.segMeshes[i];
+   301→      out.push({ center: this.hitPool[i + 1].copy(m.position), radius: this.segRadius[i] * 1.25 });
+   302→    }
+   303→  }
+   304→
+   305→  headWorld(out: THREE.Vector3): THREE.Vector3 {
+   306→    return out.copy(this.pos);
+   307→  }
+   308→
+   309→  /** Kill from damage (not from despawn). */
+   310→  kill(): void {
+   311→    if (!this.alive) return;
+   312→    this.alive = false;
+   313→    this.state = 'sink';
+   314→    this.stateT = 0;
+   315→    this.speed = Math.max(this.speed, 2);
+   316→  }
+   317→
+   318→  /** Disengage without a fight (player left / died). */
+   319→  disengage(): void {
+   320→    if (!this.alive) return;
+   321→    this.alive = false;
+   322→    this.state = 'flee';
+   323→    this.stateT = 0;
+   324→    this.hp = this.isKing ? this.maxHp : this.hp; // the King heals when you flee
+   325→  }
+   326→
+   327→  // ------------------------------------------------------------------ think
+   328→
+   329→  update(dt: number, ctx: SerpentContext): void {
+   330→    if (this.state === 'gone') return;
+   331→    this.t += dt;
+   332→    this.stateT += dt;
+   333→    const ship = ctx.ship;
+   334→
+   335→    // King phase transitions
+   336→    if (this.isKing && this.alive) {
+   337→      if (this.phase === 1 && this.hpFrac <= 0.66) {
+   338→        this.phase = 2;
+   339→        this.onKingPhase2?.(this);
+   340→      } else if (this.phase === 2 && this.hpFrac <= 0.33) {
+   341→        this.phase = 3;
+   342→      }
+   343→    }
+   344→
+   345→    switch (this.state) {
+   346→      case 'emerge': this.stEmerge(dt, ctx); break;
+   347→      case 'lurk': this.stLurk(dt, ctx); break;
+   348→      case 'circle': this.stCircle(dt, ctx); break;
+   349→      case 'dive': this.stDive(dt, ctx); break;
+   350→      case 'rush': this.stRush(dt, ctx); break;
+   351→      case 'gnaw': this.stGnaw(dt, ctx); break;
+   352→      case 'retreat': this.stRetreat(dt, ctx); break;
+   353→      case 'flee': this.stFlee(dt, ctx); break;
+   354→      case 'sink': this.stSink(dt, ctx); break;
+   355→    }
+   356→
+   357→    // --- integrate head ---
+   358→    if (this.state !== 'gnaw') {
+   359→      this.pos.x += Math.sin(this.yaw) * this.speed * dt;
+   360→      this.pos.z += Math.cos(this.yaw) * this.speed * dt;
+   361→    }
+   362→
+   363→    // --- vertical target by state ---
+   364→    let targetY: number;
+   365→    switch (this.state) {
+   366→      case 'emerge':
+   367→        targetY = ctx.water.waveHeightAt(this.pos.x, this.pos.z) - 0.5 * this.scale;
+   368→        break;
+   369→      case 'lurk': targetY = -5.5; break;
+   370→      case 'circle': case 'rush': case 'retreat':
+   371→        targetY = ctx.water.waveHeightAt(this.pos.x, this.pos.z) - 0.5 * this.scale;
+   372→        break;
+   373→      case 'gnaw':
+   374→        targetY = ctx.water.waveHeightAt(this.pos.x, this.pos.z) - 0.15 * this.scale;
+   375→        break;
+   376→      case 'dive': targetY = -9 - this.scale * 2; break;
+   377→      default: targetY = -12 - this.scale * 3;
+   378→    }
+   379→    const bob = Math.sin(this.t * 1.25 + this.bobPhase) * 0.22 * this.scale;
+   380→    this.pos.y = damp(this.pos.y, targetY + bob, this.state === 'emerge' ? 1.6 : 2.6, dt);
+   381→
+   382→    // --- record trail & animate the body ---
+   383→    this.pushTrail();
+   384→    this.syncBody(dt);
+   385→
+   386→    // --- visibility: deep = hidden (the sea hides it for free) ---
+   387→    const visible = this.pos.y > -3.2 - this.scale * 0.4;
+   388→    this.group.visible = visible;
+   389→    if (visible) {
+   390→      this.group.position.set(0, 0, 0); // children are in world space
+   391→    }
+   392→
+   393→    // --- surface effects: foam + wake while swimming on top ---
+   394→    if (visible && this.speed > 2.5 && Math.random() < dt * 6) {
+   395→      const w = ctx.water.waveHeightAt(this.pos.x, this.pos.z);
+   396→      this.tmpB.set(this.pos.x, w + 0.1, this.pos.z);
+   397→      ctx.splash(this.tmpB, 0.16 * this.scale);
+   398→      ctx.wake(this.pos.x, this.pos.z, 0.3 * this.scale, 8 * this.scale, 4 * this.scale);
+   399→    }
+   400→
+   401→    // --- jaw animation ---
+   402→    const wantJaw =
+   403→      this.state === 'gnaw' || this.state === 'rush' || (this.isKing && this.state === 'emerge')
+   404→        ? 1 : this.state === 'circle' ? 0.25 + Math.sin(this.t * 2.2) * 0.15 : 0;
+   405→    this.jawOpen = damp(this.jawOpen, wantJaw, 6, dt);
+   406→    this.jawBottom.rotation.x = this.jawOpen * 0.62;
+   407→  }
+   408→
+   409→  // ================================================================ states
+   410→
+   411→  private stEmerge(dt: number, ctx: SerpentContext): void {
+   412→    // Rising from the deep: full speed up, forward crawl
+   413→    this.speed = damp(this.speed, 3.5 * this.scale, 1.2, dt);
+   414→    if (this.stateT > 0.25 && Math.random() < dt * 9) {
+   415→      ctx.splash(this.tmpB.copy(this.pos).setY(0.2), 0.5 * this.scale);
+   416→      ctx.wake(this.pos.x, this.pos.z, 0.8 * this.scale, 14 * this.scale, 6 * this.scale);
+   417→    }
+   418→    if (this.pos.y > ctx.water.waveHeightAt(this.pos.x, this.pos.z) - 1.2 * this.scale) {
+   419→      // BREACH!
+   420→      ctx.splash(this.tmpB.copy(this.pos).setY(0.4), 1.6 * this.scale);
+   421→      ctx.wake(this.pos.x, this.pos.z, 1.4 * this.scale, 26 * this.scale, 9 * this.scale);
+   422→      ctx.sound(this.isKing ? 'roar_big' : 'splash');
+   423→      ctx.shake(this.isKing ? 0.9 : 0.35);
+   424→      this.state = 'circle';
+   425→      this.stateT = 0;
+   426→      this.attackCycles = 0;
+   427→    }
+   428→  }
+   429→
+   430→  private stLurk(dt: number, ctx: SerpentContext): void {
+   431→    // Submerged watching: slow orbit around the ship
+   432→    this.speed = damp(this.speed, 2.2, 1.5, dt);
+   433→    if (ctx.ship) {
+   434→      this.lurkAngle += dt * 0.25;
+   435→      const r = 46;
+   436→      const tx = ctx.ship.pos.x + Math.cos(this.lurkAngle) * r;
+   437→      const tz = ctx.ship.pos.z + Math.sin(this.lurkAngle) * r;
+   438→      this.faceToward(tx, tz, dt, 1.4);
+   439→    }
+   440→    if (this.stateT > (this.isKing ? 4 : 7 + Math.random() * 6)) {
+   441→      this.state = 'circle';
+   442→      this.stateT = 0;
+   443→    }
+   444→  }
+   445→
+   446→  private stCircle(dt: number, ctx: SerpentContext): void {
+   447→    // The broadside window: surface swim around the target
+   448→    const spd = (this.isKing ? 6.5 : 5.2) * (this.phase === 3 ? 1.25 : 1);
+   449→    this.speed = damp(this.speed, spd, 1.6, dt);
+   450→    if (ctx.ship) {
+   451→      this.lurkAngle += dt * (this.isKing ? 0.34 : 0.42) * (this.phase === 3 ? 1.3 : 1);
+   452→      const r = this.isKing ? 40 : 32;
+   453→      const tx = ctx.ship.pos.x + Math.cos(this.lurkAngle) * r;
+   454→      const tz = ctx.ship.pos.z + Math.sin(this.lurkAngle) * r;
+   455→      this.faceToward(tx, tz, dt, 2.2);
+   456→    }
+   457→    const circleTime = this.isKing ? (this.phase === 3 ? 5 : 7) : 9 + Math.random() * 5;
+   458→    if (this.stateT > circleTime) {
+   459→      this.state = this.attackCycles >= 3 && !this.isKing ? 'retreat' : 'dive';
+   460→      this.stateT = 0;
+   461→    }
+   462→  }
+   463→
+   464→  private stDive(dt: number, ctx: SerpentContext): void {
+   465→    // Slip under: brief vanish, then line up the charge
+   466→    this.speed = damp(this.speed, 4.5, 1.4, dt);
+   467→    if (ctx.ship) this.faceToward(ctx.ship.pos.x, ctx.ship.pos.z, dt, 1.1);
+   468→    if (Math.random() < dt * 4) {
+   469→      ctx.wake(this.pos.x, this.pos.z, 0.25 * this.scale, 9 * this.scale, 5 * this.scale);
+   470→    }
+   471→    if (this.stateT > (this.isKing && this.phase === 3 ? 2.0 : 2.6)) {
+   472→      this.state = 'rush';
+   473→      this.stateT = 0;
+   474→      if (this.isKing) ctx.sound('roar_big');
+   475→    }
+   476→  }
+   477→
+   478→  private stRush(dt: number, ctx: SerpentContext): void {
+   479→    // The charge: aim slightly ahead of the ship
+   480→    const ship = ctx.ship;
+   481→    if (!ship) {
+   482→      this.state = 'circle';
+   483→      this.stateT = 0;
+   484→      return;
+   485→    }
+   486→    const lead = clamp(ship.speed * 0.6, -3, 6);
+   487→    const tx = ship.pos.x + Math.sin(ship.heading) * lead;
+   488→    const tz = ship.pos.z + Math.cos(ship.heading) * lead;
+   489→    this.faceToward(tx, tz, dt, this.isKing ? 2.0 : 2.6);
+   490→    const rushSpd = (this.isKing ? 15.5 : 13) * (this.phase === 3 ? 1.18 : 1);
+   491→    this.speed = damp(this.speed, rushSpd, 2.4, dt);
+   492→    // foam line while charging
+   493→    if (Math.random() < dt * 14) {
+   494→      ctx.wake(this.pos.x, this.pos.z, 0.5 * this.scale, 11 * this.scale, 5 * this.scale);
+   495→      if (this.pos.y > -1.5) ctx.splash(this.tmpB.copy(this.pos).setY(0.2), 0.3 * this.scale);
+   496→    }
+   497→    // Impact?
+   498→    const dist = Math.hypot(ship.pos.x - this.pos.x, ship.pos.z - this.pos.z);
+   499→    if (dist < 4.5 + this.scale * 1.6) {
+   500→      // RAM: hull takes the blow, the deck feels it
+   501→      const base = this.isKing ? (this.phase === 3 ? 30 : 22) : 8 + Math.random() * 4;
+   502→      const hullDmg = Math.round(base);
+   503→      ctx.hullDamage(hullDmg, this.pos);
+   504→      const playerDmg = this.isKing ? 8 : 4;
+   505→      ctx.playerDamage(playerDmg, this.pos.x, this.pos.z, 'serpe');
+   506→      ctx.splash(this.tmpB.copy(ship.pos).setY(0.6), 1.4);
+   507→      ctx.wake(ship.pos.x, ship.pos.z, 1.2, 20, 8);
+   508→      ctx.sound('thud');
+   509→      ctx.shake(this.isKing ? 1.0 : 0.55);
+   510→      this.attackCycles++;
+   511→      this.state = 'gnaw';
+   512→      this.stateT = 0;
+   513→      this.gnawTicks = 0;
+   514→      this.speed *= 0.25;
+   515→    } else if (this.stateT > 6.5) {
+   516→      // missed (or the ship fled): re-circle
+   517→      this.state = 'circle';
+   518→      this.stateT = 0;
+   519→      this.attackCycles++;
+   520→    }
+   521→  }
+   522→
+   523→  private gnawTicks = 0;
+   524→  private gnawTickT = 0;
+   525→
+   526→  private stGnaw(dt: number, ctx: SerpentContext): void {
+   527→    // Latched to the hull: bite ticks, then let go
+   528→    this.speed = damp(this.speed, 0.6, 2, dt);
+   529→    const ship = ctx.ship;
+   530→    if (ship) {
+   531→      this.faceToward(ship.pos.x, ship.pos.z, dt, 3);
+   532→      // stay glued near the impact point
+   533→      const d = Math.hypot(ship.pos.x - this.pos.x, ship.pos.z - this.pos.z);
+   534→      if (d > 7 + this.scale) {
+   535→        this.pos.x += (ship.pos.x - this.pos.x) * dt * 1.5;
+   536→        this.pos.z += (ship.pos.z - this.pos.z) * dt * 1.5;
+   537→      }
+   538→    }
+   539→    this.gnawTickT += dt;
+   540→    if (this.gnawTickT > 0.8) {
+   541→      this.gnawTickT = 0;
+   542→      this.gnawTicks++;
+   543→      const dmg = this.isKing ? 6 : 3;
+   544→      ctx.hullDamage(dmg, this.pos);
+   545→      ctx.sound('hit_hull');
+   546→      ctx.ink(this.tmpB.copy(this.pos).setY(this.pos.y + this.scale), 0.6);
+   547→      if (this.gnawTicks >= (this.isKing ? 3 : 2)) {
+   548→        this.state = 'dive';
+   549→        this.stateT = 0;
+   550→        this.speed = 7;
+   551→      }
+   552→    }
+   553→  }
+   554→
+   555→  private stRetreat(dt: number, ctx: SerpentContext): void {
+   556→    // Common beasts: back off and watch for a while
+   557→    this.speed = damp(this.speed, 6, 1.5, dt);
+   558→    if (ctx.ship) {
+   559→      const dx = this.pos.x - ctx.ship.pos.x;
+   560→      const dz = this.pos.z - ctx.ship.pos.z;
+   561→      const d = Math.hypot(dx, dz) || 1;
+   562→      this.faceToward(this.pos.x + dx / d * 10, this.pos.z + dz / d * 10, dt, 2);
+   563→    }
+   564→    if (this.stateT > 3.4) {
+   565→      this.state = 'lurk';
+   566→      this.stateT = 0;
+   567→      this.attackCycles = 0;
+   568→    }
+   569→  }
+   570→
+   571→  private stFlee(dt: number, ctx: SerpentContext): void {
+   572→    // Deep exit: dive and swim away (despawn handled by the system)
+   573→    this.speed = damp(this.speed, 8, 1.4, dt);
+   574→    if (this.stateT > 1.2 && Math.random() < dt * 3) {
+   575→      ctx.wake(this.pos.x, this.pos.z, 0.3 * this.scale, 10 * this.scale, 5 * this.scale);
+   576→    }
+   577→  }
+   578→
+   579→  private stSink(dt: number, ctx: SerpentContext): void {
+   580→    // Death: roll over, bubble foam, sink with the current
+   581→    this.speed = damp(this.speed, 1.4, 1.2, dt);
+   582→    this.yaw += dt * 0.3;
+   583→    if (Math.random() < dt * 8) {
+   584→      ctx.ink(this.tmpB.copy(this.pos).setY(Math.max(this.pos.y, 0.2)), 0.8);
+   585→      ctx.splash(this.tmpB.copy(this.pos).setY(0.25), 0.35 * this.scale);
+   586→    }
+   587→  }
+   588→
+   589→  // -------------------------------------------------------------- internals
+   590→
+   591→  private faceToward(tx: number, tz: number, dt: number, rate: number): void {
+   592→    const want = Math.atan2(tx - this.pos.x, tz - this.pos.z);
+   593→    this.yaw = dampAngle(this.yaw, want, rate, dt);
+   594→    // gentle serpentine wiggle while cruising (the body carves S-curves)
+   595→    if (this.state === 'circle' || this.state === 'lurk') {
+   596→      this.yaw += Math.sin(this.t * 1.7 + this.wavePhase) * 0.006;
+   597→    }
+   598→  }
+   599→
+   600→  private pushTrail(): void {
+   601→    const head = this.trail[0];
+   602→    if (!head) {
+   603→      this.trail.unshift({ x: this.pos.x, y: this.pos.y, z: this.pos.z });
+   604→      return;
+   605→    }
+   606→    const d = Math.hypot(this.pos.x - head.x, this.pos.z - head.z);
+   607→    if (d > 0.55) {
+   608→      this.trail.unshift({ x: this.pos.x, y: this.pos.y, z: this.pos.z });
+   609→      this.trailLen += d;
+   610→      if (this.trail.length > 130) this.trail.pop();
+   611→    } else if (Math.abs(this.pos.y - head.y) > 0.4) {
+   612→      // vertical-only movement still refreshes depth
+   613→      this.trail[0] = { x: this.pos.x, y: this.pos.y, z: this.pos.z };
+   614→    }
+   615→  }
+   616→
+   617→  /** Place every segment along the trail at its arc-length offset. */
+   618→  private syncBody(dt: number): void {
+   619→    // head transform (world space)
+   620→    this.headG.position.copy(this.pos);
+   621→    const ahead = this.trail[1] ?? this.trail[0];
+   622→    let pitch = 0;
+   623→    if (ahead) {
+   624→      const dy = this.pos.y - ahead.y;
+   625→      const dh = Math.hypot(this.pos.x - ahead.x, this.pos.z - ahead.z) || 0.01;
+   626→      pitch = clamp(Math.atan2(dy, dh), -0.9, 0.9);
+   627→    }
+   628→    this.headG.rotation.set(pitch, this.yaw, 0);
+   629→    // the head aims along +Z: rotate the model cone offset
+   630→    this.headG.rotation.order = 'YXZ';
+   631→
+   632→    // segments along the trail
+   633→    let trailIdx = 0;
+   634→    let acc = 0;
+   635→    const target = this.segSpacing;
+   636→    for (let i = 0; i < this.segMeshes.length; i++) {
+   637→      const want = target * (i + 1);
+   638→      // advance along the trail until we pass 'want'
+   639→      while (trailIdx < this.trail.length - 1) {
+   640→        const a = this.trail[trailIdx];
+   641→        const b = this.trail[trailIdx + 1];
+   642→        const segLen = Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) || 0.001;
+   643→        if (acc + segLen >= want) break;
+   644→        acc += segLen;
+   645→        trailIdx++;
+   646→      }
+   647→      const a = this.trail[Math.min(trailIdx, this.trail.length - 1)];
+   648→      const b = this.trail[Math.min(trailIdx + 1, this.trail.length - 1)];
+   649→      const segLen = Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) || 0.001;
+   650→      const k = clamp((want - acc) / segLen, 0, 1);
+   651→      const m = this.segMeshes[i];
+   652→      m.position.set(
+   653→        a.x + (b.x - a.x) * k,
+   654→        a.y + (b.y - a.y) * k,
+   655→        a.z + (b.z - a.z) * k,
+   656→      );
+   657→      const segYaw = Math.atan2(a.x - b.x, a.z - b.z);
+   658→      const segPitch = Math.atan2(a.y - b.y, Math.hypot(a.x - b.x, a.z - b.z));
+   659→      m.rotation.set(segPitch, segYaw, 0);
+   660→      m.rotation.order = 'YXZ';
+   661→      if (i === this.segMeshes.length - 1) {
+   662→        // tail fluke sways
+   663→        m.rotation.z = Math.sin(this.t * 3.1 + this.wavePhase) * 0.4;
+   664→      }
+   665→    }
+   666→
+   667→    // eye glow pulse
+   668→    const glow = 1.8 + Math.sin(this.t * 2.6) * 0.6;
+   669→    (this.eyeL.material as THREE.MeshStandardMaterial).emissiveIntensity = glow;
+   670→    (this.eyeR.material as THREE.MeshStandardMaterial).emissiveIntensity = glow;
+   671→    void dt;
+   672→  }
+   673→
+   674→  dispose(): void {
+   675→    this.group.parent?.remove(this.group);
+   676→    this.state = 'gone';
+   677→  }
+   678→}
+   679→

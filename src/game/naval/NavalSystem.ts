@@ -382,14 +382,15 @@ export class NavalSystem {
   }
 
   /** Fase 11 — nearest sailable ship (the Colibrí always; admin ships only
-   *  while at anchor). Enemy AI ships are NEVER candidates. */
+   *  while at anchor). Enemy AI ships are NEVER candidates.
+   *  Fase 18 — reach measured to the HULL, not the center of mass. */
   helmCandidate(playerWorld: THREE.Vector3): Ship | null {
     let best: Ship | null = null;
     let bestD = Infinity;
     const consider = (s: Ship, isPlayer: boolean) => {
       if (s.sunk || s.sinking > 0) return;
-      const d = Math.hypot(s.pos.x - playerWorld.x, s.pos.z - playerWorld.z);
-      if (d < 13 && d < bestD && (isPlayer || s.anchored)) {
+      const d = s.hullDistanceTo(playerWorld.x, playerWorld.z);
+      if (d < 5 && d < bestD && (isPlayer || s.anchored)) {
         best = s;
         bestD = d;
       }
@@ -507,25 +508,50 @@ export class NavalSystem {
     for (const brain of this.enemies) {
       if (brain.questBoarded) continue;
       if (brain.ship.crippled && !brain.ship.sunk && brain.ship.sinking === 0) {
-        const d = Math.hypot(brain.ship.pos.x - this.playerShip.pos.x, brain.ship.pos.z - this.playerShip.pos.z);
-        if (d < 17) return brain;
+        // Fase 18 — hull-to-hull reach: the old 17 m center-to-center circle
+        // asked the player to park their mast inside the enemy hull.
+        const other = this.playerShip;
+        const d = Math.hypot(brain.ship.pos.x - other.pos.x, brain.ship.pos.z - other.pos.z)
+          - (brain.ship.length / 2 + other.length / 2);
+        if (d < 9) return brain;
+      }
+    }
+    return null;
+  }
+
+  /** Fase 18 — BOARD FROM THE WATER: a crippled QUEST ship can be boarded on
+   *  foot or while swimming (no own ship alongside needed). This is the fix
+   *  for the Old Crow Isle quest: arrive, cripple the Bloody Gull with
+   *  broadsides, drop anchor, swim to her side and climb aboard to face
+   *  Morwen — the mission can no longer soft-lock. */
+  canBoardFromWorld(playerWorld: THREE.Vector3): EnemyBrain | null {
+    if (this.boarding) return null;
+    for (const brain of this.enemies) {
+      if (brain.questBoarded || !brain.quest) continue;
+      const s = brain.ship;
+      if (s.crippled && !s.sunk && s.sinking === 0
+        && s.hullDistanceTo(playerWorld.x, playerWorld.z) < 7) {
+        return brain;
       }
     }
     return null;
   }
 
   startBoarding(brain: EnemyBrain): void {
-    if (this.boarding || !this.playerShip) return;
+    if (this.boarding) return;
     const enemy = brain.ship;
-    // Grapple: both ships freeze, sails down
+    // Grapple: both ships freeze, sails down. (Fase 18: boarding from the
+    // water must survive a sunk/absent player ship — only freeze what floats.)
     enemy.grappled = true;
     enemy.frozen = true;
     enemy.sailState = 0;
     enemy.rudderInput = 0;
-    this.playerShip.grappled = true;
-    this.playerShip.frozen = true;
-    this.playerShip.sailState = 0;
-    this.playerShip.rudderInput = 0;
+    if (this.playerShip && !this.playerShip.sunk && this.playerShip.sinking === 0) {
+      this.playerShip.grappled = true;
+      this.playerShip.frozen = true;
+      this.playerShip.sailState = 0;
+      this.playerShip.rudderInput = 0;
+    }
     brain.mode = 'grappled';
     brain.questBoarded = true;
 
@@ -768,12 +794,20 @@ export class NavalSystem {
 
   /** Contextual naval interaction for the player (used by Game). */
   currentPrompt(playerWorld: THREE.Vector3): { prompt: string; run: () => void } | null {
-    const ship = this.playerShip;
-    if (!ship || this.boarding) return null; // mid-boarding: hands are full
+    if (this.boarding) return null; // mid-boarding: hands are full
 
     if (!this.playerSailing) {
+      // Fase 18 — on foot / swimming: a crippled QUEST ship in reach can be
+      // boarded directly from the water (Old Crow Isle quest fix).
+      const fromWater = this.canBoardFromWorld(playerWorld);
+      if (fromWater) {
+        return {
+          prompt: `Climb aboard the ${fromWater.ship.name}`,
+          run: () => this.startBoarding(fromWater),
+        };
+      }
       // Fase 11 — ANY anchored ship in reach offers her wheel: the Colibrí
-      // always, admin ships while at anchor
+      // always, admin ships while at anchor (hull-accurate reach, Fase 18)
       const cand = this.helmCandidate(playerWorld);
       if (cand) {
         return {
@@ -783,6 +817,9 @@ export class NavalSystem {
       }
       return null;
     }
+
+    const ship = this.playerShip;
+    if (!ship) return null;
 
     // Sailing: boarding has priority
     const boardable = this.canBoard();

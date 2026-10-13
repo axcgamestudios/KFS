@@ -4,7 +4,8 @@ export type InputAction =
   | 'forward' | 'back' | 'left' | 'right'
   | 'jump' | 'sprint' | 'interact' | 'lantern'
   | 'parry' | 'hookdash' | 'finisher' | 'tonic'
-  | 'inventory' | 'map' | 'journal' | 'skills';
+  | 'inventory' | 'map' | 'journal' | 'skills'
+  | 'ammo' | 'special1' | 'special2';
 
 export class Input {
   private keys = new Set<string>();
@@ -97,6 +98,9 @@ export class Input {
       case 'hookdash': return this.keys.has('KeyF');
       case 'finisher': return this.keys.has('KeyV');
       case 'tonic': return this.keys.has('KeyR');
+      case 'ammo': return this.keys.has('KeyX');
+      case 'special1': return this.keys.has('KeyG');
+      case 'special2': return this.keys.has('KeyT');
       default: return false;
     }
   }
@@ -117,6 +121,10 @@ export class Input {
       case 'hookdash': return this.justPressed.has('KeyF');
       case 'finisher': return this.justPressed.has('KeyV');
       case 'tonic': return this.justPressed.has('KeyR');
+      // Fase 18 — archery: X cycles arrow families, G/T fire the bow abilities
+      case 'ammo': return this.justPressed.has('KeyX');
+      case 'special1': return this.justPressed.has('KeyG');
+      case 'special2': return this.justPressed.has('KeyT');
       case 'jump': return this.justPressed.has('Space');
       case 'inventory': return this.justPressed.has('Tab');
       case 'map': return this.justPressed.has('KeyM');

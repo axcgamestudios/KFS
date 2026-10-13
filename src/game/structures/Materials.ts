@@ -50,6 +50,11 @@ export const MAT = {
   /** Fase 16 — white concrete: the merchants' establishments (smithies).
    *  Photo-based albedo comes from AssetSystem (white_concrete PBR set). */
   concreteWhite: new THREE.MeshStandardMaterial({ color: 0xf2f0ec, roughness: 0.88, metalness: 0 }),
+  /** Fase 18 — fountain water: clear, slightly metallic catchlight. */
+  fountainWater: new THREE.MeshStandardMaterial({
+    color: 0x4d8ba8, roughness: 0.16, metalness: 0.4,
+    transparent: true, opacity: 0.82,
+  }),
 } as const;
 
 export type MatKey = keyof typeof MAT;

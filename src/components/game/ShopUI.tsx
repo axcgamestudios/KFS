@@ -4,10 +4,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { useGameStore } from '@/store/gameStore';
 import { gameApi } from '@/game/api';
 import { ITEMS } from '@/game/data/items';
-import { Coins, Feather, Layers, Package, Shield, Shirt, Sword, X } from 'lucide-react';
+import { BowArrow, Coins, Feather, Flame, Layers, Package, Shield, Shirt, Sword, X, Zap } from 'lucide-react';
 
 const ICONS: Record<string, React.ComponentType<{ size?: number | string; className?: string }>> = {
-  Coins, Feather, Layers, Shield, Shirt, Sword, Package,
+  Coins, Feather, Layers, Shield, Shirt, Sword, Package, BowArrow, Flame, Zap,
 };
 
 /**
@@ -119,6 +119,7 @@ export default function ShopUI() {
                         {e.name}
                       </h3>
                       <span className="kotfs-title flex shrink-0 items-center gap-1 text-[0.75rem] text-[color:var(--kotfs-gold)]">
+                        {(e.qty ?? 1) > 1 && <span className="text-[0.6rem] text-[color:var(--kotfs-parchment-dim)]">×{e.qty}</span>}
                         <Coins size={12} /> {e.price}
                       </span>
                     </div>

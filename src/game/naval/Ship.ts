@@ -387,6 +387,20 @@ export class Ship {
     return 16;
   }
 
+  /** Fase 18 — TRUE hull distance: from a world point to the nearest point
+   *  on the ship's hull rectangle (ship-local, so it works at any heading).
+   *  This is what every "reach the ship" prompt must measure — the old
+   *  center-of-mass circle put the interaction zone in the middle of the
+   *  ocean / beside the mast while the hull itself felt dead to the touch. */
+  hullDistanceTo(wx: number, wz: number): number {
+    const l = this.toLocal(wx, wz);
+    const hw = Math.max(2.35 * this.colSX, this.deckHalfW);
+    const hl = Math.max(8.4 * this.colSZ, this.deckBowZ);
+    const dx = Math.max(Math.abs(l.x) - hw, 0);
+    const dy = Math.max(Math.abs(l.y) - hl, 0);
+    return Math.hypot(dx, dy);
+  }
+
   /** Ship-local ↔ world transforms. Local +Z = bow. */
   toWorld(lx: number, ly: number, lz: number, out = new THREE.Vector3()): THREE.Vector3 {
     const s = Math.sin(this.heading);

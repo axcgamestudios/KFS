@@ -555,11 +555,12 @@ export class Game {
       },
     });
     // Tormenta (the Order's warhorse, gift of q10) + Halvard's stock
-    this.mounts.spawnHorse('tormenta', 'Tormenta', 'black', 36, 152, false, 0);
+    // Fase 18 — the stable moved west of the green (-14, 187)
+    this.mounts.spawnHorse('tormenta', 'Tormenta', 'black', -10, 190, false, 0);
     this.mounts.spawnHorse('alazan', 'Meadow Chestnut', 'chestnut', -50, -100, false, 220);
     this.mounts.spawnHorse('gris', 'Grey of the West', 'grey', -250, -190, false, 260);
     // The stable cart
-    this.mounts.spawnCart('carreta', 30, 156, 0.4);
+    this.mounts.spawnCart('carreta', -8, 192, 0.4);
     this.endings = new EndingSystem(this.state);
 
     // --- Fase 10: RED KNIGHT bandits camped on the roads ---
@@ -755,7 +756,20 @@ export class Game {
           } else if (chest.id === 'chest_antigua_1' || chest.id === 'chest_antigua_2' || chest.id === 'chest_antigua_3') {
             state.addItem('moneda_antigua', 1);
             state.addItem('coin', 30);
-            store.getState().notify('item', 'Thalassar coin', 'Old gold from the sunken kingdom. Elin pays well for these.');
+            store.getState().notify('item', 'Thalassar coin', 'Old gold from the sunken kingdom. Erica pays well for these.');
+          } else if (chest.id === 'chest_crow_settlement') {
+            state.addItem('flecha_perforante', 6);
+            state.addItem('coin', 45);
+            store.getState().notify('item', 'The smugglers\' cache', 'Six bodkin piercing arrows and 45 coins, wrapped in oilcloth. Cycle arrow families with X.');
+          } else if (chest.id === 'chest_crow_cove') {
+            state.addItem('flecha_fuego', 5);
+            state.addItem('coin', 30);
+            store.getState().notify('item', 'A charred strongbox', 'Five fire arrows and 30 coins — pitch still wet, wicks still good.');
+          } else if (chest.id === 'chest_crow_lookout') {
+            state.addItem('flecha_electrica', 5);
+            state.addItem('flecha_veneno', 4);
+            state.addItem('coin', 35);
+            store.getState().notify('item', 'The lookout\'s quiver', 'Storm-glass shock arrows, a bundle of poisoned heads, and 35 coins from the crow\'s nest.');
           }
         },
       });
@@ -763,7 +777,9 @@ export class Game {
 
     // --- Fase 12 — CARTEL DE RECOMPENSAS (bounty board, plaza) ---
     {
-      const boardX = 33, boardZ = 141;
+      // Fase 18 — moved NE of the green: the old spot (33, 141) now lies
+      // inside Erica's rebuilt cottage footprint.
+      const boardX = 27, boardZ = 156;
       const boardY = terrainH(boardX, boardZ);
       const board = new THREE.Group();
       const post = new THREE.Mesh(
@@ -2383,6 +2399,10 @@ export class Game {
       // Fase 3 combat HUD
       store.setWeaponSlots(this.combat!.slots());
       store.setBowDraw(p.bowDraw);
+      // Fase 18 — archery HUD (ammo family, overdraw, ability cooldowns)
+      if (!this.combat!.onBowHud) {
+        this.combat!.onBowHud = (s) => useGameStore.getState().setBowHud(s);
+      }
       // Fase 9 — melee combo chain indicator (+ Fase 11 fight labels:
       // WHIRLWIND!, COUNTER!, PERFECT DODGE!, GROUND SLAM!...)
       const comboHud = this.combat!.comboHud;
@@ -2944,7 +2964,7 @@ export class Game {
         reached_crow: [-540, -450],     // ISLANDS.crow — the real island centre
         morwen_defeated: [-425, -308], // the Gaviota's cove anchorage
         elite_hunter_sunk: [-360, -490], // the flagship wreck reef
-        cart_hitched: [30, 156],       // the cart by the stable
+        cart_hitched: [-8, 192],      // the cart by the stable (Fase 18 spot)
         // read_letter intentionally NOT mapped: the letter is read from the
         // inventory (Tab), so a map pin would send you walking nowhere.
       };
@@ -3148,8 +3168,11 @@ export class Game {
             desc: item?.desc ?? '',
             icon: item?.icon ?? 'Package',
             price: e.price,
+            qty: e.qty ?? 1,
             note: e.note,
-            owned: s.hasItem(e.item),
+            // Fase 18 — consumable bundles (arrow quivers) stay repeatable:
+            // only unique gear locks the buy button once carried.
+            owned: s.hasItem(e.item) && !(item?.stackable ?? false),
             canAfford: coins >= e.price,
             rarity: item?.rarity,
             stats: statsBits.join(' · '),
@@ -3165,12 +3188,13 @@ export class Game {
       if (s.level < def.minLevel) return 'level';
       if (s.countItem('coin') < entry.price) return 'gold';
       if (!s.removeItem('coin', entry.price)) return 'gold';
-      s.addItem(itemId, 1);
+      const qty = entry.qty ?? 1;
+      s.addItem(itemId, qty);
       this.audio.playEvent('unlock');
       useGameStore.getState().notify(
         'item',
         ITEMS[itemId]?.name ?? itemId,
-        `${def.name}: "Fair deal." You have ${s.countItem('coin')} coins left.`,
+        `${def.name}: "Fair deal." ${qty > 1 ? `${qty} units` : 'One piece'} added — you have ${s.countItem('coin')} coins left.`,
       );
       return 'ok';
     };

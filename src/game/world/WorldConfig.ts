@@ -60,7 +60,7 @@ export interface IslandDef {
 export const ISLANDS: IslandDef[] = [
   {
     id: 'crow', name: 'Old Crow Isle',
-    x: -540, z: -450, radius: 130, height: 46, biome: 'volcanic',
+    x: -540, z: -450, radius: 138, height: 30, biome: 'volcanic',
     journal: 'The island from my father’s map. Cliffs black as crow’s wings, and above the cove a timber fortress bristling with red banners. Here nests the Three-Headed Crow.',
   },
   {
@@ -217,12 +217,17 @@ export interface FlatDef { x: number; z: number; r: number; h: number }
 
 export const FLATS: FlatDef[] = [
   { x: -490, z: -445, r: 42, h: 18 },  // Fortaleza del Cuervo terrace
+  { x: -512, z: -468, r: 46, h: 12 },  // Fase 18: lower settlement terrace (longhouse + huts)
+  { x: -452, z: -372, r: 34, h: 5 },   // Fase 18: cove beach camp + boat graveyard
+  { x: -575, z: -400, r: 26, h: 22 },  // Fase 18: western lookout shelf
   { x: 567, z: 116, r: 26, h: 22 },    // Faro plateau
   { x: -60, z: 578, r: 24, h: 4 },     // Mist isles camp
   { x: 20, z: -300, r: 30, h: 88 },    // Nido del Ancestro (snowy summit plateau)
   { x: -398, z: -450, r: 34, h: 2.6 }, // Fase 4: Cala del Silencio (crow cove shelf)
   { x: -360, z: -490, r: 26, h: 1.6 }, // Fase 4: bajío del buque insignia (flagship wreck reef)
   { x: 476, z: 476, r: 30, h: 12.3 },  // Fase 15: Navel of the Sea — the Horn Altar plateau
+  { x: 110, z: -42, r: 58, h: 38 },    // Fase 18: castle bailey — a TRUE flat pad so the
+                                         // bigger walls/towers never float on the plateau skirt
 ];
 
 /** Global sailing wind — slow precession, shared by ships, HUD and audio. */

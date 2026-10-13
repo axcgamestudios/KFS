@@ -267,6 +267,38 @@ export const ITEMS: Record<string, ItemDef> = {
     icon: 'Feather', stackable: false, equipable: true, rarity: 'legendary',
     glide: { sink: -1.8, speed: 13.5 },
   },
+
+  // ---- Fase 18 — THE ARCHER'S ARSENAL (three bow classes + arrow families) ----
+  arco_corto: {
+    id: 'arco_corto', name: 'Short Bow', kind: 'weapon',
+    desc: 'A hunter\'s armful of yew: draws in a blink, costs nothing to loose, and keeps shooting straight through a dodge roll. Tap for quick harassing shots; hold for the full pull.',
+    icon: 'BowArrow', stackable: false, equipable: true, rarity: 'common',
+  },
+  gran_arco: {
+    id: 'gran_arco', name: 'Greatbow of the Deep Forge', kind: 'weapon',
+    desc: 'Borin strung a mast over a whalebone stave. Drawing it plants your boots in the earth — the javelin it throws breaks shields, postures and pride.',
+    icon: 'BowArrow', stackable: false, equipable: true, rarity: 'legendary',
+  },
+  flecha_perforante: {
+    id: 'flecha_perforante', name: 'Piercing Arrows', kind: 'material',
+    desc: 'Bodkin heads of folded steel: they ignore armour — plate, hull timber, drake scale. Cycle with X while a bow is drawn.',
+    icon: 'MoveUpRight', stackable: true, rarity: 'rare',
+  },
+  flecha_fuego: {
+    id: 'flecha_fuego', name: 'Fire Arrows', kind: 'material',
+    desc: 'Pitch-soaked wraps behind a barbed head. What they touch keeps burning — and powder kegs answer them loudly. Cycle with X.',
+    icon: 'Flame', stackable: true, rarity: 'rare',
+  },
+  flecha_electrica: {
+    id: 'flecha_electrica', name: 'Shock Arrows', kind: 'material',
+    desc: 'Storm-glass tips that crackle on release. The arc leaps between foes — and anything standing in water or rain is stunned dead. Cycle with X.',
+    icon: 'Zap', stackable: true, rarity: 'rare',
+  },
+  flecha_veneno: {
+    id: 'flecha_veneno', name: 'Poison Arrows', kind: 'material',
+    desc: 'Maren\'s recipe, distilled: the wound blights healing and saps the strength out of what carries it. Cycle with X.',
+    icon: 'FlaskConical', stackable: true, rarity: 'rare',
+  },
 };
 
 // ---- Fase 4 items (Chapter IV-V relics, trade goods, treasure hunt) ----

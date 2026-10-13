@@ -11,7 +11,7 @@ import type { DialogueTree } from './dialogues';
 
 // ---------------------------------------------------------------- ELIN
 
-/** Elin's market hub — every service greys out until the goods are there. */
+/** Erica's market hub — every service greys out until the goods are there. */
 function elinHub(): DialogueTree['nodes'] {
   return {
     elin_mar_1: {
@@ -72,7 +72,7 @@ function elinHub(): DialogueTree['nodes'] {
           ],
           next: 'elin_mar_trade',
         },
-        { text: 'Not today, Elin. Good market.', action: { t: 'close' } },
+        { text: 'Not today, Erica. Good market.', action: { t: 'close' } },
       ],
     },
     elin_mar_sell: {
@@ -194,7 +194,7 @@ function bramForge(): DialogueTree['nodes'] {
 // ---------------------------------------------------------------- insert
 
 const INSERTS: Record<string, DialogueTree[]> = {
-  // Elin: one tree per sea good (whichever the player carries opens the hub)
+  // Erica: one tree per sea good (whichever the player carries opens the hub)
   elin: [
     {
       requireItem: { id: 'perla_negra', count: 1 },

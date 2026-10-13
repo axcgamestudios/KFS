@@ -15,7 +15,7 @@ import { buildVillage, type VillageLayout } from './structures/Village';
 import {
   buildRuins, buildStoneCircle, buildWatchtower, buildShipwreck, buildGrotto, buildWaterfall, buildDragonLair,
 } from './structures/POIs';
-import { buildPirateFort, buildFaroRuins, buildBrumaCamp } from './structures/Islands';
+import { buildPirateFort, buildFaroRuins, buildBrumaCamp, buildCrowSettlement } from './structures/Islands';
 import { buildNavelIsland, type NavelRefs } from './structures/NavelIsland';
 import { buildSmithy } from './structures/Smithy';
 import { createChest, createHerb, type ChestHandles } from './structures/Props';
@@ -189,7 +189,7 @@ export async function buildWorld(
   const castleGroup = new THREE.Group();
   castleB.build(castleGroup, { shadows: true });
   scene.add(castleGroup);
-  streamer.register(castleGroup, WORLD.castlePos.x, WORLD.castlePos.z, 60);
+  streamer.register(castleGroup, WORLD.castlePos.x, WORLD.castlePos.z, 80);
 
   prog(0.3, 'Building Crowhaven…');
   const village = buildVillage(scene, terrainHeight, colliders);
@@ -201,7 +201,7 @@ export async function buildWorld(
   const kits = new KitSystem(assets);
   await kits.load();
   const dressed = dressWithKits(scene, terrainHeight, colliders, kits, {
-    tavernDoor: village.tavernDoor,
+    tavernDoor: village.rosaDoor,
     squareCenter: village.squareCenter,
     castleGate: castle.gatePos,
   });
@@ -243,6 +243,15 @@ export async function buildWorld(
   scene.add(fortGroup);
   streamer.register(fortGroup, -490, -445, 70);
 
+  // Fase 18 — THE CROW SETTLEMENT: longhouse, boat-yard, lookout, caches
+  prog(0.55, 'Settling the crow’s nest…');
+  const crowB = new StaticBuilder(colliders, 'crowset');
+  const crowSet = buildCrowSettlement(crowB, terrainHeight);
+  const crowGroup = new THREE.Group();
+  crowB.build(crowGroup, { shadows: true });
+  scene.add(crowGroup);
+  streamer.register(crowGroup, -500, -420, 110);
+
   prog(0.56, 'Carving out the Lighthouse Sea Stack…');
   const faroB = new StaticBuilder(colliders, 'faro');
   const faro = buildFaroRuins(faroB, terrainHeight);
@@ -266,22 +275,17 @@ export async function buildWorld(
 
   // ---- Fase 16 — LA HERRERÍA: the merchants' establishments (white concrete) ----
   prog(0.59, 'Lighting the forges…');
-  // Torvald — the standard smithy, by the castle road, facing the square
+  // Torvald — the standard smithy stays by the castle road (level 6 shop)
   const torvaldB = new StaticBuilder(colliders, 'smithy_std');
   const torvald = buildSmithy(torvaldB, terrainHeight, { x: 52, z: 116, yaw: -0.75 });
   const torvaldGroup = new THREE.Group();
   torvaldB.build(torvaldGroup, { shadows: true });
   scene.add(torvaldGroup);
   streamer.register(torvaldGroup, 52, 116, 26);
-  // Borin — the dwarf forge deep in the western woods, facing the north trail
-  const borinB = new StaticBuilder(colliders, 'smithy_dwarf');
-  const borin = buildSmithy(borinB, terrainHeight, { x: -120, z: -60, yaw: 2.36, dwarf: true });
-  const borinGroup = new THREE.Group();
-  borinB.build(borinGroup, { shadows: true });
-  scene.add(borinGroup);
-  streamer.register(borinGroup, -120, -60, 24);
+  // Fase 18 — BORIN MOVED INTO THE VILLAGE: the dwarf blacksmith now works
+  // from his own slate-roofed cottage by the dock road (buildVillage builds
+  // the cabin + forge interior; his npcDef + shop coords point here too).
   void torvald.anvilPos; void torvald.forgePos; // (layout refs; keep for future props)
-  void borin.anvilPos; void borin.forgePos;
 
   prog(0.60, 'Raising the Ancestor’s Nest…');
   const lairB = new StaticBuilder(colliders, 'lair');
@@ -307,6 +311,10 @@ export async function buildWorld(
   addChest('chest_wreck', -334, 186, 0.9);
   addChest('chest_falls', -101, -199, -0.6);
   addChest('chest_crow', fort.chestPos.x, fort.chestPos.z, 0.8);
+  // Fase 18 — the crow settlement smuggler caches
+  addChest('chest_crow_settlement', crowSet.chests[0].x, crowSet.chests[0].z, 1.6);
+  addChest('chest_crow_cove', crowSet.chests[1].x, crowSet.chests[1].z, -0.7);
+  addChest('chest_crow_lookout', crowSet.chests[2].x, crowSet.chests[2].z, 2.1);
   addChest('chest_faro', faro.chestPos.x, faro.chestPos.z, 1.2);
   addChest('chest_bruma', bruma.chestPos.x, bruma.chestPos.z, -0.5);
   addChest('chest_lanza', 295.5, 60.5, 0.8);   // watchtower base — la Lanza de Caza
@@ -363,45 +371,52 @@ export async function buildWorld(
   const g = (x: number, z: number) => terrainHeight.height(x, z);
   const npcDefs: NPCDef[] = [
     {
+      // Fase 18 — Aldric's cottage stands west of the green (his study keeps
+      // Eirik's sea chest); evenings he joins the fountain square.
       id: 'aldric', name: 'Maester Aldric', paletteIndex: 1, cape: true, dialogueId: 'aldric',
-      home: new THREE.Vector3(29, g(29, 233), 233),
-      work: new THREE.Vector3(27, g(27, 218), 218),
-      evening: new THREE.Vector3(12, g(12, 173), 173),
+      home: new THREE.Vector3(-14, g(-14, 160), 160),
+      work: new THREE.Vector3(-11.5, g(-11.5, 161.5), 161.5),
+      evening: new THREE.Vector3(22, g(22, 148), 148),
       nightAtHome: true,
     },
     {
+      // Fase 18 — Maren lost her hut: she tends the garden nook by the green.
       id: 'maren', name: 'Maren the Herbalist', paletteIndex: 3, dialogueId: 'maren',
-      home: new THREE.Vector3(8, g(8, 207), 207),
-      work: new THREE.Vector3(9.5, g(9.5, 208), 208),
-      evening: new THREE.Vector3(8, g(8, 207), 207),
+      home: new THREE.Vector3(-6, g(-6, 152), 152),
+      work: new THREE.Vector3(-5, g(-5, 153.5), 153.5),
+      evening: new THREE.Vector3(23, g(23, 147), 147),
       nightAtHome: true,
     },
     {
+      // Fase 18 — Bram's cottage + forge, east of the green.
       id: 'bram', name: 'Bram the Blacksmith', paletteIndex: 0, dialogueId: 'bram',
-      home: new THREE.Vector3(39, g(39, 185), 185),
-      work: new THREE.Vector3(28, g(28, 193), 193),
-      evening: new THREE.Vector3(12, g(12, 172), 172),
+      home: new THREE.Vector3(40, g(40, 171), 171),
+      work: new THREE.Vector3(37, g(37, 172.5), 172.5),
+      evening: new THREE.Vector3(21, g(21, 146), 146),
       nightAtHome: true,
     },
     {
+      // Fase 18 — Rosa's hearth-cottage south of the fountain (the village inn).
       id: 'rosa', name: 'Rosa the Innkeeper', paletteIndex: 2, dialogueId: 'rosa',
-      home: new THREE.Vector3(11, g(11, 168), 168),
-      work: new THREE.Vector3(11, g(11, 172), 172),
-      evening: new THREE.Vector3(10, g(10, 173), 173),
+      home: new THREE.Vector3(2, g(2, 176), 176),
+      work: new THREE.Vector3(3.5, g(3.5, 174), 174),
+      evening: new THREE.Vector3(18, g(18, 152), 152),
       nightAtHome: false,
     },
     {
+      // Fase 18 — Tom's cabin by the northern beach; he still works the pier.
       id: 'tom', name: 'Tom the Fisherman', paletteIndex: 4, dialogueId: 'tom',
-      home: new THREE.Vector3(36, g(36, 234), 234),
+      home: new THREE.Vector3(0, g(0, 138), 138),
       work: new THREE.Vector3(18, g(18, 226), 226),
-      evening: new THREE.Vector3(13, g(13, 171), 171),
+      evening: new THREE.Vector3(17, g(17, 151), 151),
       nightAtHome: true,
     },
     {
-      id: 'elin', name: 'Elin the Shopkeeper', paletteIndex: 3, dialogueId: 'elin',
-      home: new THREE.Vector3(9, g(9, 137), 137),
-      work: new THREE.Vector3(17, g(17, 145), 145),
-      evening: new THREE.Vector3(14, g(14, 174), 174),
+      // Fase 18 — Erica's cottage east of the green (her shop counter is inside).
+      id: 'elin', name: 'Erica the Shopkeeper', paletteIndex: 3, dialogueId: 'elin',
+      home: new THREE.Vector3(36, g(36, 143), 143),
+      work: new THREE.Vector3(33, g(33, 145), 145),
+      evening: new THREE.Vector3(19, g(19, 153), 153),
       nightAtHome: true,
     },
     {
@@ -412,17 +427,19 @@ export async function buildWorld(
       nightAtHome: false,
     },
     {
+      // Fase 18 — Sigrid washes by the fountain green.
       id: 'sigrid', name: 'Sigrid the Laundress', paletteIndex: 4, dialogueId: 'sigrid',
-      home: new THREE.Vector3(32, g(32, 160), 160),
-      work: new THREE.Vector3(22, g(22, 152), 152),
-      evening: new THREE.Vector3(15, g(15, 175), 175),
+      home: new THREE.Vector3(24, g(24, 158), 158),
+      work: new THREE.Vector3(26, g(26, 158), 158),
+      evening: new THREE.Vector3(22, g(22, 150), 150),
       nightAtHome: true,
     },
     {
+      // Fase 18 — Halvard keeps the new stable west of the green.
       id: 'halvard', name: 'Halvard the Farrier', paletteIndex: 0, cape: true, dialogueId: 'halvard',
-      home: new THREE.Vector3(34, g(34, 150), 150),
-      work: new THREE.Vector3(34, g(34, 153), 153),
-      evening: new THREE.Vector3(12, g(12, 173), 173),
+      home: new THREE.Vector3(-13, g(-13, 186), 186),
+      work: new THREE.Vector3(-11, g(-11, 189), 189),
+      evening: new THREE.Vector3(20, g(20, 148), 148),
       nightAtHome: true,
     },
     // ---- Fase 16 — LA HERRERÍA: los dos comerciantes ----
@@ -435,12 +452,13 @@ export async function buildWorld(
       nightAtHome: false,
     },
     {
-      // Borin — the dwarf smith, deep in the western woods (level 10, "rotas")
+      // Fase 18 — Borin moved INTO the village: his dwarf cottage + forge
+      // stands by the dock road (0, 206), matching the shop coords.
       id: 'enano', name: 'Borin the Dwarf', paletteIndex: 2, role: 'smith', dialogueId: 'enano',
       scale: [1.22, 0.64, 1.22], // dwarf proportions: short & wide
-      home: new THREE.Vector3(-120, g(-120, -60), -60),
-      work: new THREE.Vector3(-120, g(-120, -60), -60),
-      evening: new THREE.Vector3(-120, g(-120, -60), -60),
+      home: new THREE.Vector3(0, g(0, 206), 206),
+      work: new THREE.Vector3(2, g(2, 204), 204),
+      evening: new THREE.Vector3(0, g(0, 206), 206),
       nightAtHome: true,
     },
   ];

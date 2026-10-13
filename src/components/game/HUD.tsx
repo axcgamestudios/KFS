@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { useGameStore, type Notification, type SailingHud, type BossHud, type WeaponSlotHud } from '@/store/gameStore';
+import { useGameStore, type Notification, type SailingHud, type BossHud, type WeaponSlotHud, type BowHud } from '@/store/gameStore';
 import { gameApi } from '@/game/api';
 import { ASSET_BASE } from '@/game/core/Graphics';
 import {
@@ -433,6 +433,78 @@ function BossBar({ b }: { b: BossHud }) {
   );
 }
 
+/** Fase 18 — archery panel: the selected arrow family (X cycles), the
+ *  overdraw meter, the recurve streak and the G/T ability cooldowns.
+ *  Rendered only while a bow is the ACTIVE weapon (on foot, not at the helm). */
+function BowAmmoPanel({ b }: { b: BowHud }) {
+  const inf = b.counts[b.ammo] === Infinity;
+  const count = inf ? '∞' : `${b.counts[b.ammo] ?? 0}`;
+  const lowAmmo = !inf && (b.counts[b.ammo] ?? 0) === 0;
+  // overdraw clock: 0 = at 100% draw; grows past 0 the longer the string is
+  // held — amber first, red + pulse when the fumble nears
+  const od = b.overdraw;
+  const odFrac = Math.min(1, od / 3.2);
+  const odColor = od > 2.2 ? '#e86a5a' : od > 1.1 ? '#e8a96a' : '#e8c96a';
+  const rainReady = b.rainCd <= 0;
+  const pierceReady = b.pierceCd <= 0;
+  return (
+    <div className="kfs-frame absolute bottom-[10.6rem] right-5 flex w-[190px] flex-col gap-1.5 px-3 py-2"
+      style={{ background: 'rgba(12,10,8,0.66)' }}>
+      {/* ammo row */}
+      <div className="flex items-center justify-between gap-2">
+        <span className="kotfs-title flex items-center gap-1.5 truncate text-[0.62rem] tracking-[0.12em]"
+          style={{ color: lowAmmo ? '#e86a5a' : '#ffe9a6' }}>
+          <BowArrow size={13} /> {b.ammoName.toUpperCase()}
+        </span>
+        <span className="kotfs-title flex items-center gap-1 text-[0.72rem]"
+          style={{ color: lowAmmo ? '#e86a5a' : 'var(--kotfs-gold)' }}>
+          ×{count}
+        </span>
+      </div>
+      {/* overdraw bar */}
+      {od > 0.05 && (
+        <div>
+          <div className="kotfs-title mb-0.5 flex justify-between text-[0.5rem] tracking-[0.22em]"
+            style={{ color: odColor }}>
+            <span>OVERDRAW</span>
+            <span>RELEASE!</span>
+          </div>
+          <div className="h-[5px] w-full border border-[color:rgba(232,106,90,0.4)] bg-black/50">
+            <div className="h-full transition-none" style={{ width: `${odFrac * 100}%`, background: odColor, boxShadow: `0 0 8px ${odColor}` }} />
+          </div>
+        </div>
+      )}
+      {/* dead-eye streak */}
+      {b.streak >= 2 && (
+        <p className="kotfs-title text-[0.56rem] tracking-[0.18em] text-[color:#e8c96a]"
+          style={{ textShadow: '0 0 10px rgba(232,201,106,0.8)' }}>
+          DEAD EYE ×{b.streak} — +{b.streak * 8}% DAMAGE
+        </p>
+      )}
+      {/* ability cooldowns */}
+      <div className="flex gap-2">
+        <div className={`flex flex-1 items-center gap-1.5 border px-1.5 py-0.5 ${rainReady ? 'border-[color:rgba(201,162,39,0.55)]' : 'border-[color:rgba(120,110,90,0.25)]'}`}>
+          <span className="kfs-keycap !h-[14px] !min-w-[14px] !text-[0.5rem]">G</span>
+          <span className="kotfs-title truncate text-[0.5rem] tracking-[0.1em]"
+            style={{ color: rainReady ? 'var(--kotfs-gold)' : 'var(--kotfs-parchment-dim)' }}>
+            {rainReady ? 'RAIN' : `${Math.ceil(b.rainCd)}s`}
+          </span>
+        </div>
+        <div className={`flex flex-1 items-center gap-1.5 border px-1.5 py-0.5 ${pierceReady ? 'border-[color:rgba(201,162,39,0.55)]' : 'border-[color:rgba(120,110,90,0.25)]'}`}>
+          <span className="kfs-keycap !h-[14px] !min-w-[14px] !text-[0.5rem]">T</span>
+          <span className="kotfs-title truncate text-[0.5rem] tracking-[0.1em]"
+            style={{ color: pierceReady ? 'var(--kotfs-gold)' : 'var(--kotfs-parchment-dim)' }}>
+            {pierceReady ? 'PIERCE' : `${Math.ceil(b.pierceCd)}s`}
+          </span>
+        </div>
+      </div>
+      <p className="kotfs-title text-[0.46rem] tracking-[0.2em] text-[color:var(--kotfs-parchment-dim)] opacity-70">
+        X CYCLE ARROWS · RMB AIM · HOLD LMB DRAW
+      </p>
+    </div>
+  );
+}
+
 /** Weapon action bar (keys 1-4) with brass keycaps. */
 function WeaponSlots({ slots }: { slots: WeaponSlotHud[] }) {
   if (slots.length === 0) return null;
@@ -540,6 +612,7 @@ export default function HUD() {
   const boss = useGameStore((s) => s.boss);
   const weaponSlots = useGameStore((s) => s.weaponSlots);
   const bowDraw = useGameStore((s) => s.bowDraw);
+  const bowHud = useGameStore((s) => s.bowHud);
   const atHelm = useGameStore((s) => s.atHelm);
   const mount = useGameStore((s) => s.mount);
   const hurtFlash = useGameStore((s) => s.hurtFlash);
@@ -749,6 +822,9 @@ export default function HUD() {
       {/* --- Weapon quick-slots (on foot) --- */}
       {!atHelm && <WeaponSlots slots={weaponSlots} />}
 
+      {/* --- Fase 18 — archery panel (active weapon is a bow) --- */}
+      {!atHelm && bowHud && weaponSlots.some((s) => s.equipped && s.kind === 'bow') && <BowAmmoPanel b={bowHud} />}
+
       {/* --- Bow reticle --- */}
       {!atHelm && bowDraw >= 0 && (
         <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
@@ -787,7 +863,8 @@ export default function HUD() {
           <>
             <p>CLICK combos (hold = air launch) · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">Q</span> parry · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">C</span> dodge</p>
             <p><span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">F</span> hook dash · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">E</span> rope dart · in air <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">SPACE</span>+click slam · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">R</span> tonic · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">V</span> finisher</p>
-            <p><span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">1</span>–<span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">4</span> weapons · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">SHIFT</span> sprint · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">L</span> lantern · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">E</span> interact</p>
+            <p><span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">1</span>–<span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">4</span> weapons (4 cycles bows) · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">SHIFT</span> sprint · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">L</span> lantern · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">E</span> interact</p>
+            <p>BOW: <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">RMB</span> aim · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">X</span> arrows · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">G</span> arrow rain · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">T</span> piercing shot</p>
           </>
         )}
       </div>

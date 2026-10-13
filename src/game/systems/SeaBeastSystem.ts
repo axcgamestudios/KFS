@@ -289,7 +289,7 @@ export class SeaBeastSystem {
         this.state.addItem('perla_negra', 1);
         drops.push('BLACK PEARL');
         this.hooks.notify('item', 'Rare loot: Black Pearl!',
-          'Sell it high (130), trade it with Elin, or forge with it at the smithy.');
+          'Sell it high (130), trade it with Erica, or forge with it at the smithy.');
       }
       if (Math.random() < 0.10) {
         this.state.addItem('cuerno_marea', 1);

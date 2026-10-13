@@ -12,16 +12,18 @@ import type { WaterSystem } from '../world/WaterSystem';
  */
 
 // ---- Shared materials & geometries (every serpent reuses them) ----
+// Fase 18 — DEEP-SEA PALETTE: darker abyssal indigo-teal, wet sheen
+// (higher metalness, lower roughness) — a thing of the deep, not a dragon.
 const MAT_COMMON = {
-  body: new THREE.MeshStandardMaterial({ color: 0x23434a, roughness: 0.72, metalness: 0.08 }),
-  belly: new THREE.MeshStandardMaterial({ color: 0x8fa89a, roughness: 0.8, metalness: 0.02 }),
-  fin: new THREE.MeshStandardMaterial({ color: 0x17323a, roughness: 0.7, metalness: 0.05, side: THREE.DoubleSide }),
-  eye: new THREE.MeshStandardMaterial({ color: 0x0a1416, emissive: 0x9fe8ff, emissiveIntensity: 2.1, roughness: 0.4 }),
+  body: new THREE.MeshStandardMaterial({ color: 0x1d3a42, roughness: 0.52, metalness: 0.22 }),
+  belly: new THREE.MeshStandardMaterial({ color: 0x9fb2ac, roughness: 0.62, metalness: 0.06 }),
+  fin: new THREE.MeshStandardMaterial({ color: 0x142a33, roughness: 0.45, metalness: 0.12, side: THREE.DoubleSide }),
+  eye: new THREE.MeshStandardMaterial({ color: 0x0a1416, emissive: 0x7fe8d8, emissiveIntensity: 2.0, roughness: 0.35 }),
 };
 const MAT_KING = {
-  body: new THREE.MeshStandardMaterial({ color: 0x1c2f4a, roughness: 0.55, metalness: 0.25 }),
-  belly: new THREE.MeshStandardMaterial({ color: 0xb8c4d4, roughness: 0.7, metalness: 0.05 }),
-  fin: new THREE.MeshStandardMaterial({ color: 0x14263d, roughness: 0.6, metalness: 0.15, side: THREE.DoubleSide }),
+  body: new THREE.MeshStandardMaterial({ color: 0x16263e, roughness: 0.42, metalness: 0.3 }),
+  belly: new THREE.MeshStandardMaterial({ color: 0xc2cddd, roughness: 0.55, metalness: 0.08 }),
+  fin: new THREE.MeshStandardMaterial({ color: 0x101f36, roughness: 0.38, metalness: 0.2, side: THREE.DoubleSide }),
   eye: new THREE.MeshStandardMaterial({ color: 0x140f06, emissive: 0xffc040, emissiveIntensity: 2.6, roughness: 0.4 }),
   crown: new THREE.MeshStandardMaterial({ color: 0xc9a227, roughness: 0.32, metalness: 0.85 }),
   glow: new THREE.MeshStandardMaterial({ color: 0x0a1a20, emissive: 0x35d8c0, emissiveIntensity: 1.4, roughness: 0.5 }),
@@ -36,6 +38,19 @@ const GEO = {
   tooth: new THREE.ConeGeometry(0.05, 0.22, 4),
   crownSpike: new THREE.ConeGeometry(0.16, 0.85, 5),
   glowDot: new THREE.SphereGeometry(0.09, 6, 5),
+  // --- Fase 18 — deep-sea monster additions ---
+  /** Whale-style paddle flipper (flattened ellipsoid). */
+  paddle: new THREE.SphereGeometry(1, 9, 7),
+  /** Continuous dorsal sail web. */
+  sail: new THREE.BoxGeometry(1, 1, 1),
+  /** Barnacle / parasite crust. */
+  barnacle: new THREE.IcosahedronGeometry(1, 0),
+  /** Anglerfish lure stalk. */
+  stalk: new THREE.CylinderGeometry(0.04, 0.07, 1, 5),
+  /** Fleshy barbel (catfish whisker). */
+  barbel: new THREE.ConeGeometry(0.05, 0.8, 5),
+  /** Gill slit plate. */
+  gill: new THREE.BoxGeometry(1, 1, 1),
 };
 
 /** What the serpent needs from the world to think and bite. */
@@ -88,6 +103,8 @@ export class SeaSerpent {
   private segRadius: number[] = [];
   private eyeL!: THREE.Mesh;
   private eyeR!: THREE.Mesh;
+  /** Fase 18 — the King's anglerfish lure (pulses). */
+  private lureMesh: THREE.Mesh | null = null;
   private jawOpen = 0;
 
   // --- trail following ---
@@ -143,134 +160,249 @@ export class SeaSerpent {
     const s = this.scale;
     const cast = this.isKing; // only the giant pays the shadow cost
 
-    // --- Head: skull dome + snout + jaws + eyes + crest ---
+    // ============================================================
+    // Fase 18 — THE HEAD OF A DEEP-SEA PREDATOR:
+    // crocodilian snout, small far-back eyes, fleshy barbels, gill
+    // slits, barnacled skull — and (King) an anglerfish lure + crown.
+    // ============================================================
     const skull = new THREE.Mesh(GEO.seg, M.body);
-    skull.scale.set(0.95 * s, 0.85 * s, 1.25 * s);
+    skull.scale.set(1.0 * s, 0.8 * s, 1.35 * s);
     skull.castShadow = cast;
     this.headG.add(skull);
     const brow = new THREE.Mesh(GEO.seg, M.body);
-    brow.scale.set(0.8 * s, 0.55 * s, 0.8 * s);
-    brow.position.set(0, 0.42 * s, -0.3 * s);
+    brow.scale.set(0.82 * s, 0.5 * s, 0.85 * s);
+    brow.position.set(0, 0.36 * s, -0.35 * s);
     this.headG.add(brow);
 
-    // Upper jaw (fixed wedge)
+    // Upper jaw — LONG crocodilian rostrum (the sea-monster bite)
     this.jawTop = new THREE.Mesh(GEO.seg, M.body);
-    this.jawTop.scale.set(0.6 * s, 0.3 * s, 1.5 * s);
-    this.jawTop.position.set(0, -0.12 * s, 1.05 * s);
+    this.jawTop.scale.set(0.55 * s, 0.26 * s, 1.9 * s);
+    this.jawTop.position.set(0, -0.12 * s, 1.3 * s);
     this.headG.add(this.jawTop);
 
     // Lower jaw (pivots at the back of the mouth)
     this.jawBottom.position.set(0, -0.24 * s, 0.15 * s);
     const lower = new THREE.Mesh(GEO.seg, M.body);
-    lower.scale.set(0.52 * s, 0.2 * s, 1.45 * s);
-    lower.position.set(0, -0.05 * s, 1.0 * s);
+    lower.scale.set(0.48 * s, 0.18 * s, 1.85 * s);
+    lower.position.set(0, -0.05 * s, 1.2 * s);
     this.jawBottom.add(lower);
     this.headG.add(this.jawBottom);
 
-    // Teeth on both jaws
+    // Teeth — two rows per jaw, more of them (a leviathan grin)
     for (const side of [-1, 1]) {
-      for (let i = 0; i < 4; i++) {
+      for (let i = 0; i < 7; i++) {
         const up = new THREE.Mesh(GEO.tooth, M.belly);
-        up.position.set(side * 0.34 * s, -0.16 * s, (0.5 + i * 0.34) * s);
+        up.position.set(side * 0.3 * s, -0.14 * s, (0.55 + i * 0.38) * s);
         up.rotation.x = Math.PI;
-        up.scale.setScalar(s);
+        up.scale.setScalar(s * (i % 3 === 0 ? 1.35 : 1));
         this.jawTop.add(up);
         const dn = new THREE.Mesh(GEO.tooth, M.belly);
-        dn.position.set(side * 0.3 * s, 0.02 * s, (0.55 + i * 0.34) * s);
-        dn.scale.setScalar(s);
+        dn.position.set(side * 0.26 * s, 0.02 * s, (0.6 + i * 0.38) * s);
+        dn.scale.setScalar(s * (i % 3 === 1 ? 1.3 : 1));
         this.jawBottom.add(dn);
       }
     }
 
-    // Eyes
+    // Eyes — SMALL and far back (abyssal predator, not a dragon)
     for (const side of [-1, 1]) {
       const eye = new THREE.Mesh(GEO.eye, M.eye);
-      eye.position.set(side * 0.6 * s, 0.28 * s, 0.55 * s);
-      eye.scale.setScalar(s * 1.15);
+      eye.position.set(side * 0.62 * s, 0.2 * s, 0.1 * s);
+      eye.scale.setScalar(s * 0.9);
       this.headG.add(eye);
+      // brow ridge shadowing the eye
+      const ridge = new THREE.Mesh(GEO.seg, M.body);
+      ridge.scale.set(0.3 * s, 0.14 * s, 0.42 * s);
+      ridge.position.set(side * 0.62 * s, 0.42 * s, 0.12 * s);
+      this.headG.add(ridge);
       if (side < 0) this.eyeL = eye; else this.eyeR = eye;
     }
 
-    // Head crest fins (crown of spikes for the King)
+    // Barbels — fleshy catfish feelers dragging from the snout
+    for (const side of [-1, 1]) {
+      for (let i = 0; i < 2; i++) {
+        const barbel = new THREE.Mesh(GEO.barbel, M.belly);
+        barbel.position.set(side * (0.32 + i * 0.12) * s, -0.16 * s, (1.5 - i * 0.5) * s);
+        barbel.rotation.x = Math.PI * 0.55 + i * 0.25;
+        barbel.rotation.z = side * 0.5;
+        barbel.scale.setScalar(s * (1.2 - i * 0.3));
+        this.jawTop.add(barbel);
+      }
+    }
+
+    // Gill slits — three dark cuts behind the jaw hinge
+    for (const side of [-1, 1]) {
+      for (let i = 0; i < 3; i++) {
+        const gill = new THREE.Mesh(GEO.gill, MAT_COMMON.eye);
+        gill.scale.set(0.05 * s, (0.34 - i * 0.05) * s, 0.1 * s);
+        gill.position.set(side * 0.72 * s, -0.05 * s, (-0.15 - i * 0.16) * s);
+        gill.rotation.z = side * 0.35;
+        this.headG.add(gill);
+      }
+    }
+
     if (this.isKing) {
+      // The crown of the deep + the ANGLERFISH LURE
       for (let i = 0; i < 5; i++) {
         const spike = new THREE.Mesh(GEO.crownSpike, MAT_KING.crown);
         const a = (i / 4 - 0.5) * 1.5;
-        spike.position.set(0, 0.62 * s, (-0.55 + i * 0.34) * s);
+        spike.position.set(0, 0.55 * s, (-0.5 + i * 0.3) * s);
         spike.rotation.x = -0.35 - i * 0.06;
         spike.scale.setScalar(s * (i === 2 ? 1.5 : 1));
         this.headG.add(spike);
       }
-      // Whisker-like glow dots
+      const stalk = new THREE.Mesh(GEO.stalk, MAT_KING.fin);
+      stalk.position.set(0, 0.78 * s, 1.5 * s);
+      stalk.rotation.x = 0.5;
+      stalk.scale.set(s, s * 1.3, s);
+      this.headG.add(stalk);
+      const lure = new THREE.Mesh(
+        GEO.glowDot,
+        MAT_KING.glow.clone(), // own instance: the pulse is personal
+      );
+      lure.position.set(0, 1.15 * s, 1.95 * s);
+      lure.scale.setScalar(s * 2.6);
+      this.headG.add(lure);
+      this.lureMesh = lure;
+      // glow dots at the barbels
       for (const side of [-1, 1]) {
         const dot = new THREE.Mesh(GEO.glowDot, MAT_KING.glow);
-        dot.position.set(side * 0.75 * s, -0.1 * s, 1.5 * s);
+        dot.position.set(side * 0.5 * s, -0.1 * s, 1.9 * s);
         dot.scale.setScalar(s * 1.6);
         this.headG.add(dot);
       }
     } else {
+      // Common beasts: a modest head sail + bioluminescent tip dots
       const crest = new THREE.Mesh(GEO.fin, M.fin);
-      crest.position.set(0, 0.68 * s, -0.15 * s);
-      crest.rotation.x = -0.28;
-      crest.scale.set(0.5 * s, 0.75 * s, 0.5 * s);
+      crest.position.set(0, 0.6 * s, -0.2 * s);
+      crest.rotation.x = -0.3;
+      crest.scale.set(0.45 * s, 0.7 * s, 0.45 * s);
       this.headG.add(crest);
-      // side whiskers
       for (const side of [-1, 1]) {
-        const whisk = new THREE.Mesh(GEO.fin, M.fin);
-        whisk.position.set(side * 0.8 * s, -0.05 * s, 0.9 * s);
-        whisk.rotation.z = side * 1.35;
-        whisk.scale.set(0.4 * s, 0.8 * s, 0.4 * s);
-        this.headG.add(whisk);
+        const dot = new THREE.Mesh(GEO.glowDot, MAT_COMMON.eye);
+        dot.position.set(side * 0.34 * s, -0.08 * s, 1.95 * s);
+        dot.scale.setScalar(s * 1.1);
+        this.headG.add(dot);
       }
     }
 
-    // --- Body segments + dorsal fins ---
+    // Barnacle crust on the skull (an old thing of the deep)
+    for (let i = 0; i < 6; i++) {
+      const barn = new THREE.Mesh(GEO.barnacle, M.belly);
+      const a = (i / 6) * Math.PI * 2;
+      barn.position.set(Math.cos(a) * 0.55 * s, 0.45 * s + (i % 2) * 0.12 * s, (-0.4 + (i % 3) * 0.5) * s);
+      barn.scale.setScalar(0.09 * s * (1 + (i % 3) * 0.4));
+      this.headG.add(barn);
+    }
+
+    // ============================================================
+    // Fase 18 — THE BODY OF A WHALE-SERPENT: flatter & wider segments,
+    // PADDLE FLIPPERS, a continuous dorsal SAIL, gills on the neck,
+    // photophore rows and barnacled back plates.
+    // ============================================================
     for (let i = 0; i < this.segCount; i++) {
       const k = i / (this.segCount - 1);
       const r = (1 - k * 0.82) * (this.isKing ? 1.05 : 0.92) * s;
       const seg = new THREE.Mesh(GEO.seg, M.body);
-      seg.scale.set(r, r * 0.9, r * 1.35);
+      // whale profile: wide, flattened — not a snake, a sea serpent
+      seg.scale.set(r * 1.18, r * 0.78, r * 1.35);
       seg.castShadow = cast;
       this.segMeshes.push(seg);
       this.segRadius.push(r);
       this.group.add(seg);
-      // pale belly plate
+      // pale belly plate (broader — the whale's underside)
       const belly = new THREE.Mesh(GEO.seg, M.belly);
-      belly.scale.set(r * 0.82, r * 0.5, r * 1.05);
-      belly.position.y = -r * 0.55;
+      belly.scale.set(r * 0.95, r * 0.45, r * 1.08);
+      belly.position.y = -r * 0.5;
       seg.add(belly);
-      // dorsal fin every other segment
-      if (i % 2 === 1 && i < this.segCount - 2) {
-        const fin = new THREE.Mesh(GEO.fin, M.fin);
-        fin.position.y = r * 0.95;
-        fin.rotation.x = -0.22;
-        fin.scale.set(r * 0.7, r * 1.7, r * 0.35);
-        seg.add(fin);
-      }
-      // King: bioluminescent flank dots
-      if (this.isKing && i % 2 === 0) {
+
+      // PADDLE FLIPPERS on the two "shoulder" segments (mosasaur limbs)
+      if (i === 1 || i === 2) {
         for (const side of [-1, 1]) {
-          const dot = new THREE.Mesh(GEO.glowDot, MAT_KING.glow);
-          dot.position.set(side * r * 0.85, 0, 0);
-          dot.scale.setScalar(s * 1.3);
+          const paddle = new THREE.Mesh(GEO.paddle, M.fin);
+          paddle.scale.set(r * 1.9, r * 0.22, r * 0.75);
+          paddle.position.set(side * r * 1.35, -r * 0.18, 0);
+          paddle.rotation.z = side * 0.35;
+          seg.add(paddle);
+          // knuckle bump at the flipper joint
+          const knuckle = new THREE.Mesh(GEO.seg, M.body);
+          knuckle.scale.set(r * 0.42, r * 0.34, r * 0.42);
+          knuckle.position.set(side * r * 0.95, -r * 0.1, 0);
+          seg.add(knuckle);
+        }
+      }
+
+      // Continuous DORSAL SAIL — webbed spines that read as one fin
+      if (i < this.segCount - 2) {
+        const sailH = r * (1.35 - k * 0.5) * (this.isKing ? 1.25 : 1);
+        const web = new THREE.Mesh(GEO.sail, M.fin);
+        web.scale.set(r * 0.16, sailH, r * 1.5);
+        web.position.y = r * 0.62 + sailH / 2;
+        seg.add(web);
+        if (i % 2 === 0) {
+          const spine = new THREE.Mesh(GEO.crownSpike, M.body);
+          spine.position.set(0, r * 0.62 + sailH * 0.95, 0);
+          spine.scale.setScalar(r * 0.55);
+          seg.add(spine);
+        }
+      }
+
+      // Neck gills (segment 0, both flanks)
+      if (i === 0) {
+        for (const side of [-1, 1]) {
+          for (let gi = 0; gi < 3; gi++) {
+            const gill = new THREE.Mesh(GEO.gill, MAT_COMMON.eye);
+            gill.scale.set(0.05 * s, (0.4 - gi * 0.06) * s, 0.12 * s);
+            gill.position.set(side * r * 1.16, 0, (0.3 - gi * 0.22) * s);
+            gill.rotation.z = side * 0.35;
+            seg.add(gill);
+          }
+        }
+      }
+
+      // Photophore rows (bioluminescent flank dots — brighter on the King)
+      if (i % 2 === 0) {
+        for (const side of [-1, 1]) {
+          const dot = new THREE.Mesh(GEO.glowDot, this.isKing ? MAT_KING.glow : MAT_COMMON.eye);
+          dot.position.set(side * r * 1.08, -r * 0.15, 0);
+          dot.scale.setScalar(s * (this.isKing ? 1.3 : 0.8));
           seg.add(dot);
+        }
+      }
+
+      // Barnacled back plates on the older segments
+      if (i >= 2 && i % 3 === 0) {
+        for (let bi = 0; bi < 3; bi++) {
+          const barn = new THREE.Mesh(GEO.barnacle, M.belly);
+          barn.position.set((bi - 1) * r * 0.5, r * 0.72, (bi % 2 ? 0.3 : -0.25) * r);
+          barn.scale.setScalar(0.12 * s * (1 + (bi % 2) * 0.5));
+          seg.add(barn);
         }
       }
     }
 
-    // --- Tail fluke (two flattened cones) ---
+    // ============================================================
+    // Fase 18 — THE TAIL: a broad horizontal WHALE FLUKE
+    // (two lobes in the horizontal plane — unmistakably a sea monster)
+    // ============================================================
     const fluke = new THREE.Group();
+    const hub = new THREE.Mesh(GEO.seg, M.body);
+    hub.scale.set(0.55 * s, 0.4 * s, 0.7 * s);
+    fluke.add(hub);
     for (const side of [-1, 1]) {
-      const f = new THREE.Mesh(GEO.fluke, M.fin);
-      f.scale.set(0.5, 1.15, 0.22);
-      f.position.x = side * 0.42 * s;
-      f.rotation.z = side * 0.85;
-      f.scale.multiplyScalar(s);
-      fluke.add(f);
+      const lobe = new THREE.Mesh(GEO.paddle, M.fin);
+      lobe.scale.set(1.7 * s, 0.22 * s, 0.95 * s);
+      lobe.position.set(side * 1.35 * s, 0, -0.1 * s);
+      lobe.rotation.z = side * 0.12;
+      fluke.add(lobe);
+      // trailing-edge notch detail
+      const notch = new THREE.Mesh(GEO.seg, M.fin);
+      notch.scale.set(0.5 * s, 0.14 * s, 0.3 * s);
+      notch.position.set(side * 0.75 * s, 0, -0.55 * s);
+      fluke.add(notch);
     }
     this.group.add(fluke);
     this.segMeshes.push(fluke as unknown as THREE.Mesh);
-    this.segRadius.push(0.5 * s);
+    this.segRadius.push(0.55 * s);
   }
 
   // ------------------------------------------------------------------ state
@@ -382,6 +514,13 @@ export class SeaSerpent {
     // --- record trail & animate the body ---
     this.pushTrail();
     this.syncBody(dt);
+
+    // --- Fase 18 — the anglerfish lure breathes (deep-sea horror) ---
+    if (this.lureMesh) {
+      const pulse = 1.9 + Math.sin(this.t * 3.1) * 1.1;
+      (this.lureMesh.material as THREE.MeshStandardMaterial).emissiveIntensity = pulse;
+      this.lureMesh.scale.setScalar(this.scale * 2.6 * (0.92 + Math.sin(this.t * 3.1) * 0.08));
+    }
 
     // --- visibility: deep = hidden (the sea hides it for free) ---
     const visible = this.pos.y > -3.2 - this.scale * 0.4;

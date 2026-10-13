@@ -5,12 +5,13 @@ import { useGameStore } from '@/store/gameStore';
 import { gameApi, type InvEntry } from '@/game/api';
 import { ITEMS } from '@/game/data/items';
 import {
-  Coins, Feather, FlaskConical, Flower2, Gem, KeyRound, Layers, Map as MapIcon, Package,
-  ScrollText, Shield, Shirt, Sword, X,
+  BowArrow, Coins, Feather, FlaskConical, Flame, Flower2, Gem, KeyRound, Layers, Map as MapIcon, Package,
+  ScrollText, Shield, Shirt, Sword, X, Zap,
 } from 'lucide-react';
 
 const ICONS: Record<string, React.ComponentType<{ size?: number | string; className?: string }>> = {
   Coins, Feather, FlaskConical, Flower2, Gem, KeyRound, Map: MapIcon, Package, ScrollText, Shield, Shirt, Sword, Layers,
+  BowArrow, Flame, Zap,
 };
 
 const KIND_LABEL: Record<string, string> = {

@@ -93,6 +93,15 @@ export class Player {
    *  Shift+Space finisher) — the jump must not also fire that frame. */
   suppressJump = false;
 
+  /** Fase 18 — PRECISION AIM: true while RMB is held with a bow equipped
+   *  (set by CombatSystem each frame; slows movement 40%). */
+  bowAiming = false;
+  /** Fase 18 — the equipped bow's draw-time movement penalty multiplier
+   *  (short 0.8 / recurve 0.6 / greatbow 0 = planted). */
+  bowDrawMult = 0.6;
+  /** Fase 18 — GREATBOW planted stance: zero movement while aiming. */
+  bowPlanted = false;
+
   /** Fase 16 — WINGS: true while the equipped wings carry the fall. */
   gliding = false;
   /** Fase 16 — the equipped wings item (visuals + glide stats owner). */
@@ -471,6 +480,10 @@ export class Player {
     // --- Stamina ---
     if (wantRun && inputLen > 0) this.stamina = Math.max(0, this.stamina - dt * 13);
     else if (this.swimming) this.stamina = Math.max(0, this.stamina - dt * 2.2);
+    // Fase 18 — a held bowstring is exertion: NO regen while drawing
+    // (CombatSystem pours the draw trickle + the accelerating overdraw
+    // burn; with regen live they cancelled and overdraw never tired you)
+    else if (this.bowDraw >= 0) { /* the arms are locked — nothing comes back */ }
     else if (inputLen > 0) this.stamina = Math.min(this.stats.maxStamina, this.stamina + dt * 9);
     else this.stamina = Math.min(this.stats.maxStamina, this.stamina + dt * 17);
 
@@ -813,7 +826,14 @@ export class Player {
     // Movement multiplier from context
     let mm = 1;
     if (this.blockT > 0.1) mm *= 1 - 0.55 * this.blockT;
-    if (this.bowDraw >= 0) mm *= 0.55;
+    // Fase 18 — archery spec: PRECISION AIM (RMB with a bow out) slows the
+    // stride 40%; drawing slows further by bow class; the GREATBOW plants
+    // (the stance commits — no movement at all while aiming).
+    if (this.bowAiming) mm *= 0.6;
+    if (this.bowDraw >= 0) {
+      if (this.bowPlanted) mm = 0;
+      else mm *= this.bowDrawMult;
+    }
     if (this.attackT > 0) mm *= 0.35;
     this.moveMult = mm;
 

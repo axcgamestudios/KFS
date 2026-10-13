@@ -671,7 +671,7 @@ const INSERTS: Record<string, DialogueTree[]> = {
           text: 'Two hundred coins on you… ha. I know a true trader when I see one, even one who goes armed. Take what was promised: saddlebags of good leather, double-stitched, for your mount. May the gold never weigh on you more than the saddle.',
           options: [
             {
-              text: 'Good leather, Elin.',
+              text: 'Good leather, Erica.',
               action: [
                 { t: 'item', id: 'alforjas', count: 1 },
                 { t: 'talk', target: 'elin_comercio' },

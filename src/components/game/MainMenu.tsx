@@ -267,15 +267,20 @@ export default function MainMenu() {
       {/* Right side: the knight keeps his watch on the rock */}
       <div className="pointer-events-none flex-1" />
 
-      {/* Bottom-right studio mark */}
+      {/* Bottom-right studio mark + build version */}
       {subMenu === null && (
-        <button
-          className="absolute bottom-6 right-8 z-10 flex items-center gap-2 text-[0.68rem] font-semibold tracking-[0.34em] text-[#a9b4c2] opacity-80 transition hover:text-[#e2b95c] hover:opacity-100"
-          onClick={() => setSubMenu('credits')}
-        >
-          <Ship size={13} />
-          A GAME BY AXCGAMES STUDIOS
-        </button>
+        <div className="absolute bottom-6 right-8 z-10 flex items-center gap-4">
+          <span className="text-[0.6rem] font-semibold tracking-[0.28em] text-[#a9b4c2] opacity-60">
+            v0.19.0 — THE ARCHER &amp; THE CROW
+          </span>
+          <button
+            className="flex items-center gap-2 text-[0.68rem] font-semibold tracking-[0.34em] text-[#a9b4c2] opacity-80 transition hover:text-[#e2b95c] hover:opacity-100"
+            onClick={() => setSubMenu('credits')}
+          >
+            <Ship size={13} />
+            A GAME BY AXCGAMES STUDIOS
+          </button>
+        </div>
       )}
     </div>
   );

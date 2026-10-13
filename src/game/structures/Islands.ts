@@ -252,3 +252,220 @@ export function buildBrumaCamp(
 
   return { chestPos: new THREE.Vector3(chx, g(chx, chz), chz) };
 }
+
+/**
+ * Fase 18 — THE CROW SETTLEMENT: Old Crow Isle used to be "too much
+ * mountain, too little pirate". The island's peak was shaved (ISLANDS.crow
+ * height 46 → 30) and three new terraces were cut (WorldConfig FLATS).
+ * This builder fills them: a lower settlement with an ENTERABLE longhouse,
+ * the cove boat-yard with its graveyard of hulls, and a western lookout.
+ *
+ * Returns chest positions for the Game to wire as interactable loot.
+ */
+export function buildCrowSettlement(
+  b: StaticBuilder,
+  terrain: { height(x: number, z: number): number },
+): { chests: THREE.Vector3[] } {
+  const rand = mulberry32(918273);
+  const g = (x: number, z: number) => terrain.height(x, z);
+  const chests: THREE.Vector3[] = [];
+
+  // ===================== 1. LOWER SETTLEMENT (-512, -468) =====================
+  {
+    const cx = -512;
+    const cz = -468;
+
+    // --- The corsair longhouse (enterable): 13 x 6.5, plank walls ---
+    const lx = cx, lz = cz - 4;
+    const ly = g(lx, lz);
+    const w = 13, d = 6.5, h = 3.1;
+    const doorW = 1.5;
+    // floor
+    b.addBoxCollider(lx, ly + 0.32, lz, w - 0.4, 0.14, d - 0.4, 0);
+    b.box('woodLight', w - 0.4, 0.1, d - 0.4, lx, ly + 0.34, lz);
+    // walls: north, west, east + south with a door gap
+    b.solidBox('woodPirate', w, h, 0.22, lx, ly + 1.55, lz - d / 2);
+    b.solidBox('woodPirate', 0.22, h, d, lx - w / 2, ly + 1.55, lz);
+    b.solidBox('woodPirate', 0.22, h, d, lx + w / 2, ly + 1.55, lz);
+    const segW = (w - doorW) / 2;
+    b.solidBox('woodPirate', segW, h, 0.22, lx - (doorW / 2 + segW / 2), ly + 1.55, lz + d / 2);
+    b.solidBox('woodPirate', segW, h, 0.22, lx + (doorW / 2 + segW / 2), ly + 1.55, lz + d / 2);
+    b.solidBox('woodPirate', doorW + 0.3, h - 2.2, 0.22, lx, ly + 2.2 + (h - 2.2) / 2, lz + d / 2, 0, false);
+    // roof (two slopes, dark sailcloth over spars)
+    for (const s of [-1, 1]) {
+      b.add(new THREE.BoxGeometry(w + 0.8, 0.14, Math.sqrt((d / 2) ** 2 + 1.7 ** 2) + 0.3), 'woodDark',
+        lx, ly + h + 0.75, lz + s * d / 4, 0, 1, 1, 1, 0, s * Math.atan2(1.7, d / 2));
+    }
+    b.add(new THREE.BoxGeometry(w + 1.0, 0.12, 5.6), 'sailDark', lx, ly + h + 1.5, lz, 0, 1, 1, 1, 0, 0.12);
+    b.add(new THREE.BoxGeometry(w + 1.0, 0.12, 5.6), 'sailDark', lx, ly + h + 1.5, lz, 0, 1, 1, 1, 0, -0.12);
+    // interior: long table + benches + bunks + grog barrels + trophy skulls
+    b.box('wood', 5.5, 0.14, 1.2, lx - 1.5, ly + 0.92, lz);
+    b.box('woodDark', 0.14, 0.85, 0.14, lx - 3.8, ly + 0.48, lz);
+    b.box('woodDark', 0.14, 0.85, 0.14, lx + 0.8, ly + 0.48, lz);
+    b.box('wood', 5.0, 0.1, 0.38, lx - 1.5, ly + 0.56, lz + 1.05);
+    b.box('wood', 5.0, 0.1, 0.38, lx - 1.5, ly + 0.56, lz - 1.05);
+    for (let i = 0; i < 3; i++) {
+      b.box('woodDark', 2.0, 0.32, 0.95, lx + 4.4, ly + 0.5, lz - 1.8 + i * 1.8, 0);
+      b.box('sailDark', 1.9, 0.18, 0.85, lx + 4.4, ly + 0.68, lz - 1.8 + i * 1.8, 0);
+    }
+    const gbX = lx - 5.4, gbZ = lz + 2.0;
+    b.cylinder('wood', 0.4, 0.46, 1.0, 9, gbX, ly + 0.82, gbZ, true);
+    b.addCylinderCollider(gbX, gbZ, 0.48, ly + 0.3, ly + 1.3);
+    b.add(new THREE.SphereGeometry(0.18, 7, 5), 'sail', lx - 5.4, ly + 2.4, lz - 2.2);
+    b.cylinder('woodDark', 0.05, 0.07, 1.6, 5, lx - 5.4, ly + 1.1, lz - 2.2, true);
+
+    // --- Two crew huts (solid, sailcloth roofs) ---
+    for (const [hx, hz] of [[cx - 11, cz + 6], [cx - 3, cz + 9]] as Array<[number, number]>) {
+      const hy = g(hx, hz);
+      b.solidBox('woodDark', 4.4, 2.4, 3.8, hx, hy + 1.2, hz, 0.3);
+      b.add(new THREE.BoxGeometry(4.9, 0.14, 4.3), 'sailDark', hx, hy + 2.85, hz, 0.3, 1, 1, 1, 0, 0.18);
+      b.box('wood', 1.0, 1.7, 0.14, hx - Math.sin(0.3) * 1.95, hy + 0.88, hz - Math.cos(0.3) * 1.95, 0.3);
+    }
+
+    // --- Gallows + cage + trophy posts ---
+    const galX = cx + 8, galZ = cz + 4;
+    const galY = g(galX, galZ);
+    for (const [px, pz] of [[-1.4, 0], [1.4, 0]] as Array<[number, number]>) {
+      b.cylinder('woodDark', 0.16, 0.2, 4.6, 6, galX + px, galY + 2.3, galZ + pz, true);
+      b.addCylinderCollider(galX + px, galZ + pz, 0.26, galY, galY + 4.6);
+    }
+    b.box('woodDark', 3.6, 0.24, 0.24, galX, galY + 4.5, galZ);
+    b.add(new THREE.TorusGeometry(0.14, 0.03, 5, 10), 'metal', galX - 0.7, galY + 4.15, galZ, 0, 1, 1, 1, Math.PI / 2);
+    b.cylinder('woodDark', 0.05, 0.05, 0.9, 5, galX - 0.7, galY + 3.7, galZ);
+    // the cage (a prisoner's box of spars)
+    const cagX = cx + 12, cagZ = cz - 2;
+    const cagY = g(cagX, cagZ);
+    for (const [px, pz] of [[-0.9, -0.9], [0.9, -0.9], [-0.9, 0.9], [0.9, 0.9]] as Array<[number, number]>) {
+      b.cylinder('woodDark', 0.08, 0.1, 2.6, 5, cagX + px, cagY + 1.3, cagZ + pz, true);
+    }
+    for (let i = 0; i < 3; i++) {
+      b.box('woodDark', 2.1, 0.1, 0.1, cagX, cagY + 2.1 + i * 0.24, cagZ - 0.9);
+      b.box('woodDark', 2.1, 0.1, 0.1, cagX, cagY + 2.1 + i * 0.24, cagZ + 0.9);
+    }
+    // trophy skull posts around
+    for (let i = 0; i < 6; i++) {
+      const a = i * 1.05 + 0.6;
+      const px = cx + Math.cos(a) * 15;
+      const pz = cz + Math.sin(a) * 15;
+      const py = g(px, pz);
+      b.cylinder('woodDark', 0.07, 0.09, 2.4, 5, px, py + 1.2, pz, true);
+      b.add(new THREE.SphereGeometry(0.2, 7, 5), 'bone', px, py + 2.55, pz);
+    }
+
+    // --- Banner lines + fire pit + plunder stacks ---
+    for (const [bx, bz] of [[cx + 5, cz - 12], [cx + 5, cz - 6]] as Array<[number, number]>) {
+      b.cylinder('wood', 0.1, 0.12, 5.0, 6, bx, g(bx, bz) + 2.5, bz, true);
+    }
+    b.add(new THREE.BoxGeometry(0.9, 0.55, 0.06), 'clothRaven', cx + 5, g(cx + 5, cz - 12) + 4.3, cz - 9.4, 0);
+    const fx = cx - 7, fz = cz + 1;
+    const fy = g(fx, fz);
+    for (let i = 0; i < 7; i++) {
+      const a = (i / 7) * Math.PI * 2;
+      b.add(new THREE.IcosahedronGeometry(0.2, 0), 'stoneDark', fx + Math.cos(a) * 0.7, fy + 0.1, fz + Math.sin(a) * 0.7, rand() * 3);
+    }
+    b.add(new THREE.BoxGeometry(0.85, 0.22, 0.85), 'glow', fx, fy + 0.15, fz);
+    for (let i = 0; i < 8; i++) {
+      const px = cx + (rand() - 0.5) * 26;
+      const pz = cz + (rand() - 0.5) * 26;
+      if (rand() < 0.5) b.solidBox('woodDark', 0.9, 0.9, 0.9, px, g(px, pz) + 0.45, pz, rand() * 3);
+      else {
+        b.cylinder('wood', 0.4, 0.46, 1.0, 9, px, g(px, pz) + 0.5, pz, true);
+        b.addCylinderCollider(px, pz, 0.48, g(px, pz), g(px, pz) + 1.0);
+      }
+    }
+    // smuggler's cache
+    chests.push(new THREE.Vector3(cx - 8.5, g(cx - 8.5, cz - 12), cz - 12));
+  }
+
+  // ===================== 2. COVE BOAT-YARD (-452, -372) =====================
+  {
+    const cx = -452;
+    const cz = -372;
+
+    // --- The graveyard of hulls: three broken longboats ---
+    const wreck = (wx: number, wz: number, rot: number, scale: number) => {
+      const wy = g(wx, wz);
+      b.add(new THREE.BoxGeometry(1.6, 0.55, 4.6 * scale), 'woodDark', wx, wy + 0.24, wz, rot, scale, 1, scale);
+      b.add(new THREE.BoxGeometry(1.1, 0.08, 3.6 * scale), 'woodLight', wx, wy + 0.42, wz, rot, scale, 1, scale);
+      // broken ribs
+      for (let i = 0; i < 4; i++) {
+        b.add(new THREE.TorusGeometry(0.5 * scale, 0.05, 4, 8, Math.PI), 'wood',
+          wx + Math.sin(rot) * (i - 1.5) * scale, wy + 0.5, wz + Math.cos(rot) * (i - 1.5) * scale,
+          rot, 1, 1, 1, 0, Math.PI / 2);
+      }
+      // snapped mast
+      b.cylinder('wood', 0.07, 0.1, 2.6, 6, wx + Math.cos(rot) * 0.8, wy + 1.3, wz - Math.sin(rot) * 0.8, true);
+    };
+    wreck(cx - 6, cz + 2, 0.7, 1);
+    wreck(cx + 3, cz + 5, -0.5, 0.85);
+    wreck(cx - 1, cz - 6, 2.4, 0.7);
+
+    // --- The slipway: keel blocks + stacked masts + spares ---
+    const sx = cx + 9, sz = cz - 3;
+    for (let i = 0; i < 3; i++) {
+      b.box('woodDark', 1.1, 0.4 + i * 0.3, 0.5, sx, g(sx, sz) + 0.2 + i * 0.15, sz + i * 1.3, 0.25);
+    }
+    for (let i = 0; i < 3; i++) {
+      b.cylinder('wood', 0.06, 0.09, 7.5, 6, sx - 3 + i * 0.5, g(sx, sz) + 0.35, sz + 5.5 + i * 0.4, true, );
+      b.addCylinderCollider(sx - 3 + i * 0.5, sz + 5.5 + i * 0.4, 0.2, g(sx, sz), g(sx, sz) + 7.5);
+    }
+    // a fresh hull on the slips (half-built)
+    b.add(new THREE.BoxGeometry(2.0, 0.7, 6.2), 'woodPirate', sx - 4.5, g(sx - 4.5, sz - 4) + 0.6, sz - 4, 1.35);
+    b.box('woodLight', 1.5, 0.1, 5.2, sx - 4.5, g(sx - 4.5, sz - 4) + 0.95, sz - 4, 1.35);
+
+    // --- Two tents + cook fire + net racks ---
+    for (const [tx, tz] of [[cx - 10, cz + 7], [cx - 13, cz + 3]] as Array<[number, number]>) {
+      const ty = g(tx, tz);
+      b.add(new THREE.BoxGeometry(2.8, 0.1, 2.6), 'sailDark', tx, ty + 1.25, tz, 0.2, 1, 1, 1, 0, 0.9);
+      b.cylinder('woodDark', 0.05, 0.05, 1.4, 4, tx - 1.2, ty + 0.65, tz - 1.0, true);
+      b.cylinder('woodDark', 0.05, 0.05, 1.4, 4, tx + 1.2, ty + 0.65, tz + 1.0, true);
+    }
+    const fx = cx - 8, fz = cz + 5;
+    const fy = g(fx, fz);
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2;
+      b.add(new THREE.IcosahedronGeometry(0.16, 0), 'stoneDark', fx + Math.cos(a) * 0.55, fy + 0.08, fz + Math.sin(a) * 0.55, rand() * 3);
+    }
+    b.add(new THREE.BoxGeometry(0.7, 0.18, 0.7), 'glow', fx, fy + 0.11, fz);
+    // net drying racks
+    for (let i = 0; i < 2; i++) {
+      const nx = cx - 2 + i * 4, nz = cz + 9;
+      b.cylinder('woodDark', 0.05, 0.07, 1.8, 4, nx - 1.1, g(nx, nz) + 0.9, nz, true);
+      b.cylinder('woodDark', 0.05, 0.07, 1.8, 4, nx + 1.1, g(nx, nz) + 0.9, nz, true);
+      b.box('wood', 2.3, 0.08, 0.08, nx, g(nx, nz) + 1.75, nz);
+      b.box('sail', 2.0, 0.9, 0.04, nx, g(nx, nz) + 1.3, nz);
+    }
+    // beached skiff chest
+    chests.push(new THREE.Vector3(cx + 7, g(cx + 7, cz + 8), cz + 8));
+  }
+
+  // ===================== 3. WESTERN LOOKOUT (-575, -400) =====================
+  {
+    const cx = -575;
+    const cz = -400;
+    const gy = g(cx, cz);
+    // tall pole tower with a platform + signal brazier
+    for (const [px, pz] of [[-1.4, -1.4], [1.4, -1.4], [-1.4, 1.4], [1.4, 1.4]] as Array<[number, number]>) {
+      b.cylinder('wood', 0.16, 0.2, 9.0, 6, cx + px, gy + 4.5, cz + pz, true);
+      b.addCylinderCollider(cx + px, cz + pz, 0.28, gy, gy + 9.0);
+    }
+    b.box('wood', 4.0, 0.24, 4.0, cx, gy + 8.9, cz);
+    for (const [ex, ez] of [[0, 2], [0, -2], [2, 0], [-2, 0]] as Array<[number, number]>) {
+      b.box('wood', ex === 0 ? 4.0 : 0.14, 0.9, ez === 0 ? 4.0 : 0.14, cx + ex, gy + 9.45, cz + ez);
+    }
+    b.add(new THREE.BoxGeometry(4.4, 0.12, 4.4), 'clothRaven', cx, gy + 11.2, cz, 0, 1, 1, 1, 0, 0.14);
+    // signal brazier (unlit — or is it?)
+    b.cylinder('metal', 0.55, 0.4, 0.5, 8, cx, gy + 9.7, cz);
+    b.add(new THREE.BoxGeometry(0.6, 0.2, 0.6), 'glow', cx, gy + 9.85, cz);
+    // ladder rungs up one leg
+    for (let i = 0; i < 9; i++) {
+      b.box('wood', 0.7, 0.07, 0.07, cx + 1.4, gy + 0.6 + i * 0.95, cz + 1.4);
+    }
+    // a lonely grave + cache by the lookout
+    b.box('stone', 0.7, 1.1, 0.18, cx - 4, g(cx - 4, cz + 4) + 0.55, cz + 4, 0.3);
+    b.box('stoneDark', 0.9, 0.14, 0.4, cx - 4, g(cx - 4, cz + 4) + 1.12, cz + 4, 0.3);
+    chests.push(new THREE.Vector3(cx + 4, g(cx + 4, cz + 5), cz + 5));
+  }
+
+  return { chests };
+}

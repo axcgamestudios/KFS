@@ -43,7 +43,7 @@ export interface GameApi {
     levelOk: boolean;
     level: number;
     coins: number;
-    entries: Array<{ id: string; name: string; desc: string; icon: string; price: number; note?: string; owned: boolean; canAfford: boolean; rarity?: string; stats?: string }>;
+    entries: Array<{ id: string; name: string; desc: string; icon: string; price: number; qty?: number; note?: string; owned: boolean; canAfford: boolean; rarity?: string; stats?: string }>;
   } | null;
   /** Buy one unit. Returns 'ok' | 'gold' | 'level'. */
   buyShopItem(vendor: string, itemId: string): 'ok' | 'gold' | 'level';
