@@ -1,0 +1,762 @@
+     1→import * as THREE from 'three';
+     2→import { Ship, type CannonShot, type ShipKind } from './Ship';
+     3→import { CharacterModel, type CharacterPalette } from '../entities/CharacterModel';
+     4→import type { TerrainHeight } from '../world/TerrainHeight';
+     5→import type { WaterSystem } from '../world/WaterSystem';
+     6→import type { ColliderRegistry } from '../systems/ColliderRegistry';
+     7→import type { GameState } from '../systems/GameState';
+     8→import { WIND } from '../world/WorldConfig';
+     9→import { clamp, damp, dampAngle } from '../core/MathUtils';
+    10→import { getFlameFX } from '../world/FlameFX';
+    11→import { InstancedSpritePool } from '../systems/InstancedSpritePool';
+    12→
+    13→/** HUD snapshot while sailing (consumed by the React layer). */
+    14→export interface SailingHud {
+    15→  hull: number;
+    16→  hullMax: number;
+    17→  knots: number;
+    18→  sailState: 0 | 1 | 2;
+    19→  windRel: number;        // wind direction relative to bow (radians, 0 = wind ahead)
+    20→  cdPort: number;         // 0..1 (1 = ready)
+    21→  cdStar: number;
+    22→  anchored: boolean;
+    23→  shipName: string;
+    24→  enemy: { name: string; hullFrac: number; dist: number } | null;
+    25→  boarding: boolean;
+    26→}
+    27→
+    28→export interface NavalCallbacks {
+    29→  notify: (kind: 'info' | 'quest' | 'item', title: string, body?: string) => void;
+    30→  sound: (kind: 'cannon' | 'hit_hull' | 'splash' | 'anchor' | 'sail' | 'grapple' | 'creak' | 'sink') => void;
+    31→  music: (intensity: number) => void;
+    32→  setFlag: (flag: string) => void;
+    33→  lore: (title: string, paragraphs: string[]) => void;
+    34→  closeDialogue: () => void;
+    35→  /** Fase 9 — returns the health actually lost so AI can react to blocks/parries. */
+    36→  playerDamage: (amount: number, source: string) => number;
+    37→  /** Fase 9 — true right after the player parries (attackers stagger). */
+    38→  wasParried: () => boolean;
+    39→  /** Fase 9 — cinematic finisher started: play the hero's execution blow. */
+    40→  onFinisher?: (x: number, y: number, z: number) => void;
+    41→  returnPlayerToShip: (ship: Ship) => void;
+    42→}
+    43→
+    44→/** One boarding pirate (walks the enemy deck in ship-local coordinates). */
+    45→class BoardingCrew {
+    46→  readonly model: CharacterModel;
+    47→  readonly group = new THREE.Group();
+    48→  hp: number;
+    49→  readonly maxHp: number;
+    50→  readonly isCaptain: boolean;
+    51→  readonly name: string;
+    52→  lx: number;           // ship-local X
+    53→  lz: number;           // ship-local Z
+    54→  yaw = 0;
+    55→  attackT = 0;
+    56→  attackCd = 0;
+    57→  dead = false;
+    58→  deathT = 0;
+    59→  /** Fase 9 — stagger timer: > 0 means reeling (no move, no attacks). */
+    60→  hurtT = 0;
+    61→  /** Fase 9 — approach bearing around the player (radians, ship-local). */
+    62→  ringAngle = 0;
+    63→
+    64→  constructor(captain: boolean, lx: number, lz: number, palette: CharacterPalette) {
+    65→    this.isCaptain = captain;
+    66→    this.name = captain ? 'Capitana Morwen' : 'Corsario del Cuervo';
+    67→    this.hp = captain ? 110 : 46;
+    68→    this.maxHp = this.hp;
+    69→    this.lx = lx;
+    70→    this.lz = lz;
+    71→    this.model = new CharacterModel(palette);
+    72→    this.model.setEquippedState(true);
+    73→    this.group.add(this.model.root);
+    74→  }
+    75→
+    76→  updateAnim(dt: number): void {
+    77→    if (this.dead) {
+    78→      this.deathT += dt;
+    79→      const k = Math.min(1, this.deathT / 0.7);
+    80→      this.group.rotation.x = -k * Math.PI / 2;
+    81→      this.group.position.y -= dt * 0.25 * Math.min(1, this.deathT);
+    82→      if (this.deathT > 4) this.group.visible = false;
+    83→      return;
+    84→    }
+    85→    this.model.update({
+    86→      dt,
+    87→      speed: this.moving ? (this.isCaptain ? 1.5 : 1.8) : 0,
+    88→      moving: this.moving,
+    89→      grounded: true,
+    90→      swimming: false,
+    91→      attackT: this.attackT,
+    92→    });
+    93→  }
+    94→
+    95→  moving = false;
+    96→
+    97→  get hpFrac(): number {
+    98→    return this.hp / this.maxHp;
+    99→  }
+   100→}
+   101→
+   102→interface EnemyBrain {
+   103→  ship: Ship;
+   104→  mode: 'patrol' | 'chase' | 'broadside' | 'grappled';
+   105→  waypoints: Array<{ x: number; z: number }>;
+   106→  wpIndex: number;
+   107→  fireCd: number;
+   108→  aggroNotified: boolean;
+   109→  /** Quest ships cannot be sunk outright — they must be boarded. */
+   110→  quest: boolean;
+   111→  /** Already boarded once (no repeat boarding waves). */
+   112→  questBoarded?: boolean;
+   113→  respawnAt: { x: number; z: number } | null;
+   114→  respawnTimer: number;
+   115→}
+   116→
+   117→/** Simple pooled sprite burst (splashes, flashes, smoke).
+   118→ *  Fase 15 — the shared InstancedSpritePool renders the whole pool as ONE
+   119→ *  instanced batch (was: one THREE.Sprite = one draw call each). */
+   120→// (class SpritePool replaced by systems/InstancedSpritePool)
+   121→
+   122→interface Cannonball {
+   123→  mesh: THREE.Mesh;
+   124→  vel: THREE.Vector3;
+   125→  life: number;
+   126→  fromPlayer: boolean;
+   127→  /** Previous-frame position for swept dragon collision. */
+   128→  prev: THREE.Vector3;
+   129→}
+   130→
+   131→/** Floating loot barrel left behind by a sunken pirate. */
+   132→interface LootBarrel {
+   133→  mesh: THREE.Mesh;
+   134→  pos: THREE.Vector3;
+   135→  claimed: boolean;
+   136→}
+   137→
+   138→/**
+   139→ * Fase 2 naval layer: the player's caravel, pirate fleets with patrol/chase/
+   140→ * broadside AI, cannonball physics, boarding combat and floating loot.
+   141→ */
+   142→export class NavalSystem {
+   143→  playerShip: Ship | null = null;
+   144→  playerSailing = false;
+   145→  /** Fase 11 — the ship currently at the helm. Defaults to the Colibrí, but
+   146→   *  ANY anchored ship (admin spawns included) can be taken to sea. */
+   147→  private helmShip: Ship | null = null;
+   148→  enemies: EnemyBrain[] = [];
+   149→  boarding: {
+   150→    brain: EnemyBrain;
+   151→    crew: BoardingCrew[];
+   152→    done: boolean;
+   153→    endTimer: number;
+   154→    /** Fase 9 — cinematic finisher in progress (seconds elapsed). */
+   155→    finisherT: number;
+   156→    /** Fase 9 — a finisher already played this boarding (no repeats). */
+   157→    finisherDone: boolean;
+   158→  } | null = null;
+   159→  private sinkRespawn: { timer: number } | null = null;
+   160→
+   161→  /** Fase 7 — optional GLB hull provider (the repository's pirate_ship.glb).
+   162→   *  When set, every spawned ship wears the real model (caravels get warm
+   163→   *  cream sails, pirates keep the black ones). */
+   164→  shipModelLoader?: (kind: ShipKind) => Promise<THREE.Object3D | null>;
+   165→
+   166→  /** Fase 3 hook: cannonballs can strike flying dragons (sea wyvern fight).
+   167→   *  Return an object whose damage(amount) applies the hit, or null. */
+   168→  dragonHitTest: ((pos: THREE.Vector3, prevPos?: THREE.Vector3) => { damage: (amount: number) => void } | null) | null = null;
+   169→
+   170→  private balls: Cannonball[] = [];
+   171→  private ballPool: THREE.Mesh[] = [];
+   172→  private splashes: InstancedSpritePool;
+   173→  private smoke: InstancedSpritePool;
+   174→  private flashes: InstancedSpritePool;
+   175→  private barrels: LootBarrel[] = [];
+   176→  private t = 0;
+   177→  private windBase = 2.4;
+   178→  /** Fase 9 — the game's collision world (solid hulls). */
+   179→  private colliders: ColliderRegistry | null = null;
+   180→  /** Fase 9 — admin/decorative ships (kept for collider sync). */
+   181→  extraShips: Ship[] = [];
+   182→
+   183→  constructor(
+   184→    private scene: THREE.Scene,
+   185→    private terrain: TerrainHeight,
+   186→    private water: WaterSystem,
+   187→    private state: GameState,
+   188→    private cb: NavalCallbacks,
+   189→  ) {
+   190→    this.splashes = new InstancedSpritePool(scene, 40, 'rgba(230,242,238,0.95)', false);
+   191→    getFlameFX(scene); // Fase 7 — cannon fire wears real flames
+   192→    this.smoke = new InstancedSpritePool(scene, 48, 'rgba(70,66,62,0.8)', false);
+   193→    this.flashes = new InstancedSpritePool(scene, 24, 'rgba(255,170,60,1)', true);
+   194→    const ballGeo = new THREE.SphereGeometry(0.15, 8, 6);
+   195→    const ballMat = new THREE.MeshStandardMaterial({ color: 0x1e1e22, roughness: 0.5, metalness: 0.6 });
+   196→    for (let i = 0; i < 26; i++) {
+   197→      const m = new THREE.Mesh(ballGeo, ballMat);
+   198→      m.visible = false;
+   199→      m.castShadow = false;
+   200→      scene.add(m);
+   201→      this.ballPool.push(m);
+   202→    }
+   203→  }
+   204→
+   205→  // ------------------------------------------------------------- spawning
+   206→
+   207→  /** Fase 9 — bind the game collision world; every hull becomes solid. */
+   208→  bindColliders(registry: ColliderRegistry): void {
+   209→    this.colliders = registry;
+   210→    this.playerShip?.bindColliderRegistry(registry);
+   211→    for (const brain of this.enemies) brain.ship.bindColliderRegistry(registry);
+   212→    for (const s of this.extraShips) s.bindColliderRegistry(registry);
+   213→  }
+   214→
+   215→  /** Launch the repaired Colibrí de Mar near the home dock. */
+   216→  spawnPlayerShip(x: number, z: number, heading = Math.PI): Ship {
+   217→    if (this.playerShip) return this.playerShip;
+   218→    const ship = new Ship({
+   219→      id: 'colibri', name: 'Colibrí de Mar', kind: 'caravel', isPlayer: true,
+   220→      x, z, heading,
+   221→    });
+   222→    ship.anchored = true;
+   223→    ship.frozen = false;
+   224→    ship.onCreak = () => this.cb.sound('creak');
+   225→    this.scene.add(ship.group);
+   226→    if (this.colliders) ship.bindColliderRegistry(this.colliders);
+   227→    this.playerShip = ship;
+   228→    this.dressShip(ship);
+   229→    this.applyPerks();
+   230→    return ship;
+   231→  }
+   232→
+   233→  /** Fase 7 — attach the repository GLB hull to a ship when available. */
+   234→  private dressShip(ship: Ship): void {
+   235→    if (!this.shipModelLoader) return;
+   236→    this.shipModelLoader(ship.kind).then((model) => {
+   237→      if (!model || ship.sunk) return;
+   238→      // the player's caravel gets warm cream canvas; pirates keep black sails
+   239→      ship.attachGlb(model, ship.kind === 'caravel' ? { sailTint: 0xd8c49a } : {});
+   240→    }).catch(() => { /* procedural hull stays */ });
+   241→  }
+   242→
+   243→  /**
+   244→   * Fase 8 — admin panel: drop a decorative anchored ship near a point.
+   245→   * It rides the waves (buoyancy on) but carries no AI — it will not chase
+   246→   * or fire at the player. Returns the spawn position.
+   247→   */
+   248→  spawnAdminShip(x: number, z: number): THREE.Vector3 {
+   249→    // find the nearest deep-water spot (ring scan)
+   250→    let bestX = x, bestZ = z, bestD = Infinity;
+   251→    for (let r = 6; r <= 90; r += 6) {
+   252→      for (let a = 0; a < 12; a++) {
+   253→        const ang = (a / 12) * Math.PI * 2;
+   254→        const sx = x + Math.cos(ang) * r;
+   255→        const sz = z + Math.sin(ang) * r;
+   256→        if (this.terrain.height(sx, sz) < -2.2) {
+   257→          const d = Math.hypot(sx - x, sz - z);
+   258→          if (d < bestD) { bestD = d; bestX = sx; bestZ = sz; }
+   259→        }
+   260→      }
+   261→      if (bestD < Infinity) break;
+   262→    }
+   263→    const ship = new Ship({
+   264→      id: `admin_${Date.now() % 100000}`,
+   265→      name: 'Navío Errante', kind: 'pirate', isPlayer: false,
+   266→      x: bestX, z: bestZ, heading: Math.random() * Math.PI * 2,
+   267→    });
+   268→    ship.anchored = true;
+   269→    this.scene.add(ship.group);
+   270→    if (this.colliders) ship.bindColliderRegistry(this.colliders);
+   271→    this.extraShips.push(ship);
+   272→    this.dressShip(ship);
+   273→    return new THREE.Vector3(bestX, 0, bestZ);
+   274→  }
+   275→
+   276→  spawnEnemies(): void {
+   277→    // Morwen's brig — anchored in the cove of the Crow Isle (quest ship)
+   278→    const gaviota = new Ship({
+   279→      id: 'gaviota', name: 'Gaviota Sangrienta', kind: 'pirate', isPlayer: false,
+   280→      x: -425, z: -308, heading: 2.2, hullHp: 120, cannonCd: 6.5,
+   281→    });
+   282→    this.scene.add(gaviota.group);
+   283→    if (this.colliders) gaviota.bindColliderRegistry(this.colliders);
+   284→    this.dressShip(gaviota);
+   285→    this.enemies.push({
+   286→      ship: gaviota,
+   287→      mode: 'patrol',
+   288→      waypoints: [
+   289→        { x: -425, z: -308 }, { x: -560, z: -250 }, { x: -600, z: -620 }, { x: -350, z: -500 },
+   290→      ],
+   291→      wpIndex: 0,
+   292→      fireCd: 3,
+   293→      aggroNotified: false,
+   294→      quest: true,
+   295→      respawnAt: null,
+   296→      respawnTimer: 0,
+   297→    });
+   298→
+   299→    // A roaming raider between the Mist Isles and Aldmor's south shore
+   300→    const zharpa = new Ship({
+   301→      id: 'zharpa', name: 'Zarpa de Sal', kind: 'pirate', isPlayer: false,
+   302→      x: 110, z: 430, heading: 0.4, hullHp: 100, cannonCd: 7,
+   303→    });
+   304→    this.scene.add(zharpa.group);
+   305→    if (this.colliders) zharpa.bindColliderRegistry(this.colliders);
+   306→    this.dressShip(zharpa);
+   307→    this.enemies.push({
+   308→      ship: zharpa,
+   309→      mode: 'patrol',
+   310→      waypoints: [
+   311→        { x: 110, z: 430 }, { x: -60, z: 480 }, { x: 60, z: 540 },
+   312→      ],
+   313→      wpIndex: 0,
+   314→      fireCd: 4,
+   315→      aggroNotified: false,
+   316→      quest: false,
+   317→      respawnAt: { x: 110, z: 430 },
+   318→      respawnTimer: 0,
+   319→    });
+   320→  }
+   321→
+   322→  /** Real effects for learned navigation skills. */
+   323→  applyPerks(): void {
+   324→    const ship = this.playerShip;
+   325→    if (!ship) return;
+   326→    // Fase 16 — Marinería raised 1.12→1.2: the hull got its +40% base and
+   327→    // the skill must still feel like it's WORTH a point on top of it.
+   328→    ship.perks.speedMult = this.state.learnedSkills.has('nav_marino') ? 1.2 : 1;
+   329→    ship.perks.windEase = this.state.learnedSkills.has('nav_viento') ? 2.2 : 1;
+   330→    ship.perks.cannonCdMult = this.state.learnedSkills.has('nav_bordo') ? 1.35 : 1;
+   331→  }
+   332→
+   333→  // ---------------------------------------------------------- player helm
+   334→
+   335→  /** Fase 11 — the ship actually steered right now (never a sinking one). */
+   336→  get activeShip(): Ship | null {
+   337→    if (this.helmShip && !this.helmShip.sunk && this.helmShip.sinking === 0) return this.helmShip;
+   338→    if (this.playerShip && !this.playerShip.sunk && this.playerShip.sinking === 0) return this.playerShip;
+   339→    return this.helmShip;
+   340→  }
+   341→
+   342→  /** Fase 11 — nearest sailable ship (the Colibrí always; admin ships only
+   343→   *  while at anchor). Enemy AI ships are NEVER candidates. */
+   344→  helmCandidate(playerWorld: THREE.Vector3): Ship | null {
+   345→    let best: Ship | null = null;
+   346→    let bestD = Infinity;
+   347→    const consider = (s: Ship, isPlayer: boolean) => {
+   348→      if (s.sunk || s.sinking > 0) return;
+   349→      const d = Math.hypot(s.pos.x - playerWorld.x, s.pos.z - playerWorld.z);
+   350→      if (d < 13 && d < bestD && (isPlayer || s.anchored)) {
+   351→        best = s;
+   352→        bestD = d;
+   353→      }
+   354→    };
+   355→    if (this.playerShip) consider(this.playerShip, true);
+   356→    for (const s of this.extraShips) consider(s, false);
+   357→    return best;
+   358→  }
+   359→
+   360→  /** Fase 11 — take the wheel of a specific ship (any anchored vessel). */
+   361→  takeHelmAt(ship: Ship): void {
+   362→    if (ship.sunk || ship.sinking > 0) return;
+   363→    this.helmShip = ship;
+   364→    this.playerSailing = true;
+   365→    ship.anchored = false;
+   366→    ship.frozen = false;
+   367→    ship.rudderInput = 0;
+   368→  }
+   369→
+   370→  /** Fase 11 — drop the wheel in place (the ship stays where she is). */
+   371→  leaveHelm(): void {
+   372→    this.playerSailing = false;
+   373→    if (this.helmShip) {
+   374→      this.helmShip.rudderInput = 0;
+   375→      this.helmShip.anchored = true;
+   376→      this.helmShip.sailState = 0;
+   377→    }
+   378→    this.helmShip = null;
+   379→  }
+   380→
+   381→  /** Fase 11 — hand the helm back mid-voyage (post-ending "Colibrí sails"
+   382→   *  handoff: control resumes at the wheel, sails already set). */
+   383→  resumeHelm(ship: Ship): void {
+   384→    if (ship.sunk || ship.sinking > 0) return;
+   385→    this.helmShip = ship;
+   386→    this.playerSailing = true;
+   387→    ship.anchored = false;
+   388→    ship.frozen = false;
+   389→    this.applyPerks();
+   390→  }
+   391→
+   392→  setSailState(s: 0 | 1 | 2): void {
+   393→    const ship = this.activeShip ?? this.playerShip;
+   394→    if (!ship || ship.sailState === s) return;
+   395→    ship.sailState = s;
+   396→    if (s > 0) ship.anchored = false;
+   397→    this.cb.sound('sail');
+   398→  }
+   399→
+   400→  toggleAnchor(): void {
+   401→    const ship = this.activeShip ?? this.playerShip;
+   402→    if (!ship) return;
+   403→    ship.anchored = !ship.anchored;
+   404→    if (ship.anchored) {
+   405→      ship.sailState = 0;
+   406→      ship.rudderInput = 0;
+   407→    }
+   408→    this.cb.sound('anchor');
+   409→    this.cb.notify('info', ship.anchored ? 'Ancla fondeada' : 'Ancla izada',
+   410→      ship.anchored ? `${ship.name} se detiene. Puedes desembarcar si hay costa cerca.` : 'Listos para navegar.');
+   411→  }
+   412→
+   413→  firePlayer(side: 'port' | 'starboard'): void {
+   414→    const ship = this.activeShip ?? this.playerShip;
+   415→    if (!ship || !this.playerSailing || this.boarding) return;
+   416→    const shots = ship.fire(side);
+   417→    if (!shots) {
+   418→      if (this.t - this.lastDenyT > 1.2) {
+   419→        this.lastDenyT = this.t;
+   420→        this.cb.notify('info', 'Cañones recargando…', 'La bordada aún no está lista.');
+   421→      }
+   422→      return;
+   423→    }
+   424→    this.executeBroadside(ship, shots, true);
+   425→  }
+   426→
+   427→  private lastDenyT = -10;
+   428→
+   429→  private executeBroadside(ship: Ship, shots: CannonShot[], fromPlayer: boolean): void {
+   430→    for (let i = 0; i < shots.length; i++) {
+   431→      const shot = shots[i];
+   432→      const spread = fromPlayer ? 0.035 : 0.085;
+   433→      const dir = shot.dir.clone();
+   434→      dir.x += (Math.random() - 0.5) * spread * 2;
+   435→      dir.z += (Math.random() - 0.5) * spread * 2;
+   436→      dir.y += 0.05 + Math.random() * 0.05;
+   437→      dir.normalize();
+   438→      const speed = 32 + Math.random() * 3;
+   439→      this.spawnBall(shot.from, dir.multiplyScalar(speed), fromPlayer);
+   440→      // Muzzle flash + gun smoke (Fase 7: real flame burst at the muzzle)
+   441→      getFlameFX().burst(shot.from, 0.9, 3, 0.75);
+   442→      this.flashes.spawn(shot.from, 1.2, 0.14, undefined, { grow: 3 });
+   443→      this.smoke.spawn(shot.from.clone().add(new THREE.Vector3(0, 0.4, 0)), 1.8, 1.6,
+   444→        new THREE.Vector3(dir.x * 2, 0.6, dir.z * 2), { grow: 1.4 });
+   445→      if (i === 0) this.cb.sound('cannon');
+   446→    }
+   447→  }
+   448→
+   449→  private spawnBall(from: THREE.Vector3, vel: THREE.Vector3, fromPlayer: boolean): void {
+   450→    const mesh = this.ballPool.find((m) => !m.visible);
+   451→    if (!mesh) return;
+   452→    mesh.position.copy(from);
+   453→    mesh.visible = true;
+   454→    this.balls.push({ mesh, vel: vel.clone(), life: 0, fromPlayer, prev: from.clone() });
+   455→  }
+   456→
+   457→  // ------------------------------------------------------------- boarding
+   458→
+   459→  get boardingActive(): boolean {
+   460→    return this.boarding !== null;
+   461→  }
+   462→
+   463→  canBoard(): EnemyBrain | null {
+   464→    if (this.boarding || !this.playerShip) return null;
+   465→    for (const brain of this.enemies) {
+   466→      if (brain.questBoarded) continue;
+   467→      if (brain.ship.crippled && !brain.ship.sunk && brain.ship.sinking === 0) {
+   468→        const d = Math.hypot(brain.ship.pos.x - this.playerShip.pos.x, brain.ship.pos.z - this.playerShip.pos.z);
+   469→        if (d < 17) return brain;
+   470→      }
+   471→    }
+   472→    return null;
+   473→  }
+   474→
+   475→  startBoarding(brain: EnemyBrain): void {
+   476→    if (this.boarding || !this.playerShip) return;
+   477→    const enemy = brain.ship;
+   478→    // Grapple: both ships freeze, sails down
+   479→    enemy.grappled = true;
+   480→    enemy.frozen = true;
+   481→    enemy.sailState = 0;
+   482→    enemy.rudderInput = 0;
+   483→    this.playerShip.grappled = true;
+   484→    this.playerShip.frozen = true;
+   485→    this.playerShip.sailState = 0;
+   486→    this.playerShip.rudderInput = 0;
+   487→    brain.mode = 'grappled';
+   488→    brain.questBoarded = true;
+   489→
+   490→    // Crew: the quest ship gets Morwen + two corsairs; raiders get three corsairs
+   491→    const corsairPalette: CharacterPalette = {
+   492→      skin: 0xb08a64, hair: 0x1c1410, tunic: 0x3a2a30, sleeves: 0x57424a, pants: 0x2c2428, boots: 0x1e1812,
+   493→    };
+   494→    const morwenPalette: CharacterPalette = {
+   495→      skin: 0xc9a17a, hair: 0x2a1e2a, tunic: 0x5a1f28, sleeves: 0x7a3a3a, pants: 0x2c2024, boots: 0x1e1616, cape: 0x1c1c22,
+   496→    };
+   497→    const crew: BoardingCrew[] = brain.quest
+   498→      ? [
+   499→        new BoardingCrew(true, 0, -2.2, morwenPalette),
+   500→        new BoardingCrew(false, -1.0, 1.8, corsairPalette),
+   501→        new BoardingCrew(false, 1.05, 3.6, { ...corsairPalette, tunic: 0x30404a }),
+   502→      ]
+   503→      : [
+   504→        new BoardingCrew(false, -0.9, -1.6, corsairPalette),
+   505→        new BoardingCrew(false, 1.0, 2.2, { ...corsairPalette, tunic: 0x30404a }),
+   506→        new BoardingCrew(false, 0, 4.4, corsairPalette),
+   507→      ];
+   508→    // Fase 9 — surround bearings: each pirate owns a slice of the ring
+   509→    // around the player instead of stacking into a conga line.
+   510→    crew.forEach((c, i) => {
+   511→      c.ringAngle = (i / crew.length) * Math.PI * 2 + Math.PI / 7;
+   512→    });
+   513→    for (const c of crew) this.scene.add(c.group);
+   514→
+   515→    this.boarding = { brain, crew, done: false, endTimer: 0, finisherT: 0, finisherDone: false };
+   516→    // The player leaves the wheel and jumps onto the enemy deck
+   517→    this.playerSailing = false;
+   518→    this.cb.sound('grapple');
+   519→    this.cb.music(0.95);
+   520→    if (brain.quest) {
+   521→      this.cb.lore('¡Abordaje!', [
+   522→        'Ganchos de abordaje muerden el casco de la Gaviota Sangrienta. Las dos naves quedan amarradas, mecidas por la misma ola.',
+   523→        'En la cubierta, entre barriles y jaulas de cuervo, la Capitana Morwen desenvaina su sable. «El Guardián cría cachorros… Ven a buscar tu sello, cachorro.»',
+   524→      ]);
+   525→    } else {
+   526→      this.cb.lore('¡Abordaje!', [
+   527→        'Los ganchos vuelan y las cubiertas casi se tocan. La tripulación del cuervo carga con cuchillos entre los dientes.',
+   528→        'Derrota a los corsarios y sácale el botín a ese casco podrido.',
+   529→      ]);
+   530→    }
+   531→    this.onBoardingStarted?.(enemy);
+   532→  }
+   533→
+   534→  /** Called by CombatSystem when a melee swing lands. Returns true if hit.
+   535→   *  Fase 3: weapon reach/arc are honored (spear pikes across the deck). */
+   536→  crewHitCheck(
+   537→    playerWorld: THREE.Vector3, playerYaw: number, damage: number,
+   538→    reach = 2.35, arc = Math.PI * 0.85,
+   539→  ): boolean {
+   540→    if (!this.boarding) return false;
+   541→    const enemy = this.boarding.brain.ship;
+   542→    let hitAny = false;
+   543→    for (const c of this.boarding.crew) {
+   544→      if (c.dead) continue;
+   545→      const cw = enemy.toWorld(c.lx, 0, c.lz);
+   546→      const dx = cw.x - playerWorld.x;
+   547→      const dz = cw.z - playerWorld.z;
+   548→      const dist = Math.hypot(dx, dz);
+   549→      if (dist < reach) {
+   550→        const facing = Math.sin(playerYaw) * dx + Math.cos(playerYaw) * dz;
+   551→        // Facing within the weapon's half-arc (side distance test)
+   552→        const side = Math.abs(dx * Math.cos(playerYaw) - dz * Math.sin(playerYaw));
+   553→        if (facing > -0.25 && side < Math.tan(arc / 2) * Math.max(0.8, facing) + 0.5) {
+   554→          c.hp -= damage;
+   555→          hitAny = true;
+   556→          this.cb.sound('hit_hull');
+   557→          this.flashes.spawn(cw.clone().setY(cw.y + 1.2), 0.5, 0.1, undefined, { grow: 2 });
+   558→          // Fase 9 — hit reaction: reel back along the blow direction
+   559→          // (the captain has poise; the corsairs get bullied)
+   560→          if (c.hp > 0) {
+   561→            c.hurtT = Math.max(c.hurtT, c.isCaptain ? 0.28 : 0.5);
+   562→            const klen = Math.hypot(dx, dz) || 1;
+   563→            const push = c.isCaptain ? 0.35 : 0.8;
+   564→            const nlx = c.lx + (dx / klen) * push;
+   565→            const nlz = c.lz + (dz / klen) * push;
+   566→            const b = enemy.deckBounds;
+   567→            c.lx = clamp(nlx, b.minX + 0.2, b.maxX - 0.2);
+   568→            c.lz = clamp(nlz, b.minZ + 0.6, b.maxZ - 0.4);
+   569→          }
+   570→          if (c.hp <= 0) {
+   571→            c.dead = true;
+   572→            c.moving = false;
+   573→            if (c.isCaptain) {
+   574→              this.cb.notify('quest', '¡Morwen ha caído!', 'El Cuervo de Tres Cabezas ha perdido a su capitana.');
+   575→            }
+   576→          }
+   577→          break;
+   578→        }
+   579→      }
+   580→    }
+   581→    return hitAny;
+   582→  }
+   583→
+   584→  // ---------------------------------------------- Fase 9: cinematic finisher
+   585→
+   586→  /**
+   587→   * PDF §5 — a weakened IMPORTANT enemy (the boarding captain below 30% HP)
+   588→   * exposes the REMATE. Returns her position when the execution is armed.
+   589→   */
+   590→  finisherTarget(): { name: string; x: number; y: number; z: number } | null {
+   591→    if (!this.boarding || this.boarding.done || this.boarding.finisherDone) return null;
+   592→    if (this.boarding.finisherT > 0) return null;
+   593→    for (const c of this.boarding.crew) {
+   594→      if (c.dead || !c.isCaptain) continue;
+   595→      if (c.hpFrac > 0.3) continue;
+   596→      const w = this.boarding.brain.ship.toWorld(c.lx, 1.2, c.lz);
+   597→      return { name: c.name, x: w.x, y: w.y, z: w.z };
+   598→    }
+   599→    return null;
+   600→  }
+   601→
+   602→  /** Execute the remate: the hero's heavy blow lands as the captain reels. */
+   603→  executeFinisher(): boolean {
+   604→    const target = this.finisherTarget();
+   605→    if (!target) return false;
+   606→    const boarding = this.boarding!;
+   607→    boarding.finisherT = 0.001;
+   608→    boarding.finisherDone = true;
+   609→    // She freezes mid-reel for the killing blow
+   610→    for (const c of boarding.crew) {
+   611→      if (c.isCaptain && !c.dead) c.hurtT = 1.2;
+   612→    }
+   613→    // The hero swings (Game plays the animation + camera work)
+   614→    this.cb.onFinisher?.(target.x, target.y, target.z);
+   615→    return true;
+   616→  }
+   617→
+   618→  private updateFinisher(dt: number): void {
+   619→    const b = this.boarding;
+   620→    if (!b || b.finisherT <= 0) return;
+   621→    b.finisherT += dt;
+   622→    // 0.55 s of wind-up, then the blow lands
+   623→    if (b.finisherT >= 0.55) {
+   624→      b.finisherT = 0;
+   625→      for (const c of b.crew) {
+   626→        if (c.isCaptain && !c.dead) {
+   627→          c.hp = 0;
+   628→          c.dead = true;
+   629→          c.moving = false;
+   630→          const w = b.brain.ship.toWorld(c.lx, 1.1, c.lz);
+   631→          this.flashes.spawn(w.clone().setY(w.y + 0.4), 1.6, 0.16, undefined, { grow: 3 });
+   632→          this.cb.sound('hit_hull');
+   633→          this.cb.notify('quest', '¡REMATE!', `${c.name} cae bajo el golpe del Guardián. La cubierta queda en silencio.`);
+   634→          this.cb.music(0.5);
+   635→        }
+   636→      }
+   637→    }
+   638→  }
+   639→
+   640→  /** Boarding resolves when every crewman is down. */
+   641→  private finishBoardingSuccess(): void {
+   642→    if (!this.boarding) return;
+   643→    const brain = this.boarding.brain;
+   644→    // Loot the hold
+   645→    this.state.addItem('sello', 1);
+   646→    this.state.addItem('coin', 90);
+   647→    this.state.addItem('madera', 2);
+   648→    this.state.giveXp(120);
+   649→    this.state.setFlag('morwen_defeated');
+   650→    this.cb.notify('quest', '¡La Gaviota Sangrienta es tuya!',
+   651→      'Sello de la Orden, 90 monedas y madera de primera añadidos al inventario.');
+   652→    this.cb.music(0.8);
+   653→    // The pirate brig is scuttled by her own boiling powder store
+   654→    brain.ship.grappled = false;
+   655→    brain.ship.frozen = false;
+   656→    brain.ship.applyDamage(brain.ship.hullHp + 1);
+   657→    // Player jumps back aboard the Colibrí
+   658→    this.cb.returnPlayerToShip(this.playerShip!);
+   659→    for (const c of this.boarding.crew) c.group.parent?.remove(c.group);
+   660→    this.playerShip!.grappled = false;
+   661→    this.playerShip!.frozen = false;
+   662→    this.boarding = null;
+   663→  }
+   664→
+   665→  /** Player died mid-boarding — clean up without rewards. */
+   666→  abortBoarding(): void {
+   667→    if (!this.boarding) return;
+   668→    const brain = this.boarding.brain;
+   669→    brain.ship.grappled = false;
+   670→    brain.ship.frozen = false;
+   671→    if (this.playerShip) {
+   672→      this.playerShip.grappled = false;
+   673→      this.playerShip.frozen = false;
+   674→    }
+   675→    for (const c of this.boarding.crew) c.group.parent?.remove(c.group);
+   676→    this.boarding = null;
+   677→    this.cb.music(0.4);
+   678→    // The boarding narration must not linger over normal play (it would eat
+   679→    // every control: movement, rudder, sails and attacks)
+   680→    this.cb.closeDialogue();
+   681→  }
+   682→
+   683→  /** Full reset (new game / loading a pre-naval save). */
+   684→  resetAll(): void {
+   685→    this.abortBoarding();
+   686→    this.sinkRespawn = null;
+   687→    if (this.playerShip) {
+   688→      this.playerShip.dispose();
+   689→      this.playerShip = null;
+   690→    }
+   691→    this.playerSailing = false;
+   692→    for (const b of this.balls) b.mesh.visible = false;
+   693→    this.balls.length = 0;
+   694→    for (const barrel of this.barrels) {
+   695→      barrel.mesh.parent?.remove(barrel.mesh);
+   696→      barrel.mesh.geometry.dispose();
+   697→    }
+   698→    this.barrels.length = 0;
+   699→    for (const brain of this.enemies) {
+   700→      const ship = brain.ship;
+   701→      const spawn = brain.waypoints[0];
+   702→      ship.pos.set(spawn.x, 0, spawn.z);
+   703→      ship.heading = 0.5;
+   704→      ship.speed = 0;
+   705→      ship.hullHp = ship.maxHullHp;
+   706→      ship.sinking = 0;
+   707→      ship.sunk = false;
+   708→      ship.removable = false;
+   709→      ship.grappled = false;
+   710→      ship.frozen = false;
+   711→      ship.group.visible = true;
+   712→      ship.hull.rotation.set(0, 0, 0);
+   713→      ship.group.position.y = 0.12;
+   714→      ship.cdPort = 0;
+   715→      ship.cdStar = 0;
+   716→      brain.mode = 'patrol';
+   717→      brain.wpIndex = 0;
+   718→      brain.aggroNotified = false;
+   719→      brain.questBoarded = false;
+   720→      brain.respawnTimer = 0;
+   721→      (brain as EnemyBrain & { looted?: boolean }).looted = false;
+   722→    }
+   723→  }
+   724→
+   725→  // ------------------------------------------------------------- prompts
+   726→
+   727→  /** Contextual naval interaction for the player (used by Game). */
+   728→  currentPrompt(playerWorld: THREE.Vector3): { prompt: string; run: () => void } | null {
+   729→    const ship = this.playerShip;
+   730→    if (!ship || this.boarding) return null; // mid-boarding: hands are full
+   731→
+   732→    if (!this.playerSailing) {
+   733→      // Fase 11 — ANY anchored ship in reach offers her wheel: the Colibrí
+   734→      // always, admin ships while at anchor
+   735→      const cand = this.helmCandidate(playerWorld);
+   736→      if (cand) {
+   737→        return {
+   738→          prompt: `Zarpar a bordo del ${cand.name}`,
+   739→          run: () => this.cb.returnPlayerToShip(cand),
+   740→        };
+   741→      }
+   742→      return null;
+   743→    }
+   744→
+   745→    // Sailing: boarding has priority
+   746→    const boardable = this.canBoard();
+   747→    if (boardable) {
+   748→      return {
+   749→        prompt: `Abordar la ${boardable.ship.name}`,
+   750→        run: () => this.startBoarding(boardable),
+   751→      };
+   752→    }
+   753→
+   754→    // Disembark when (almost) stopped
+   755→    const active = this.activeShip ?? ship;
+   756→    if (Math.abs(active.speed) < 0.8) {
+   757→      const spot = this.findLandingSpot(active);
+   758→      if (spot) {
+   759→        return {
+   760→          prompt: 'Desembarcar en tierra firme',
+
+[showing lines 1-760 of 1476; use offset=761 with limit to continue reading]

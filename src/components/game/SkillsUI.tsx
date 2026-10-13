@@ -6,9 +6,9 @@ import { gameApi } from '@/game/api';
 import { Lock, Sparkles, Swords, TentTree, Wind, X } from 'lucide-react';
 
 const TREES = [
-  { id: 'combate', name: 'Combate', icon: Swords, desc: 'El acero y el aguante del duelista.' },
-  { id: 'supervivencia', name: 'Supervivencia', icon: TentTree, desc: 'Los caminos duros de la isla.' },
-  { id: 'navegacion', name: 'Navegación', icon: Wind, desc: 'El llamado del mar abierto.' },
+  { id: 'combate', name: 'Combat', icon: Swords, desc: 'The steel and the grit of the duelist.' },
+  { id: 'supervivencia', name: 'Survival', icon: TentTree, desc: "The island's hard roads." },
+  { id: 'navegacion', name: 'Navigation', icon: Wind, desc: 'The call of the open sea.' },
 ] as const;
 
 export default function SkillsUI() {
@@ -38,7 +38,7 @@ export default function SkillsUI() {
       <div className="kotfs-panel kotfs-panel-corner flex h-full w-full max-w-3xl flex-col p-6">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="kotfs-title text-lg tracking-[0.25em] text-[color:var(--kotfs-gold)]">
-            SENDEROS DEL EXPLORADOR
+            PATHS OF THE EXPLORER
           </h2>
           <button
             className="text-[color:var(--kotfs-parchment-dim)] transition hover:text-[color:var(--kotfs-parchment)]"
@@ -59,7 +59,7 @@ export default function SkillsUI() {
           </div>
           <div className="flex-1">
             <div className="mb-1 flex justify-between text-[0.65rem] tracking-[0.2em] text-[color:var(--kotfs-parchment-dim)]">
-              <span className="kotfs-title">NIVEL {level}</span>
+              <span className="kotfs-title">LEVEL {level}</span>
               <span>
                 {xp} / {xpToNext} XP
               </span>
@@ -126,7 +126,7 @@ export default function SkillsUI() {
                             {s.name}
                           </span>
                           {s.learned ? (
-                            <span className="text-[0.6rem] tracking-widest text-[#9cc168]">APRENDIDA</span>
+                            <span className="text-[0.6rem] tracking-widest text-[#9cc168]">LEARNED</span>
                           ) : s.locked ? (
                             <Lock size={11} className="text-[color:var(--kotfs-parchment-dim)]" />
                           ) : s.canLearn ? (
@@ -135,11 +135,11 @@ export default function SkillsUI() {
                             </span>
                           ) : !reqOk ? (
                             <span className="text-[0.55rem] tracking-widest text-[color:var(--kotfs-parchment-dim)]">
-                              REQUIERE ANTERIOR
+                              REQUIRES PREVIOUS
                             </span>
                           ) : (
                             <span className="text-[0.55rem] tracking-widest text-[color:var(--kotfs-parchment-dim)]">
-                              SIN PUNTOS
+                              NO POINTS
                             </span>
                           )}
                         </div>
@@ -156,7 +156,7 @@ export default function SkillsUI() {
         </div>
 
         <p className="mt-3 text-center text-[0.6rem] tracking-[0.3em] text-[color:var(--kotfs-parchment-dim)] opacity-50">
-          GANA EXPERIENCIA EXPLORANDO Y COMPLETANDO MISIONES · K / ESC PARA CERRAR
+          GAIN EXPERIENCE BY EXPLORING AND COMPLETING QUESTS · K / ESC TO CLOSE
         </p>
       </div>
     </div>

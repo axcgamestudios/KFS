@@ -81,6 +81,10 @@ export const FLAME_BUDGET: Record<QualityLevel, number> = {
 export const gfxRuntime = {
   /** false → toda luz puntual se apaga (intensidad 0) al instante. */
   pointLights: true,
+  /** Fase 16 — false when the player runs with waves OFF (low graphics /
+   *  no swell): the interactive wake rings (player + boats) deform a FLAT
+   *  sea into a glowing blob that reads like an ugly bloom. Gate on this. */
+  waves: true,
 };
 
 /** Prefijo de ruta de assets — vacío en dev/sandbox, "/KFS" en GitHub Pages. */

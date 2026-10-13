@@ -23,6 +23,8 @@ import { VillagerModelGLB } from './entities/VillagerModelGLB';
 import { NavalSystem, type SailingHud } from './naval/NavalSystem';
 import type { Ship } from './naval/Ship';
 import { VfxSystem } from './systems/VfxSystem';
+import { SeaBeastSystem } from './systems/SeaBeastSystem';
+import { PirateAmbushSystem } from './systems/PirateAmbushSystem';
 import { CombatSystem, WEAPONS, SWORD_TIER_NAMES, SWORD_PRIORITY, swordElementOf } from './systems/CombatSystem';
 import { DragonManager } from './systems/DragonManager';
 import { BanditSystem } from './systems/BanditSystem';
@@ -33,8 +35,9 @@ import { MountSystem } from './systems/MountSystem';
 import { EndingSystem, ENDINGS, type EndingId, type EndingShot } from './systems/EndingSystem';
 import { PostFX } from './world/PostFX';
 import { windTime, windGust } from './world/VegetationSystem';
-import { POIS, WIND } from './world/WorldConfig';
+import { POIS, ISLANDS, WIND } from './world/WorldConfig';
 import { ITEMS } from './data/items';
+import { VENDORS } from './data/shops';
 import { QUESTS, MAIN_QUEST_ORDER, SIDE_QUESTS } from './data/quests';
 import { LORE } from './data/dialogues';
 import { useGameStore } from '../store/gameStore';
@@ -53,25 +56,25 @@ const INTRO_SHOTS: IntroShot[] = [
     from: new THREE.Vector3(-60, 55, 720), to: new THREE.Vector3(20, 42, 620),
     lookFrom: new THREE.Vector3(0, 30, 100), lookTo: new THREE.Vector3(20, 25, 150),
     dur: 11,
-    text: 'Eldoria… Tierra de reinos que fueron. Los antiguos dominaron los mares bajo el pacto de los dragones… hasta que la gran guerra lo hundió todo bajo las olas.',
+    text: 'Eldoria… a land of kingdoms that were. The ancients ruled the seas under the pact of the dragons… until the great war sank it all beneath the waves.',
   },
   {
     from: new THREE.Vector3(220, 120, -80), to: new THREE.Vector3(160, 95, -140),
     lookFrom: new THREE.Vector3(40, 70, -320), lookTo: new THREE.Vector3(60, 80, -300),
     dur: 11,
-    text: 'Los dragones duermen en las cumbres de Garrahielo. Los piratas siembran el miedo en las rutas. Y algo antiguo despierta bajo las ruinas del océano.',
+    text: 'The dragons sleep on the Iceclaw peaks. The pirates sow fear along the trade routes. And something ancient is waking beneath the ruins of the ocean.',
   },
   {
     from: new THREE.Vector3(210, 70, 60), to: new THREE.Vector3(160, 58, 20),
     lookFrom: new THREE.Vector3(110, 45, -45), lookTo: new THREE.Vector3(105, 50, -40),
     dur: 10,
-    text: 'Los reinos están divididos y los muros se agrietan. En Puerto Cuervo, un maestre de puerto guarda la última voluntad de un amigo desaparecido…',
+    text: 'The kingdoms are divided and the walls are cracking. In Crowhaven, a port master keeps the last will of a vanished friend…',
   },
   {
     from: new THREE.Vector3(70, 30, 250), to: new THREE.Vector3(38, 10, 252),
     lookFrom: new THREE.Vector3(25, 8, 235), lookTo: new THREE.Vector3(21, 2.2, 244),
     dur: 10,
-    text: '…y la marea trae a alguien de vuelta a casa. El hijo del Guardián ha regresado. KINGDOMS OF THE FORGOTTEN SEAS — Capítulo I: El Legado de Eirik.',
+    text: '…and the tide carries someone back home. The Warden\'s son has returned. KINGDOMS OF THE FORGOTTEN SEAS — Chapter 1: A Brand New Beginning.',
   },
 ];
 
@@ -106,12 +109,12 @@ export class Game {
     this.streakN++;
     const n = this.streakN;
     if (n >= 2) {
-      const names = ['', '', '¡DOBLE!', '¡TRIPLE!', '¡MATANZA!', '¡IMPARABLE!', '¡LEYENDA!'];
+      const names = ['', '', 'DOUBLE!', 'TRIPLE!', 'SLAUGHTER!', 'UNSTOPPABLE!', 'LEGENDARY!'];
       const text = label || names[Math.min(n, 6)];
       this.combat?.flashEvent(text);
       const bonus = 6 * n;
       this.state.giveXp(bonus);
-      useGameStore.getState().notify('item', text, `Racha ×${n} — +${bonus} XP de furia.`);
+      useGameStore.getState().notify('item', text, `Streak ×${n} — +${bonus} fury XP.`);
       this.rig?.punch(0.3 + Math.min(0.3, n * 0.06));
     } else if (label) {
       this.combat?.flashEvent(label);
@@ -123,6 +126,10 @@ export class Game {
   private endings?: EndingSystem;
   /** Fase 10 — red knight bandits patrolling road camps. */
   private bandits?: BanditSystem;
+  /** Fase 15 — sea serpents + the King of the Sea (Navel of the Sea arena). */
+  private seaBeasts?: SeaBeastSystem;
+  /** Fase 15 — random pirate ambushes on the high seas + toll negotiation. */
+  private pirateAmbush?: PirateAmbushSystem;
   /** Fase 9 — in-game narrative cinematics (dragon victories, chapters). */
   private cinematics = new CinematicSystem();
   /** Fase 9 — chapter cinematic waiting for the closing dialogue to end. */
@@ -170,11 +177,13 @@ export class Game {
     this.input = new Input(canvas);
     this.dialogue = new DialogueSystem(this.state);
     gfxRuntime.pointLights = bootGfx.realLights;
+    // Fase 16 — wakes interactivos siguen el interruptor de oleaje
+    gfxRuntime.waves = bootGfx.waves;
 
     this.state.onChange = () => this.syncProgression();
 
     this.engine.onWebGLContextLost = () => {
-      useGameStore.getState().notify('info', 'Contexto gráfico perdido', 'Recarga la página para continuar.');
+      useGameStore.getState().notify('info', 'Graphics context lost', 'Reload the page to continue.');
     };
 
     // Click canvas → resume pointer lock while playing
@@ -217,7 +226,7 @@ export class Game {
 
   async boot(): Promise<void> {
     const store = useGameStore.getState();
-    store.setProgress(0.02, 'Desplegando las velas…');
+    store.setProgress(0.02, 'Unfurling the sails…');
     await new Promise((r) => setTimeout(r, 30));
 
     const world = await buildWorld(
@@ -262,7 +271,7 @@ export class Game {
     this.musicEl.loop = true;
     this.musicEl.volume = 0;
 
-    store.setProgress(0.82, 'Despertando al explorador…');
+    store.setProgress(0.82, 'Waking the explorer…');
     // --- Fase 5: the repository knight becomes the player's body ---
     // The kits were already exploded during buildWorld (world.dressing);
     // here we only load the rigged knight and wire the same kit instance.
@@ -296,19 +305,25 @@ export class Game {
       if (kind === 'enter') {
         this.vfx?.waterSplash(this.player!.position.clone(), Math.min(1.4, speed));
         this.audio.playEvent('splash');
-        // Fase 12 — a real wake ring spreads from the dive
-        world.water.addWake(
-          this.player!.position.x, this.player!.position.z,
-          Math.min(1, 0.4 + speed * 0.4), 9 + speed * 9, 3.4 + speed * 1.4,
-        );
+        // Fase 12 — a real wake ring spreads from the dive.
+        // Fase 16 — only with waves ON: a flat sea turns the ring into a
+        // bloom-like blob (player request: no water physics on low graphics).
+        if (gfxRuntime.waves) {
+          world.water.addWake(
+            this.player!.position.x, this.player!.position.z,
+            Math.min(1, 0.4 + speed * 0.4), 9 + speed * 9, 3.4 + speed * 1.4,
+          );
+        }
       } else {
         this.vfx?.waterSplash(this.player!.position.clone(), 0.5);
-        world.water.addWake(this.player!.position.x, this.player!.position.z, 0.3, 7, 3);
+        if (gfxRuntime.waves) {
+          world.water.addWake(this.player!.position.x, this.player!.position.z, 0.3, 7, 3);
+        }
       }
     };
     this.player.onDamaged = (amount) => {
       this.audio.playEvent('damage');
-      useGameStore.getState().notify('info', `Has perdido ${amount} de salud`, 'La caída fue dura.');
+      useGameStore.getState().notify('info', `You lost ${amount} health`, 'That was a hard fall.');
     };
     this.player.onAttackSwing = () => this.audio.playEvent('swing');
     this.rig = new CameraRig(this.engine.camera);
@@ -402,6 +417,20 @@ export class Game {
       onWhiff: (pos) => this.bandits?.onPlayerWhiff(pos),
       // Fase 12 — elemental sword connected: element burst at the impact
       elementalHit: (pos, element) => this.vfx?.elementalBurst(pos, element),
+      // ---- Fase 17 — the Spider-Man-grade layer ----
+      hookTarget: (origin, yaw, maxDist) =>
+        this.bandits ? this.bandits.hookTargetCheck(origin, yaw, maxDist) : null,
+      launchBandit: (bandit, vy) => this.bandits?.launch(bandit, vy),
+      juggleBandit: (bandit) => this.bandits?.juggle(bandit),
+      airborneBanditNear: (pos, radius) =>
+        this.bandits ? this.bandits.airborneNear(pos, radius) : null,
+      holdBanditAt: (bandit, x, y, z) => this.bandits?.holdBanditAt(bandit, x, y, z),
+      throwBandit: (bandit, dx, dz, power) => this.bandits?.throwBandit(bandit, dx, dz, power),
+      knockdownBandit: (bandit, dur) => this.bandits?.knockdown(bandit, dur),
+      turnBanditBack: (bandit, dur) => this.bandits?.turnBanditBack(bandit, dur),
+      pullBandit: (bandit, dx, dz) => this.bandits?.pullBandit(bandit, dx, dz),
+      finisherTarget: (playerPos) =>
+        this.bandits ? this.bandits.finisherTarget(playerPos) : null,
     });
     this.combat.dragonHitRef = (pos, radius) =>
       this.dragons ? this.dragons.projectileHitTest(pos, radius) : null;
@@ -417,6 +446,8 @@ export class Game {
     // Fase 11 — hit-stop (a slow-mo beat on decisive blows) + HUD fight labels
     this.combat.onHitStop = (dur) => { this.hitStopT = Math.max(this.hitStopT, dur); };
     this.combat.onCombatEvent = (label) => this.combat?.flashEvent(label);
+    // Fase 17 — Sea Fury (Valor) mirrors to the HUD bar
+    this.combat.onValorChange = (v) => useGameStore.getState().setValor(v);
     // Fase 9 — cinematic store sync (letterbox + title cards)
     this.cinematicsPlaySetup();
     this.dragons = new DragonManager(
@@ -446,6 +477,35 @@ export class Game {
       const d = this.dragons?.projectileHitTest(pos, 1.2, prev);
       return d ? { damage: (amount: number) => this.dragons!.damage(d, amount, true) } : null;
     };
+
+    // --- Fase 15 — SEA BEASTS + PIRATE AMBUSHES on the high seas ---
+    this.seaBeasts = new SeaBeastSystem(
+      this.engine.scene, world.terrainHeight, world.water, this.state, this.vfx!, {
+        notify: (kind, title, body) => useGameStore.getState().notify(kind, title, body),
+        sound: (kind) => this.audio.playEvent(kind),
+        music: (intensity, boss) => {
+          this.musicIntensityTarget = intensity;
+          this.audio.bossIntensity = boss ? 1 : 0;
+        },
+        bossHud: (s) => useGameStore.getState().setBoss(s),
+        shipDamage: (dmg) => {
+          const hull = this.naval?.activeShip ?? this.naval?.playerShip;
+          hull?.applyDamage(dmg);
+        },
+        playerDamage: (dmg, fromX, fromZ, reason) =>
+          this.applyPlayerDamage(dmg, fromX, fromZ, reason ?? 'serpent'),
+        cameraShake: (i) => { this.shakeT = Math.max(this.shakeT, i); },
+      },
+    );
+    this.naval.seaBeasts = this.seaBeasts;
+    this.pirateAmbush = new PirateAmbushSystem(
+      world.terrainHeight, this.state, this.naval, {
+        notify: (kind, title, body) => useGameStore.getState().notify(kind, title, body),
+        sound: (kind) => this.audio.playEvent(kind),
+        music: (intensity) => { this.musicIntensityTarget = intensity; },
+        negotiation: (n) => useGameStore.getState().setHud({ negotiation: n }),
+      },
+    );
     this.player.onBlockSparks = (pos) => {
       this.vfx!.blockSparks(pos);
       this.audio.playEvent('block');
@@ -496,8 +556,8 @@ export class Game {
     });
     // Tormenta (the Order's warhorse, gift of q10) + Halvard's stock
     this.mounts.spawnHorse('tormenta', 'Tormenta', 'black', 36, 152, false, 0);
-    this.mounts.spawnHorse('alazan', 'Alazán del Prado', 'chestnut', -50, -100, false, 220);
-    this.mounts.spawnHorse('gris', 'Gris del Oeste', 'grey', -250, -190, false, 260);
+    this.mounts.spawnHorse('alazan', 'Meadow Chestnut', 'chestnut', -50, -100, false, 220);
+    this.mounts.spawnHorse('gris', 'Grey of the West', 'grey', -250, -190, false, 260);
     // The stable cart
     this.mounts.spawnCart('carreta', 30, 156, 0.4);
     this.endings = new EndingSystem(this.state);
@@ -516,7 +576,7 @@ export class Game {
         cameraShake: (i) => { this.shakeT = Math.max(this.shakeT, i); },
         hitStop: (dur) => { this.hitStopT = Math.max(this.hitStopT, dur); },
         // Fase 12 — bounty counters + KILL STREAK dopamine
-        onBanditKilled: (captain) => this.registerCombatKill(captain ? '¡CAPITÁN ABATIDO!' : ''),
+        onBanditKilled: (captain) => this.registerCombatKill(captain ? 'CAPTAIN DOWN!' : ''),
       },
     );
 
@@ -535,7 +595,7 @@ export class Game {
           this.state.equip(id);
           this.combat?.refreshVisuals();
           this.syncSwordVisuals();
-          useGameStore.getState().notify('item', '¡ESPADA LEGENDARIA!', 'El acero nuevo salta a tu mano. Úsala con la tecla 1.');
+          useGameStore.getState().notify('item', 'LEGENDARY SWORD!', 'The new steel leaps to your hand. Wield it with key 1.');
         }
         return;
       }
@@ -545,8 +605,8 @@ export class Game {
       this.ambushCd = 55;                       // no machine-gun ambushes
       const n = 2 + Math.floor(Math.random() * 2);
       this.bandits.spawnAmbush(this.player.position.x, this.player.position.z, n);
-      this.combat?.flashEvent('¡EMBOSCADA!');
-      useGameStore.getState().notify('quest', '¡EMBOSCADA!', '¡Caballeros rojos del Cuervo saltan de la maleza!');
+      this.combat?.flashEvent('AMBUSH!');
+      useGameStore.getState().notify('quest', 'AMBUSH!', 'Red knights of the Crow burst from the underbrush!');
       this.musicIntensityTarget = Math.max(this.musicIntensityTarget, 0.85);
       this.audio.playEvent('stagger');
       this.rig?.punch(0.5);
@@ -581,8 +641,10 @@ export class Game {
 
     this.buildInteractables();
     this.installApi();
-    // Debug/testing hook (harmless in production)
+    // Debug/testing hooks (harmless in production)
     (window as unknown as { __kotfsGame?: Game }).__kotfsGame = this;
+    // Fase 16 — the live gameApi for E2E probes (adminSpawn lives there)
+    (window as unknown as { __kotfsApi?: typeof gameApi }).__kotfsApi = gameApi;
     // Fase 12 — debug/E2E hook: live HUD store reads
     (window as unknown as { __kotfsStoreGet?: () => unknown }).__kotfsStoreGet = () => useGameStore.getState();
 
@@ -590,7 +652,7 @@ export class Game {
     world.sky.dayFraction = 0.78;
     this.player.teleport(world.village.spawnPoint.x, world.village.spawnPoint.y, world.village.spawnPoint.z);
 
-    store.setProgress(1, 'Eldoria espera…');
+    store.setProgress(1, 'Eldoria awaits…');
     store.setHasSave(SaveSystem.newestSlot() !== null);
     await new Promise((r) => setTimeout(r, 250));
     store.setPhase('menu');
@@ -616,19 +678,19 @@ export class Game {
         get prompt() {
           if (chest.id === 'chest_eirik') {
             return state.hasItem('amuleto') && !state.openedChests.has('chest_eirik')
-              ? 'Abrir el cofre de Eirik'
-              : state.openedChests.has('chest_eirik') ? '' : 'Examinar el cofre de Eirik';
+              ? "Open Eirik's chest"
+              : state.openedChests.has('chest_eirik') ? '' : "Inspect Eirik's chest";
           }
-          return state.openedChests.has(chest.id) ? '' : 'Abrir el cofre';
+          return state.openedChests.has(chest.id) ? '' : 'Open the chest';
         },
         available: () =>
           chest.id === 'chest_eirik' ? !state.openedChests.has(chest.id) : true,
         run: () => {
           if (chest.id === 'chest_eirik') {
             if (!state.hasItem('amuleto')) {
-              this.dialogue.startLore('El cofre de Eirik', [
-                'Un cofre de mar reforzado con bandas de hierro. El cierre es extraño: un círculo de mareas alrededor de una llama, fundido en cobre.',
-                'No hay cerradura ni bisagra visible. «Solo el amuleto lo abre», diría Aldric. Maren, la herborista, sabe dónde está.',
+              this.dialogue.startLore("Eirik's chest", [
+                'A sea chest reinforced with iron bands. The clasp is strange: a circle of tides around a flame, cast in copper.',
+                'There is no visible lock or hinge. "Only the amulet opens it," Aldric would say. Maren the herbalist knows where it is.',
               ]);
               return;
             }
@@ -642,8 +704,8 @@ export class Game {
             state.addItem('carta', 1);
             state.giveXp(25);
             this.musicIntensityTarget = 0.7;
-            store.getState().notify('quest', 'El cofre de Eirik se abre', 'Espada de Eirik, Mapa antiguo y Carta de Eirik añadidos al inventario.');
-            store.getState().notify('info', 'Lee la carta de tu padre', 'Ábrela desde el inventario (Tab).');
+            store.getState().notify('quest', "Eirik's chest opens", "Eirik's Sword, the Ancient Map and Eirik's Letter added to your inventory.");
+            store.getState().notify('info', "Read your father's letter", 'Open it from the inventory (TAB).');
             return;
           }
           if (state.openedChests.has(chest.id)) return;
@@ -654,46 +716,46 @@ export class Game {
           if (chest.id === 'chest_grotto') {
             state.addItem('colmillo', 1);
             state.addItem('coin', 25);
-            store.getState().notify('item', 'Tesoro encontrado', 'Colmillo tallado y 25 monedas de oro.');
+            store.getState().notify('item', 'Treasure found', 'A carved fang and 25 gold coins.');
           } else if (chest.id === 'chest_wreck') {
             state.addItem('coin', 18);
             state.addItem('pocion', 1);
-            store.getState().notify('item', 'Tesoro encontrado', '18 monedas de oro y una poción de curación.');
+            store.getState().notify('item', 'Treasure found', '18 gold coins and a healing potion.');
           } else if (chest.id === 'chest_falls') {
             state.addItem('coin', 20);
             state.addItem('petalo', 1);
-            store.getState().notify('item', 'Tesoro encontrado', '20 monedas de oro y un pétalo de marfil.');
+            store.getState().notify('item', 'Treasure found', '20 gold coins and an ivory petal.');
           } else if (chest.id === 'chest_crow') {
             state.addItem('botin', 1);
             state.addItem('coin', 60);
-            store.getState().notify('item', 'El botín del Cuervo', 'Botín del Cuervo y 60 monedas de oro, arrancados a la guarida pirata.');
+            store.getState().notify('item', "The Crow's loot", "The Crow's Loot and 60 gold coins, torn from the pirate den.");
           } else if (chest.id === 'chest_faro') {
             state.addItem('espejo', 1);
             state.addItem('coin', 30);
-            store.getState().notify('item', 'El espejo del faro', 'El viejo espejo de latón de los Guardianes y 30 monedas.');
+            store.getState().notify('item', 'The lighthouse mirror', "The Wardens' old brass mirror and 30 coins.");
           } else if (chest.id === 'chest_bruma') {
             state.addItem('escama', 1);
             state.addItem('petalo', 2);
             state.addItem('coin', 35);
-            store.getState().notify('item', 'Algo late en el cofre', 'Una escama que duerme, dos pétalos de marfil y 35 monedas. Léela desde el inventario (Tab).');
+            store.getState().notify('item', 'Something stirs in the chest', 'A sleeping scale, two ivory petals and 35 coins. Read it from the inventory (TAB).');
           } else if (chest.id === 'chest_lanza') {
             state.addItem('lanza_caza', 1);
             state.addItem('flecha', 6);
             state.addItem('coin', 15);
-            store.getState().notify('item', 'El arsenal del vigía', 'Lanza de Caza, 6 flechas y 15 monedas. Equípala con la tecla 3.');
+            store.getState().notify('item', "The watchman's arsenal", 'Hunting Spear, 6 arrows and 15 coins. Equip it with key 3.');
           } else if (chest.id === 'chest_arco') {
             state.addItem('arco_naufragio', 1);
             state.addItem('flecha', 12);
             state.addItem('coin', 10);
-            store.getState().notify('item', 'El arco varado por la marea', 'Arco del Naufragio y 12 flechas. Equípalo con la tecla 4: mantén el clic para tensar.');
+            store.getState().notify('item', 'The tide-stranded bow', 'Wreck Bow and 12 arrows. Equip it with key 4: hold the click to draw.');
           } else if (chest.id === 'chest_tesoro') {
             state.addItem('mapa_tesoro', 1);
             state.addItem('coin', 25);
-            store.getState().notify('item', 'El mapa del Capitán', 'Dibujado con carbón y sangre de pulpo. Una X marca la ensenada del faro. Léelo desde el inventario (Tab).');
+            store.getState().notify('item', "The Captain's map", 'Drawn in charcoal and octopus blood. An X marks the lighthouse cove. Read it from the inventory (TAB).');
           } else if (chest.id === 'chest_antigua_1' || chest.id === 'chest_antigua_2' || chest.id === 'chest_antigua_3') {
             state.addItem('moneda_antigua', 1);
             state.addItem('coin', 30);
-            store.getState().notify('item', 'Moneda de Thalassar', 'Oro viejo del reino hundido. Elin paga bien por estas.');
+            store.getState().notify('item', 'Thalassar coin', 'Old gold from the sunken kingdom. Elin pays well for these.');
           }
         },
       });
@@ -740,15 +802,15 @@ export class Game {
         get prompt() {
           if (state.isQuestActive('sq_cazarrecompensas')) {
             const k = state.killCounters.bandit ?? 0;
-            return k >= 6 ? 'Cobrar la recompensa (150 oro)' : `Cazar caballeros rojos (${k}/6)`;
+            return k >= 6 ? 'Claim the bounty (150 gold)' : `Hunt red knights (${k}/6)`;
           }
           if (state.isQuestActive('sq_tormenta_caminos')) {
             const k = state.killCounters.bandit ?? 0;
-            return k >= 10 ? 'Cobrar la recompensa (90 oro)' : `La caza continúa (${k}/10)`;
+            return k >= 10 ? 'Claim the bounty (90 gold)' : `The hunt continues (${k}/10)`;
           }
           if (state.questStates?.get?.('sq_cazarrecompensas')?.status === 'completed' &&
               state.questStates?.get?.('sq_tormenta_caminos')?.status !== 'active') return '';
-          return 'Leer el cartel de recompensas';
+          return 'Read the bounty board';
         },
         run: () => {
           const st1 = state.questStates?.get?.('sq_cazarrecompensas')?.status;
@@ -756,20 +818,20 @@ export class Game {
           const kills = state.killCounters.bandit ?? 0;
           if (st1 !== 'active' && st1 !== 'completed') {
             state.startQuest('sq_cazarrecompensas');
-            useGameStore.getState().notify('quest', '¡NUEVA CAZA!', 'La Caza del Cuervo: 6 caballeros rojos. 150 monedas de oro al terminar.');
+            useGameStore.getState().notify('quest', 'NEW HUNT!', 'The Crow Hunt: 6 red knights. 150 gold coins on completion.');
             this.audio.playEvent('quest');
           } else if (st1 === 'active' && kills >= 6) {
             state.setFlag('interacted_bounty_board');
-            useGameStore.getState().notify('item', 'Recompensa cobrada', '150 monedas de oro y el respeto de la Orden.');
+            useGameStore.getState().notify('item', 'Bounty collected', '150 gold coins and the Order\'s respect.');
           } else if (st2 === 'active' && kills >= 10) {
             // auto-completed by the kill objective; acknowledge the payoff
-            useGameStore.getState().notify('item', 'El Camino Real respira', '90 monedas más. Los carros vuelven a subir al castillo.');
+            useGameStore.getState().notify('item', 'The King\'s Road breathes', '90 more coins. The carts climb to the castle again.');
           } else {
             useGameStore.getState().notify(
               'info',
-              'Cartel de recompensas',
+              'Bounty board',
               st1 === 'active'
-                ? `Caballeros rojos abatidos: ${kills}/6. Sus campamentos vigilan el Camino Real, Vaelthara, las Vigilias y la costa oeste.`
+                ? `Red knights felled: ${kills}/6. Their camps watch the King\'s Road, Vaelthara, the Vigils and the west coast.`
                 : `Caza en curso: ${kills}/10 abatidos.`,
             );
           }
@@ -783,7 +845,7 @@ export class Game {
         id: herb.id,
         pos: herb.pos,
         radius: 1.8,
-        prompt: 'Recoger pétalo de marfil',
+        prompt: 'Pick up the ivory petal',
         available: () => !state.pickedHerbs.has(herb.id),
         run: () => {
           state.pickedHerbs.add(herb.id);
@@ -794,8 +856,8 @@ export class Game {
           state.giveXp(8);
           store.getState().notify(
             'item',
-            mult > 1 ? 'Pétalos de marfil ×2' : 'Pétalo de marfil recogido',
-            'Crece donde el agua canta. Maren los necesita.',
+            mult > 1 ? 'Ivory petals ×2' : 'Ivory petal picked',
+            'It grows where the water sings. Maren needs them.',
           );
         },
       });
@@ -806,7 +868,7 @@ export class Game {
       id: 'crate_rosa',
       pos: new THREE.Vector3(wreck.x + 4.5, terrainH(wreck.x + 4.5, wreck.z + 3.5), wreck.z + 3.5),
       radius: 2.2,
-      prompt: 'Examinar el cargamento',
+      prompt: 'Inspect the cargo',
       available: () => !state.hasFlag('rosa_crate_found'),
       run: () => {
         state.setFlag('rosa_crate_found');
@@ -814,7 +876,7 @@ export class Game {
         state.interactMilestone('crate_rosa');
         audio.playEvent('pickup');
         state.giveXp(10);
-        store.getState().notify('item', 'Cargamento de Rosa', 'La caja lleva el sello del Ancla Rota. Rosa pagará bien por esto.');
+        store.getState().notify('item', "Rosa's cargo", 'The crate bears the Broken Anchor\'s seal. Rosa will pay well for this.');
       },
     });
 
@@ -829,14 +891,14 @@ export class Game {
         id,
         pos: new THREE.Vector3(x, terrainH(x, z), z),
         radius: 2.2,
-        prompt: 'Recoger madera de roble (×2)',
+        prompt: 'Pick up oak planks (×2)',
         available: () => !state.hasFlag(`oak_${id}`),
         run: () => {
           state.setFlag(`oak_${id}`);
           state.addItem('madera', 2);
           audio.playEvent('pickup');
           state.giveXp(6);
-          store.getState().notify('item', 'Madera de roble ×2', 'Roble curado con el sello de Bram. Perfecto para el casco del Colibrí.');
+          store.getState().notify('item', 'Oak planks ×2', 'Oak cured under Bram\'s seal. Perfect for the Sea Hummingbird\'s hull.');
         },
       });
     }
@@ -850,8 +912,8 @@ export class Game {
         if (state.hasFlag('ship_repaired')) return '';
         const ready = state.hasItem('madera', 4) && state.hasItem('lona', 3) && state.hasItem('cuerda', 2);
         return ready
-          ? 'Entregar los materiales para la reparación'
-          : 'Examinar el Colibrí de Mar';
+          ? 'Deliver the repair materials'
+          : 'Inspect the Sea Hummingbird';
       },
       available: () => !state.hasFlag('ship_repaired'),
       run: () => {
@@ -861,9 +923,9 @@ export class Game {
           if (!state.hasItem('madera', 4)) missing.push(`madera (${Math.min(4, state.countItem('madera'))}/4)`);
           if (!state.hasItem('lona', 3)) missing.push(`lona (${Math.min(3, state.countItem('lona'))}/3)`);
           if (!state.hasItem('cuerda', 2)) missing.push(`cuerda (${Math.min(2, state.countItem('cuerda'))}/2)`);
-          this.dialogue.startLore('El Colibrí de Mar', [
-            'El casco aguarda entre andamios. Bram revisa la lista garabateada en carbón sobre la cubierta.',
-            `«Todavía falta: ${missing.join(', ')}. El roble está en cajas con mi sello — muelle, costa del naufragio y sendero de la cascada. La lona la prepara Rosa y la cuerda la tiene Tom.»`,
+          this.dialogue.startLore('The Sea Hummingbird', [
+            'The hull waits among the scaffolds. Bram checks the list scribbled in charcoal on the deck.',
+            `"Still missing: ${missing.join(', ')}. The oak sits in crates under my seal — the dock, the wreck coast and the waterfall path. Rosa readies the canvas and Tom holds the rope."`,
           ]);
           return;
         }
@@ -894,10 +956,10 @@ export class Game {
         },
       });
     };
-    addLore('tablet_ruins', -243, -135, 'Leer la tablilla antigua');
-    addLore('stones_center', -140, -260, 'Tocar el altar de piedra');
-    addLore('tower_door', 300, 64.2, 'Examinar la puerta tapiada');
-    addLore('ship_colibri', w.village.shipDeck.x, w.village.shipDeck.z, 'Contemplar el Colibrí de Mar');
+    addLore('tablet_ruins', -243, -135, 'Read the ancient tablet');
+    addLore('stones_center', -140, -260, 'Touch the stone altar');
+    addLore('tower_door', 300, 64.2, 'Inspect the walled-up door');
+    addLore('ship_colibri', w.village.shipDeck.x, w.village.shipDeck.z, 'Gaze at the Sea Hummingbird');
 
     // ===================== FASE 4 interactables =====================
     const f4 = w.fase4;
@@ -909,7 +971,7 @@ export class Game {
       radius: 4.6,
       get prompt(): string {
         if (state.hasItem('corona_thalassar')) return '';
-        return 'Sumergir la mano en la cuenca del altar';
+        return 'Plunge your hand into the altar hollow';
       },
       available: () => !state.hasItem('corona_thalassar') && !state.hasFlag('corona_taken'),
       run: () => {
@@ -921,8 +983,8 @@ export class Game {
         audio.playEvent('chest');
         this.vfx?.waterSplash(f4.altarThalassarPos.clone(), 1.2);
         this.musicIntensityTarget = 0.7;
-        store.getState().notify('item', 'La Corona de Thalassar', 'Los reyes hundidos sueltan su corona. El agua la entrega… como si llevara cien años esperándote.');
-        store.getState().notify('info', 'Un lugar en la mesa', 'La Orden custodiaba tres reliquias. Con el Sello y el Corazón ya en tu poder, Halvard espera en el establo del camino norte.');
+        store.getState().notify('item', 'The Crown of Thalassar', 'The sunken kings let go of their crown. The water hands it over… as if it had been waiting a hundred years for you.');
+        store.getState().notify('info', 'A seat at the table', 'The Order kept three relics. With the Seal and the Heart already yours, Halvard waits at the stable on the north road.');
       },
     });
 
@@ -933,7 +995,7 @@ export class Game {
       radius: 9,
       get prompt(): string {
         if (state.hasFlag('flagship_looted')) return '';
-        return 'Registrar el camarote del buque insignia';
+        return 'Search the flagship cabin';
       },
       available: () => !state.hasFlag('flagship_looted'),
       run: () => {
@@ -943,14 +1005,14 @@ export class Game {
         state.interactMilestone('wreck_flagship');
         state.giveXp(80);
         audio.playEvent('chest');
-        store.getState().notify('item', 'La carta del Cuervo', 'Carta de Navegación del Cuervo y el Estandarte robado de la Orden, arrancados al buque insignia. La cala sin nombre aparece al pie de la fortaleza.');
+        store.getState().notify('item', "The Crow's chart", 'The Crow\'s Navigation Chart and the stolen Banner of the Order, torn from the flagship. The nameless cove lies at the foot of the fortress.');
       },
     });
 
     // --- Bram's forge: the Guardian blade + Fase 10 sword upgrades ---
     const forgePos = new THREE.Vector3(28, terrainH(28, 193), 193);
     const SWORD_UPGRADE_COST = [
-      { gold: 120, scales: 0, label: 'Templar tu espada (120 oro)' },
+      { gold: 120, scales: 0, label: 'Temper your sword (120 gold)' },
       { gold: 260, scales: 2, label: 'Grabar runas (260 oro + 2 escamas)' },
     ];
     w.interactables.push({
@@ -960,7 +1022,7 @@ export class Game {
       get prompt(): string {
         if (!state.hasItem('espada_guardian')) {
           const ready = state.hasItem('colmillo_ancestro', 1) && state.hasItem('escama', 3);
-          if (ready) return 'Forjar la Espada del Guardián';
+          if (ready) return 'Forge the Warden\'s Sword';
         }
         // Fase 10 — progressive upgrades for the sword you carry
         if (state.swordTier < SWORD_UPGRADE_COST.length) {
@@ -970,10 +1032,10 @@ export class Game {
             return cost.label;
           }
           if (hasSword) {
-            return `Forja de Bram — mejora tu espada (${cost.gold} oro${cost.scales ? ` + ${cost.scales} escamas` : ''})`;
+            return `Bram\'s forge — upgrade your sword (${cost.gold} gold${cost.scales ? ` + ${cost.scales} scales` : ''})`;
           }
         }
-        return 'La forja de Bram';
+        return 'Bram\'s forge';
       },
       available: () => true,
       run: () => {
@@ -988,7 +1050,7 @@ export class Game {
             state.giveXp(100);
             audio.playEvent('unlock');
             this.musicIntensityTarget = 0.85;
-            store.getState().notify('item', '¡La Espada del Guardián!', 'Forjada con el Colmillo del Ancestro. Equípala desde el inventario (Tab): daño terrible, juramento incluido.');
+            store.getState().notify('item', "The Warden's Sword!", 'Forged from the Ancestor\'s Fang. Equip it from the inventory (TAB): terrible damage, oath included.');
             return;
           }
         }
@@ -1009,18 +1071,18 @@ export class Game {
             const tierName = SWORD_TIER_NAMES[state.swordTier] ?? '';
             store.getState().notify(
               'item',
-              `Tu espada mejora:${tierName}`,
+              `Your sword improves:${tierName}`,
               state.swordTier === 1
-                ? 'Bram templa el acero al rojo: +30% de daño y un filo que canta.'
-                : 'Runas de marea grabadas a fuego: +70% de daño y un brillo azul en la hoja.',
+                ? 'Bram tempers the red-hot steel: +30% damage and an edge that sings.'
+                : 'Tide runes fire-etched into the blade: +70% damage and a blue gleam on the steel.',
             );
             this.autosave();
             return;
           }
         }
-        this.dialogue.startLore('La forja canta', [
-          'Bram limpia sus manos en el mandil: «El acero de esta vieja fragua ha visto caer reyes. Tráeme oro — y escamas, si quieres runas — y templaré esa espada tuya hasta que cante».',
-          'El fuego de la fragua late como un corazón impaciente.',
+        this.dialogue.startLore('The forge sings', [
+          'Bram wipes his hands on the apron: "The steel of this old forge has watched kings fall. Bring me gold — and scales, if you want runes — and I will temper that sword of yours until it sings."',
+          'The forge fire pulses like an impatient heart.',
         ]);
       },
     });
@@ -1032,14 +1094,14 @@ export class Game {
       radius: 4.2,
       get prompt(): string {
         if (state.hasFlag('kraivenn_awake')) return '';
-        return 'Depositar las reliquias y despertar al Cuervo';
+        return 'Lay down the relics and wake the Crow';
       },
       available: () => state.hasFlag('kraivenn_seen') && !state.hasFlag('kraivenn_awake'),
       run: () => {
-        this.dialogue.startLore('El altar negro bebe la luz', [
-          'Colocas el Sello, la Corona y el Corazón en las tres cuencas. La piedra está más fría que el mar.',
-          'El silencio de la cala se vuelve absoluto — ni el agua golpea, ni el viento respira.',
-          'Y entonces, del fondo del basalto, algo enorme abre un ojo rojo.',
+        this.dialogue.startLore('The black altar drinks the light', [
+          'You set the Seal, the Crown and the Heart in the three hollows. The stone is colder than the sea.',
+          'The silence of the cove becomes absolute — the water does not lap, the wind does not breathe.',
+          'And then, from the depth of the basalt, something enormous opens a red eye.',
         ]);
         // The awakening happens when the lore dialogue closes
         const waitAwake = setInterval(() => {
@@ -1062,24 +1124,24 @@ export class Game {
       get prompt(): string {
         if (state.hasFlag('ending_done')) return '';
         const ready = state.hasItem('corona_thalassar') && state.hasItem('corazon_cuervo') && state.hasItem('sello');
-        return ready ? 'Presentar las tres reliquias ante el altar' : 'Altar del pacto (requiere Sello, Corona y Corazón)';
+        return ready ? 'Present the three relics to the altar' : 'Altar of the pact (requires Seal, Crown and Heart)';
       },
       available: () => !state.hasFlag('ending_done'),
       run: () => {
         const ready = state.hasItem('corona_thalassar') && state.hasItem('corazon_cuervo') && state.hasItem('sello');
         if (!ready) {
-          this.dialogue.startLore('El altar duerme', [
-            'Tres cuencas aguardan: el Sello de la Orden, la Corona de los reyes hundidos y el Corazón del Cuervo.',
-            'Solo un Guardián con las tres reliquias puede convocar al Consejo de las Mareas.',
+          this.dialogue.startLore('The altar sleeps', [
+            'Three hollows wait: the Seal of the Order, the Crown of the sunken kings and the Heart of the Crow.',
+            'Only a Warden carrying the three relics can summon the Council of the Tides.',
           ]);
           return;
         }
         state.interactMilestone('altar_marea');
         state.giveXp(80);
-        this.dialogue.startLore('El Consejo de las Mareas', [
-          'El lecho de monedas se abre. Una luz de marea recorre las costillas de ballena como un latido antiguo.',
-          'Las tres reliquias resuenan entre sí — Sello, Corona y Corazón — y el altar reconoce a su Guardián.',
-          'Toca el altar de nuevo para tomar tu decisión.',
+        this.dialogue.startLore('The Council of the Tides', [
+          'The bed of coins parts. A tide-light runs along the whale ribs like an ancient heartbeat.',
+          'The three relics resonate with one another — Seal, Crown and Heart — and the altar knows its Warden.',
+          'Touch the altar again to make your choice.',
         ]);
         state.setFlag('altar_ready');
       },
@@ -1092,7 +1154,7 @@ export class Game {
       radius: 4.4,
       get prompt(): string {
         if (state.hasFlag('ending_done')) return '';
-        return state.hasFlag('altar_ready') ? 'Decidir el destino de las Mareas' : '';
+        return state.hasFlag('altar_ready') ? 'Decide the fate of the Tides' : '';
       },
       available: () => state.hasFlag('altar_ready') && !state.hasFlag('ending_done'),
       run: () => {
@@ -1108,13 +1170,13 @@ export class Game {
       radius: 3.4,
       get prompt(): string {
         if (state.hasFlag('treasure_dug')) return '';
-        return state.hasItem('mapa_tesoro') ? 'Excavar donde marca la X' : 'Un extraño cruce de tablones en la arena';
+        return state.hasItem('mapa_tesoro') ? 'Dig where the X marks' : 'A strange crossing of planks in the sand';
       },
       available: () => !state.hasFlag('treasure_dug'),
       run: () => {
         if (!state.hasItem('mapa_tesoro')) {
-          this.dialogue.startLore('Marcas en la piedra', [
-            'Dos tablones cruzados clavados en la roca. Algo está enterrado aquí… pero necesitarías un mapa para saber qué — y valor para cavarlo.',
+          this.dialogue.startLore('Marks on the stone', [
+            'Two planks nailed crosswise into the rock. Something is buried here… but you would need a map to know what — and the nerve to dig it.',
           ]);
           return;
         }
@@ -1127,7 +1189,7 @@ export class Game {
         state.giveXp(120);
         audio.playEvent('chest');
         this.vfx?.landingDust(f4.digPos.clone(), 10, 0.8);
-        store.getState().notify('item', '¡El cofre de Eirik!', '200 monedas, dos monedas de Thalassar y flechas del buen sauz. «Que lo encuentre mi sangre», decía el mapa. Lo encontró.');
+        store.getState().notify('item', "Eirik's cache!", '200 coins, two Thalassar coins and good willow-wood arrows. "May my own blood find it," the map said. It did.');
       },
     });
 
@@ -1138,7 +1200,7 @@ export class Game {
         pos: spot.clone(),
         radius: 2.6,
         get prompt(): string {
-          return state.hasFlag(`fish_${i}_taken`) ? '' : 'Recoger la pesca varada (×2)';
+          return state.hasFlag(`fish_${i}_taken`) ? '' : 'Pick up the beached catch (×2)';
         },
         available: () => !state.hasFlag(`fish_${i}_taken`),
         run: () => {
@@ -1146,7 +1208,7 @@ export class Game {
           state.addItem('pez', 2);
           audio.playEvent('pickup');
           state.giveXp(6);
-          store.getState().notify('item', 'Pesca varada ×2', 'Tom las necesita para las raciones del pueblo.');
+          store.getState().notify('item', 'Beached catch ×2', 'Tom needs them for the town\'s rations.');
         },
       });
     }
@@ -1157,7 +1219,7 @@ export class Game {
       pos: f4.granArcePos.clone().add(new THREE.Vector3(2.5, 0, 2)),
       radius: 3.2,
       get prompt(): string {
-        return state.hasItem('semilla_arce') || state.hasFlag('semilla_taken') ? '' : 'Recoger una semilla del Gran Arce';
+        return state.hasItem('semilla_arce') || state.hasFlag('semilla_taken') ? '' : 'Pick up a seed of the Great Maple';
       },
       available: () => !state.hasFlag('semilla_taken'),
       run: () => {
@@ -1165,7 +1227,7 @@ export class Game {
         state.addItem('semilla_arce', 1);
         audio.playEvent('pickup');
         state.giveXp(15);
-        store.getState().notify('item', 'Semilla del Gran Arce', 'Una sámara dorada, cálida como un recién nacido. Maren sabe dónde plantarla.');
+        store.getState().notify('item', 'Seed of the Great Maple', 'A golden samara, warm as a newborn. Maren knows where to plant it.');
       },
     });
 
@@ -1177,7 +1239,7 @@ export class Game {
         radius: 6,
         get prompt(): string {
           const flag = wild.id === 'potro_norte' ? 'wildhorse_1_done' : 'wildhorse_2_done';
-          return state.hasFlag(flag) ? '' : `Marcar la posición del ${wild.id === 'potro_norte' ? 'potro alazán' : 'potro gris'}`;
+          return state.hasFlag(flag) ? '' : `Mark the position of the ${wild.id === 'potro_norte' ? 'chestnut colt' : 'grey colt'}`;
         },
         available: () => true,
         run: () => {
@@ -1186,7 +1248,7 @@ export class Game {
           state.interactMilestone(isNorth ? 'wildhorse_1' : 'wildhorse_2');
           state.giveXp(20);
           audio.playEvent('pickup');
-          store.getState().notify('info', 'Potro marcado', 'Halvard podrá venir a por él con la soga y la paciencia.');
+          store.getState().notify('info', 'Colt marked', 'Halvard can come for him with rope and patience.');
         },
       });
     }
@@ -1199,14 +1261,14 @@ export class Game {
       radius: 6.5,
       get prompt(): string {
         if (state.hasFlag('cascada_escuchada')) return '';
-        return 'Escuchar la cascada al caer el sol';
+        return 'Listen to the waterfall as the sun sets';
       },
       available: () => !state.hasFlag('cascada_escuchada'),
       run: () => {
         const night = w.sky.dayFactor < 0.35 || w.sky.nightFactor > 0.4;
         if (!night) {
-          this.dialogue.startLore('El agua canta… de día', [
-            'La cascada rumorea con voz de todos los días. Sigrid insists: hay que escucharla al caer el último sol.',
+          this.dialogue.startLore('The water sings… by day', [
+            'The waterfall murmurs in its everyday voice. Sigrid insists: it must be heard as the last sun falls.',
           ]);
           return;
         }
@@ -1214,10 +1276,10 @@ export class Game {
         state.interactMilestone('cascada_noche');
         state.giveXp(30);
         this.musicIntensityTarget = 0.5;
-        this.dialogue.startLore('La canción de la cascada', [
-          'Te sientas al borde del estanque cuando el último sol se apaga.',
-          'El agua cambia. No es rumor: es armonía. Voces graves, viejas, que suben y bajan con la corriente como si recordaran nombres.',
-          'Los que duermen abajo saben canciones nuevas. Ahora lo sabes tú también.',
+        this.dialogue.startLore('The song of the waterfall', [
+          'You sit at the pond\'s edge as the last light dies.',
+          'The water changes. It is not a murmur: it is harmony. Deep, old voices rising and falling with the current as if remembering names.',
+          'Those who sleep below know new songs. Now you know it too.',
         ]);
       },
     });
@@ -1229,16 +1291,16 @@ export class Game {
       radius: 3.6,
       get prompt(): string {
         if (state.hasFlag('tower_stash_found')) return '';
-        return 'Registrar la puerta tapiada';
+        return 'Search the walled-up door';
       },
       available: () => !state.hasFlag('tower_stash_found'),
       run: () => {
         const night = w.sky.nightFactor > 0.35;
         const lantern = this.player!.lanternOn;
         if (!night || !lantern) {
-          this.dialogue.startLore('La puerta tapiada', [
-            'Juntas podridas, telarañas y una placa oxidada. Jorund hablaba de un escondite «que solo la noche y el fuego encuentran».',
-            night ? 'Quizá con el farol encendido (F)…' : 'Quizá de noche, con luz propia…',
+          this.dialogue.startLore('The walled-up door', [
+            'Rotten joints, cobwebs and an oxidised plate. Jorund spoke of a stash "that only night and fire find".',
+            night ? 'Perhaps with the lantern lit (L)…' : 'Perhaps at night, with a light of your own…',
           ]);
           return;
         }
@@ -1248,7 +1310,7 @@ export class Game {
         state.addItem('flecha', 8);
         state.giveXp(50);
         audio.playEvent('chest');
-        store.getState().notify('item', 'El escondite del vigía', 'La luz del farol revela una piedra movida: oro contado, flechas secas y un diario casi ilegible.');
+        store.getState().notify('item', "The watchman's stash", 'The lantern light reveals a shifted stone: counted gold, dry arrows and a diary barely legible.');
       },
     });
 
@@ -1259,7 +1321,7 @@ export class Game {
       radius: 6,
       get prompt(): string {
         if (state.hasFlag('lamento_done')) return '';
-        return state.hasFlag('vaelthara_dead') ? 'Escuchar el silencio de las ruinas' : '';
+        return state.hasFlag('vaelthara_dead') ? 'Listen to the silence of the ruins' : '';
       },
       available: () => state.hasFlag('vaelthara_dead') && !state.hasFlag('lamento_done'),
       run: () => {
@@ -1267,10 +1329,10 @@ export class Game {
         state.interactMilestone('ruins_silence');
         state.giveXp(40);
         this.musicIntensityTarget = 0.3;
-        this.dialogue.startLore('El duelo de las columnas', [
-          'Entre las columnas no hay amenaza: hay duelo. La guardiana ya no ruge, y las piedras parecen notarlo.',
-          'Un guardián sin dragón y un dragón sin guardián, ambos sin casa.',
-          'Aldric entenderá lo que oíste — o lo que no oíste.',
+        this.dialogue.startLore('The duel of the columns', [
+          'Among the columns there is no threat: there is a duel. The guardian no longer roars, and the stones seem to notice.',
+          'A warden without a dragon and a dragon without a warden, both without a home.',
+          'Aldric will understand what you heard — or what you did not.',
         ]);
       },
     });
@@ -1280,18 +1342,38 @@ export class Game {
       id: 'knight_statue',
       pos: f4.knightPos.clone(),
       radius: 4,
-      prompt: 'Contemplar al caballero de piedra',
+      prompt: 'Gaze at the stone knight',
       run: () => {
         if (!state.hasFlag('knight_seen')) {
           state.setFlag('knight_seen');
           state.giveXp(35);
           state.interactMilestone('knight_statue');
         }
-        this.dialogue.startLore('El Caballero del Norte', [
-          'Un Guardián de la Orden tallado en piedra, la espada baja y la mirada al mar. Trescientos años de vigilancia ni siquiera han arañado su gesto.',
-          'En el pedestal, medio borrada, una inscripción: «Velarán por nosotros cuando nosotros ya no podamos».',
-          'Algo te dice que la estatua no está mirando al mar. Está mirando lo que duerme detrás de él.',
+        this.dialogue.startLore('The Knight of the North', [
+          'A Warden of the Order carved in stone, sword lowered and eyes on the sea. Three hundred years of vigil have not even scratched his expression.',
+          'On the pedestal, half effaced, an inscription: "They will watch over us when we no longer can."',
+          'Something tells you the statue is not looking at the sea. It is looking at what sleeps behind it.',
         ]);
+      },
+    });
+
+    // --- Fase 15 — THE HORN ALTAR of the Navel of the Sea (King of the Sea) ---
+    const beasts = this.seaBeasts;
+    w.interactables.push({
+      id: 'horn_altar',
+      pos: w.navel.altarPos.clone(),
+      radius: 5.5,
+      get prompt() {
+        if (!beasts) return '';
+        const pre = beasts.summonPrereq();
+        if (pre.ok) return 'Sound the Tide Horn';
+        if (pre.reason === 'fight') return 'The King already walks the sea';
+        if (pre.reason === 'horn') return 'The altar awaits a horn…';
+        return 'The altar does not heed you (level 6)';
+      },
+      run: () => {
+        if (!beasts?.summonKing()) return;
+        audio.playEvent('roar_big');
       },
     });
   }
@@ -1318,11 +1400,11 @@ export class Game {
       this.state.setFlag('tut_sailing');
       useGameStore.getState().notify(
         'info',
-        `Al timón del ${target.name}`,
-        'W/S velas · A/D timón · Espacio fondear · Clic izq./der. bordadas · E desembarcar o abordar',
+        `At the helm of ${target.name}`,
+        'W/S sails · A/D rudder · SPACE anchor · LMB/RMB broadsides · E disembark or board',
       );
     } else {
-      useGameStore.getState().notify('info', `Al timón del ${target.name}`, 'W/S velas · A/D timón · Espacio fondear · E bordadas.');
+      useGameStore.getState().notify('info', `At the helm of ${target.name}`, 'W/S sails · A/D rudder · SPACE anchor · E broadsides.');
     }
   }
 
@@ -1348,8 +1430,8 @@ export class Game {
     this.musicIntensityTarget = 0.8;
     useGameStore.getState().notify(
       'quest',
-      '¡El Colibrí de Mar flota de nuevo!',
-      'La carena está lista. Acércate al costado del barco, junto al muelle, para zarpar. Las habilidades de navegación (K) se han desbloqueado.',
+      'The Sea Hummingbird floats again!',
+      'The hull is ready. Walk to the ship\'s side by the dock to set sail. Navigation skills (K) have been unlocked.',
     );
     this.autosave();
   }
@@ -1363,6 +1445,8 @@ export class Game {
     w.sky.dayFraction = 0.295;
     w.sky.dayCount = 1;
     this.dead = false;
+    // Fase 15 — never start a new game riding a dragon
+    if (this.dragons?.ridingId) this.dragons.dismountDragon();
     // Fresh naval layer: the Colibrí is still under repair on land
     this.naval?.resetAll();
     w.village.setStaticShip(true);
@@ -1412,9 +1496,9 @@ export class Game {
     this.state.startQuest('q1_legacy');
     this.audio.playEvent('quest');
     this.musicIntensityTarget = 0.35;
-    store.notify('quest', 'Nueva misión: El Legado de Eirik', 'Habla con el Maestre Aldric en el puerto.');
-    store.notify('info', 'Controles', 'WASD moverse · Mayús correr · Espacio saltar · E interactuar · Tab inventario · M mapa · J diario');
-    store.notify('info', 'Combate', 'Clic atacar (mantén = pesado) · Clic der. bloquear · C esquivar · 1-4 cambiar de arma');
+    store.notify('quest', 'New quest: The Legacy of Eirik', 'Talk to Master Aldric at the port.');
+    store.notify('info', 'Controls', 'WASD move · SHIFT sprint · SPACE jump · E interact · TAB inventory · M map · J journal');
+    store.notify('info', 'Combat', 'Click: 4-hit combos · hold: air launch · Q parry/block · C dodge · F hook dash · E rope dart · V finisher · 1-4 weapons');
     this.autosave();
     this.input.requestLock();
   }
@@ -1460,6 +1544,8 @@ export class Game {
       gameState: this.state.serialize(),
       naval: this.naval?.serialize(),
       mounts: this.mounts?.serialize(),
+      // Fase 16 — the hero's own (admin) dragons survive the reload too
+      dragons: this.dragons?.serializeAdmins(),
       weather: this.world!.weather.serialize(),
     };
   }
@@ -1475,7 +1561,7 @@ export class Game {
     const ok = SaveSystem.save(slot, this.buildSaveData());
     if (ok) {
       useGameStore.getState().setHasSave(true);
-      useGameStore.getState().notify('save', 'Partida guardada', `Ranura ${slot + 1} · Día ${this.world!.sky.dayCount}`);
+      useGameStore.getState().notify('save', 'Game saved', `Slot ${slot + 1} · Day ${this.world!.sky.dayCount}`);
       this.audio.playEvent('unlock');
     }
     return ok;
@@ -1524,6 +1610,9 @@ export class Game {
       this.mounts?.restoreRiding(data.mounts.riding);
       if (this.mounts?.ridingId) this.rig!.setMountMode(true);
     }
+    // Fase 16 — the player's admin dragons (and their exact spot) back in
+    // the world. Riding is not auto-restored: you load standing beside them.
+    this.dragons?.restoreAdmins(data.dragons);
     this.world.weather.deserialize(data.weather);
     this.endingPlayed = this.state.hasFlag('ending_done');
 
@@ -1539,7 +1628,7 @@ export class Game {
     const store = useGameStore.getState();
     store.setPhase('playing');
     this.input.requestLock();
-    store.notify('save', 'Partida cargada', `Día ${data.time.dayCount} · Nivel ${data.gameState.level}`);
+    store.notify('save', 'Game loaded', `Day ${data.time.dayCount} · Level ${data.gameState.level}`);
     return true;
   }
 
@@ -1572,6 +1661,15 @@ export class Game {
     if (s.learnedSkills.has('comb_vigor')) maxSt += 20;
     if (s.learnedSkills.has('comb_vigor2')) maxSt += 20;
     if (s.learnedSkills.has('sup_zancada')) speedMult = 1.08;
+    // Fase 16 — the smith's armor: flat health + damage reduction;
+    // the wings: glide physics (visual toggled alongside).
+    const armorDef = s.equippedArmor ? ITEMS[s.equippedArmor]?.armor : undefined;
+    if (armorDef) maxHp += armorDef.hp;
+    p.stats.damageReduction = armorDef ? armorDef.reduce : 0;
+    const wingsDef = s.equippedWings ? ITEMS[s.equippedWings]?.glide : undefined;
+    p.stats.glideSink = wingsDef ? wingsDef.sink : undefined;
+    p.stats.glideSpeed = wingsDef ? wingsDef.speed : undefined;
+    p.setWingsVisual(s.equippedWings);
     p.stats.maxHealth = maxHp;
     p.stats.maxStamina = maxSt;
     p.stats.walkSpeed = 3.6 * speedMult;
@@ -1745,6 +1843,9 @@ export class Game {
     const dialogueActive = !!store.dialogue;
     const sailing = naval.playerSailing && !!naval.activeShip;
     const riding = !!this.mounts?.ridingId;
+    // Fase 15 — dragon riding (admin spawns): the hero holds the reins
+    const dragonRiding = !!this.dragons?.ridingId;
+    const riddenDragon = this.dragons?.riddenDragon ?? null;
 
     // Fase 10 — conversations get the cinematic lens (tighter FOV + closer)
     rig.setDialogueFocus(dialogueActive && !sailing);
@@ -1787,6 +1888,23 @@ export class Game {
     // --- Naval layer: wind, fleets, cannonballs, boarding, effects ---
     const sailingHud: SailingHud | null = naval.update(dt, p.position);
 
+    // --- Fase 15: sea serpents + pirate ambushes (only while really at sea) ---
+    if (this.seaBeasts) {
+      // While the Black Siren hunts, common serpents stay in the deep
+      this.seaBeasts.blockCommonSpawns = this.pirateAmbush?.ambushActive ?? false;
+      this.seaBeasts.update(dt, sailing && !naval.boardingActive, naval.activeShip ?? naval.playerShip);
+      // The nearest surfaced serpent rides the sailing HUD's enemy slot
+      if (sailingHud && !sailingHud.enemy) {
+        const beast = this.seaBeasts.hudBeast(naval.activeShip ?? naval.playerShip);
+        if (beast) {
+          sailingHud.enemy = { name: beast.name, hullFrac: beast.hpFrac, dist: beast.dist };
+        }
+      }
+    }
+    if (this.pirateAmbush && !cine) {
+      this.pirateAmbush.update(dt, sailing && !naval.boardingActive, naval.activeShip ?? naval.playerShip);
+    }
+
     // --- Fase 3: dragons + combat VFX (both on foot and at sea) ---
     this.dragons?.update(
       dt, p.position, !this.dead, sailing,
@@ -1808,6 +1926,10 @@ export class Game {
     // --- Death / respawn ---
     if (p.health <= 0 && !this.dead) {
       this.dead = true;
+      // Fase 15 — the pirates spare you: if the ambush corsairs dealt the
+      // killing blow, the toll negotiation deploys ON TOP of the respawn
+      // (the panel's footer tells the story: you wake on the dock).
+      this.pirateAmbush?.notifyPlayerDeath();
       // Dragons lose interest and return to their lairs at full strength
       this.dragons?.resetCombat();
       this.audio.bossIntensity = 0;
@@ -1820,7 +1942,7 @@ export class Game {
       p.teleport(sp.x, 1.5, sp.z);
       p.health = Math.floor(p.stats.maxHealth * 0.5);
       p.stamina = Math.floor(p.stats.maxStamina * 0.5);
-      store.notify('info', 'Las olas te devuelven a la orilla', 'Despiertas en el muelle, empapado pero vivo. La marea no ha terminado contigo.');
+      store.notify('info', 'The waves carry you back to shore', 'You wake on the dock, soaked but alive. The tide is not done with you.');
       this.audio.playEvent('splash');
       // Fase 10 FIX — death used to SOFT-LOCK the run (the `dead` flag never
       // cleared, so the hero could never act again). The tide gives you back:
@@ -1829,10 +1951,23 @@ export class Game {
       this.dead = false;
     }
 
+    // --- Fase 15 — pirate toll: when the player's hull starts sinking under
+    //     the ambush broadsides, the negotiation buys a tow back to port ---
+    if (this.pirateAmbush?.ambushActive) {
+      const hull = naval.activeShip ?? naval.playerShip;
+      if (hull && hull.sinking > 0 && !hull.sunk) {
+        if (this.pirateAmbush.notifyShipSinking()) {
+          // Bram tows the hull: the sinking stops, the planks hold
+          hull.sinking = 0;
+          hull.hullHp = Math.max(hull.hullHp, Math.round(hull.maxHullHp * 0.45));
+        }
+      }
+    }
+
     // --- Clock ---
     const newDay = w.sky.tick(dt);
     if (newDay) {
-      store.notify('info', `Día ${w.sky.dayCount} en Aldmor`, formatClock(w.sky.dayFraction));
+      store.notify('info', `Day ${w.sky.dayCount} in Aldmor`, formatClock(w.sky.dayFraction));
     }
 
     // --- Fase 8 — dusk swaps the shield for a lit torch (dawn brings it back) ---
@@ -1841,7 +1976,7 @@ export class Game {
       this.nightTorchActive = isNight;
       this.player.model.setNightTorch?.(isNight);
       if (isNight) {
-        store.notify('info', 'Cae la noche', 'Enciendes una antorcha para iluminar el camino.');
+        store.notify('info', 'Night falls', 'You light a torch to light the way.');
       }
     }
 
@@ -1880,7 +2015,7 @@ export class Game {
         if (Math.hypot(ship.pos.x + 620, ship.pos.z + 520) < 300) {
           this.state.setFlag('reached_crow');
           this.musicIntensityTarget = 0.7;
-          store.notify('quest', 'Aguas del Cuervo Viejo', 'Acantilados negros al noroeste. La Gaviota Sangrienta patrulla esta cala.');
+          store.notify('quest', 'Old Crow Isle waters', 'Black cliffs to the northwest. The Bloody Gull patrols this cove.');
         }
       }
     } else {
@@ -1888,7 +2023,24 @@ export class Game {
       // Camera input & combat (Fase 3) before physics so anims stay in sync
       if (!cine) rig.handleInput(this.input, dt);
 
-      if (riding) {
+      if (dragonRiding && riddenDragon) {
+        // --- Fase 15: DRAGON RIDING — the hero flies the beast ---
+        this.dragons!.rideUpdate(dt, this.input, this.input.leftDown, w.terrainHeight);
+        // Horses keep grazing while the hero is away
+        this.mounts?.update(dt, this.input, p.position, false, (x, z) => w.water.waveHeightAt(x, z));
+        this.ridingGait = '';
+        // Glue the rider to the saddle between the shoulder blades
+        const seat = riddenDragon.rideSeatWorld(new THREE.Vector3());
+        p.teleport(seat.x, seat.y - 1.02, seat.z);
+        p.yaw = riddenDragon.yaw;
+        p.velocity.set(0, 0, 0);
+        p.stamina = Math.min(p.stats.maxStamina, p.stamina + dt * 10);
+        p.model.update({
+          dt, speed: 0, moving: false, grounded: true, swimming: false,
+          attackT: 0, riding: true,
+          rideBounce: (performance.now() / 1000) * (riddenDragon.flying ? 3.4 : 0.8) * 0.12,
+        });
+      } else if (riding) {
         // --- Fase 4: MOUNTED — the horse carries the player ---
         const mountHud = this.mounts!.update(
           dt, this.input, p.position, !dialogueActive && !this.dead && !cine,
@@ -1923,7 +2075,7 @@ export class Game {
         this.mounts?.update(dt, this.input, p.position, false, (x, z) => w.water.waveHeightAt(x, z));
         this.ridingGait = '';
         this.combat!.setCameraYaw(rig.yawForward);
-        this.combat!.update(dt, this.input, dialogueActive, this.dead);
+        this.combat!.update(dt, this.input, dialogueActive, this.dead, this.interactionPromptActive);
         p.update(dt, this.input, rig.yawForward, w.terrainHeight, this.colliders, dialogueActive || this.dead);
         // Whistle: the owned horse trots over
         if (!dialogueActive && this.input.anyPressed('KeyH') && this.state.hasFlag('tormenta_gifted')) {
@@ -2000,7 +2152,7 @@ export class Game {
         this.shakeT = Math.max(this.shakeT, 0.25);
       };
       w.weather.onStormStart = () => {
-        useGameStore.getState().notify('info', 'Tormenta sobre Aldmor', 'El cielo se cierra. Refúgiate o atraviésala: los marineros de verdad navegan igual.');
+        useGameStore.getState().notify('info', 'Storm over Aldmor', 'The sky is closing. Shelter or sail through it: true sailors sail all the same.');
         this.audio.playEvent('rain_start');
       };
     }
@@ -2013,7 +2165,10 @@ export class Game {
     w.water.setSky(w.sky.sunDir, w.sky.sunColor, w.sky.zenithColor, w.sky.horizonColor, w.sky.nightFactor);
     // Fase 12 — REAL planar reflection (mirrored scene, half-rate when near sea)
     w.water.renderReflection(this.engine.renderer, this.engine.scene, this.engine.camera);
-    // Fase 12 — boat wakes + bow spray: every moving ship pushes wave rings
+    // Fase 12 — boat wakes + bow spray: every moving ship pushes wave rings.
+    // Fase 16 — with waves OFF (low graphics / no swell) the rings deform a
+    // FLAT sea: the displaced circle + foam reads as an ugly bloom halo, so
+    // the whole interactive-water pass is skipped for BOTH player and boats.
     this.wakeTimer -= dt;
     if (this.wakeTimer <= 0) {
       this.wakeTimer = 0.32;
@@ -2038,12 +2193,14 @@ export class Game {
           this.vfx.waterSplash(this.tmpSplash, 0.22 + k * 0.3);
         }
       };
-      if (naval.playerShip) feed(naval.playerShip);
-      for (const e of naval.enemies) feed(e.ship);
-      for (const s of naval.extraShips) feed(s);
-      // swimming strokes leave ripples too
-      if (p.swimming) {
-        w.water.addWake(p.position.x, p.position.z, 0.16, 7, 2.2);
+      if (gfxRuntime.waves) {
+        if (naval.playerShip) feed(naval.playerShip);
+        for (const e of naval.enemies) feed(e.ship);
+        for (const s of naval.extraShips) feed(s);
+        // swimming strokes leave ripples too
+        if (p.swimming) {
+          w.water.addWake(p.position.x, p.position.z, 0.16, 7, 2.2);
+        }
       }
     }
     const focusX = sailing ? (naval.activeShip ?? naval.playerShip)!.pos.x : p.position.x;
@@ -2183,7 +2340,7 @@ export class Game {
       }
       const clickHint =
         !this.input.pointerLocked && !dialogueActive
-          ? 'Haz clic para tomar el control'
+          ? 'Click to take the helm'
           : null;
       store.setHud({
         health: p.health,
@@ -2197,25 +2354,37 @@ export class Game {
         prompt: clickHint ?? store.prompt,
         sailing: sailingHud,
         atHelm: sailing,
+        // Fase 15 — head under the sea (dive overlay in the HUD)
+        submerged: p.diving || (p.swimming && p.position.y + 1.5 < w.water.waveHeightAt(p.position.x, p.position.z)),
       });
-      // Fase 4 — riding HUD (gait / speed / cart)
+      // Fase 4 — riding HUD (gait / speed / cart) · Fase 15 — dragon riding HUD
       const mount = this.mounts?.mounted;
-      store.setMount(
-        riding && mount
-          ? {
-              horseName: mount.name,
-              gait: this.ridingGait === 'gallop' ? 'Galope' : this.ridingGait === 'trot' ? 'Trote' : this.ridingGait === 'walk' ? 'Paso' : this.ridingGait === 'jump' ? 'Salto' : 'Quieto',
-              speedKmh: Math.round(Math.abs(mount.speed) * 3.6),
-              cart: !!this.mounts?.isCartHitched,
-            }
-          : null,
-      );
+      const dRiddenHud = this.dragons?.riddenDragon ?? null;
+      if (dragonRiding && dRiddenHud) {
+        store.setMount({
+          horseName: dRiddenHud.def.name.replace(' (summoned)', ''),
+          gait: dRiddenHud.flying ? 'Vuelo' : Math.abs(dRiddenHud.rideVel) > 0.6 ? 'Marcha' : 'Quieto',
+          speedKmh: Math.round(dRiddenHud.rideVel * 3.6),
+          cart: false,
+        });
+      } else {
+        store.setMount(
+          riding && mount
+            ? {
+                horseName: mount.name,
+                gait: this.ridingGait === 'gallop' ? 'Galope' : this.ridingGait === 'trot' ? 'Trote' : this.ridingGait === 'walk' ? 'Paso' : this.ridingGait === 'jump' ? 'Salto' : 'Quieto',
+                speedKmh: Math.round(Math.abs(mount.speed) * 3.6),
+                cart: !!this.mounts?.isCartHitched,
+              }
+            : null,
+        );
+      }
       store.setEndingActive(!!this.endings?.isPlaying);
       // Fase 3 combat HUD
       store.setWeaponSlots(this.combat!.slots());
       store.setBowDraw(p.bowDraw);
       // Fase 9 — melee combo chain indicator (+ Fase 11 fight labels:
-      // GIRO 360°, ¡CONTRAATAQUE!, ¡ESQUIVA PERFECTA!, ¡COLAPSO!...)
+      // WHIRLWIND!, COUNTER!, PERFECT DODGE!, GROUND SLAM!...)
       const comboHud = this.combat!.comboHud;
       const evLabel = this.combat!.eventLabel;
       store.setCombo(
@@ -2223,6 +2392,13 @@ export class Game {
           ? { step: comboHud?.step ?? 0, counter: comboHud?.counter ?? false, label: comboHud?.label ?? evLabel ?? undefined }
           : null,
       );
+      // Fase 17 — Sea Fury bar + the danger cue + finisher readiness
+      useGameStore.getState().setValor(this.combat!.valorValue);
+      const cue = this.bandits ? this.bandits.dangerCue(p.position) : null;
+      useGameStore.getState().setDangerCue(cue);
+      const canFinish = this.combat!.valorValue >= 100
+        && !!(this.bandits?.finisherTarget(p.position));
+      useGameStore.getState().setFinisherReady(canFinish);
       this.pollQuestEvents();
     }
 
@@ -2247,11 +2423,11 @@ export class Game {
     // --- Tutorials ---
     if (!this.state.hasFlag('tut_night') && w.sky.dayFactor < 0.2) {
       this.state.setFlag('tut_night');
-      store.notify('info', 'Cae la noche', 'Pulsa F para encender tu farol. Las antorchas del pueblo iluminan los caminos.');
+      store.notify('info', 'Night falls', 'Press L to light your lantern. The town torches keep the paths lit.');
     }
     if (!this.state.hasFlag('tut_stamina') && p.stamina < 25) {
       this.state.setFlag('tut_stamina');
-      store.notify('info', 'Resistencia baja', 'Deja de correr para recuperarla. Mejórala con habilidades (K).');
+      store.notify('info', 'Low stamina', 'Stop sprinting to recover it. Improve it with skills (K).');
     }
 
     // --- Fase 4 polls (story events that happen outside interactions) ---
@@ -2262,7 +2438,7 @@ export class Game {
       if (this.state.hasFlag('tormenta_gifted') && !this.state.hasFlag('tormenta_bound')) {
         this.state.setFlag('tormenta_bound');
         this.mounts?.setOwned('tormenta');
-        store.notify('quest', 'Tormenta es tuyo', 'El caballo de guerra de Eirik acepta tu montura. Acércate y pulsa E para cabalgar; H para llamarlo.');
+        store.notify('quest', 'Tormenta is yours', "Eirik's warhorse accepts your saddle. Walk up and press E to ride; H to whistle him over.");
       }
       // Rich: 200 coins at once (sq_comercio)
       if (!this.state.hasFlag('rich_200') && this.state.countItem('coin') >= 200) {
@@ -2314,13 +2490,39 @@ export class Game {
     let best: { prompt: string; run: () => void } | null = null;
     let bestDist = Infinity;
     const riding = !!this.mounts?.ridingId;
+    // Fase 15 — dragon riding (admin mounts)
+    const dragonRiding = !!this.dragons?.ridingId;
     let interactHandled = false;
 
     if (!dialogueActive) {
       // Naval prompts have priority while aboard / at sea
       const navalPrompt = this.naval?.currentPrompt(p.position) ?? null;
-      // Fase 4 — riding: E interacts with the cart OR dismounts
-      if (riding) {
+      // Fase 15 — dragon riding: E dismounts (only near the ground)
+      if (dragonRiding) {
+        const dRidden = this.dragons!.riddenDragon;
+        if (dRidden) {
+          best = {
+            prompt: dRidden.tooHighToDismount ? 'Descend with SHIFT to dismount' : 'Dismount the dragon',
+            run: () => undefined,
+          };
+          bestDist = 0;
+          if (this.input.pressed('interact')) {
+            if (dRidden.tooHighToDismount) {
+              store.notify('info', 'Too high to jump', 'Descend with SHIFT and land before dismounting.');
+            } else {
+              const d = this.dragons!.dismountDragon();
+              if (d) {
+                const spot = d.dismountSpot(new THREE.Vector3(), w.terrainHeight);
+                p.teleport(spot.x, spot.y, spot.z);
+                p.velocity.set(0, 0, 0);
+              }
+              this.rig!.setMountMode(false);
+              this.audio.playEvent('wing');
+            }
+            interactHandled = true;
+          }
+        }
+      } else if (riding) {
         const mountPrompt = this.mounts!.interactionPrompt(p.position);
         if (mountPrompt) {
           best = { prompt: mountPrompt.prompt, run: mountPrompt.run };
@@ -2347,39 +2549,36 @@ export class Game {
         const fin = this.naval.finisherTarget();
         if (fin) {
           best = {
-            prompt: `¡REMATE! Ejecutar a ${fin.name}`,
+            prompt: `FINISHER! Execute ${fin.name}`,
             run: () => { this.naval!.executeFinisher(); },
           };
           bestDist = 0;
         }
       } else if (!this.naval?.playerSailing) {
-        // Fase 11 — bandit REMATES: a weakened red knight (under 30% HP,
-        // 35% for captains) can be finished with E — hit-stop, a heavy hero
-        // swing as the killing blow, clean kill + loot.
-        const bFin = this.bandits?.finisherTarget(p.position) ?? null;
-        if (bFin && !this.dead) {
-          const isCaptain = (bFin as { captain?: boolean }).captain === true;
-          best = {
-            prompt: `¡REMATE! Ejecutar al ${isCaptain ? 'capitán bandido' : 'bandido'}`,
-            run: () => {
-              // the hero's heavy swing IS the execution (visual only — the
-              // damage comes from executeFinisher below)
-              const pc = this.player!;
-              if (pc.attackT === 0 && !pc.rolling) {
-                pc.attackKind = 'heavy';
-                pc.attackDur = 0.62;
-                pc.attackT = 0.001;
-                pc.blocking = false;
-                pc.onAttackSwing?.();
-              }
-              this.bandits!.executeFinisher(bFin);
-            },
-          };
-          bestDist = 0;
-        } else {
+        // Fase 17 — bandit finishers moved to V / Shift+Space and the Valor
+        //  bar (see CombatSystem.doFinisher); E stays for the world.
+        {
+          // Fase 15 — a tame dragon (admin spawn) offers its saddle first
+          const dNear = this.dragons?.nearestRideableDragon(p.position) ?? null;
+          if (dNear && !this.dead) {
+            best = {
+              prompt: `Mount ${dNear.def.name.replace(' (summoned)', '')}`,
+              run: () => {
+                if (this.dragons!.mountDragon(dNear)) {
+                  this.rig!.setMountMode(true, Math.max(11, dNear.bodyRadius * 2.6));
+                  store.notify(
+                    'info',
+                    `Flying on ${dNear.def.name.replace(' (summoned)', '')}`,
+                    'W forward · A/D turn · SPACE climb · SHIFT descend · LMB fire breath · E dismount',
+                  );
+                }
+              },
+            };
+            bestDist = 0.3;
+          }
           // Fase 4 — mount prompts (mount / buy) compete with world prompts
           const mountPrompt = this.mounts?.interactionPrompt(p.position) ?? null;
-          if (mountPrompt) {
+          if (mountPrompt && !best) {
             best = {
               prompt: mountPrompt.prompt,
               run: () => {
@@ -2405,7 +2604,7 @@ export class Game {
             if (d < 2.6 && d < bestDist) {
               bestDist = d;
               best = {
-                prompt: `Hablar con ${npc.name}`,
+                prompt: `Talk to ${npc.name}`,
                 run: () => {
                   npc.talkTo(p.position);
                   if (!this.dialogue.start(npc.def.dialogueId)) {
@@ -2424,12 +2623,20 @@ export class Game {
     if (promptText !== store.prompt) {
       store.setHud({ prompt: promptText });
     }
+    // Fase 17 — remember whether E is spoken for this frame (the rope-dart
+    // stands down while an interaction owns the key). One frame of lag is
+    // invisible: prompts live for seconds.
+    this.interactionPromptActive = !!best;
     if (best && !dialogueActive && this.input.pressed('interact') && !interactHandled) {
       best.run();
     }
   }
 
   // Fase 11 — quest señálero ------------------------------------------------
+
+  /** Fase 17 — true while an interaction prompt owns the E key (the
+   *  rope-dart yields). Written by the prompt scan each frame. */
+  private interactionPromptActive = false;
 
   /** The in-world beacon (gold diamond + light shaft + ground ring). */
   private questBeacon?: THREE.Group;
@@ -2580,40 +2787,179 @@ export class Game {
         return npc.position.clone();
       }
     }
-    // 3.5) Fase 12 — bounty hunts: point at the NEAREST bandit camp
+    // 3.5) Fase 12 — bounty hunts: point at the NEAREST bandit camp.
+    // Fase 16 — ask the REAL camp table from BanditSystem (the hand-copied
+    // list had drifted before and sent players to empty clearings).
     if (obj.type === 'kill' && t === 'bandit' && this.player) {
-      const CAMPS: Array<[number, number]> = [
-        [62, 58], [-206, -112], [-118, -232], [-286, 170],
+      const camps = this.bandits?.campList() ?? [
+        { id: 'camp_camino', name: '', x: 62, z: 58 },
+        { id: 'camp_vaelthara', name: '', x: -206, z: -112 },
+        { id: 'camp_vigilias', name: '', x: -118, z: -232 },
+        { id: 'camp_costa', name: '', x: -286, z: 170 },
       ];
-      let best: [number, number] | null = null;
+      let best: { x: number; z: number } | null = null;
       let bestD = Infinity;
-      for (const c of CAMPS) {
-        const d = Math.hypot(c[0] - this.player.position.x, c[1] - this.player.position.z);
+      for (const c of camps) {
+        const d = Math.hypot(c.x - this.player.position.x, c.z - this.player.position.z);
         if (d < bestD) { bestD = d; best = c; }
       }
-      if (best) return new THREE.Vector3(best[0], 0, best[1]);
+      if (best) return new THREE.Vector3(best.x, 0, best.z);
     }
-    // 4) collect items → known source areas
+    // 3.6) Fase 16 — DYNAMIC collect sources: the marker points at the
+    // nearest thing that can actually still be collected/used, so it never
+    // leads somewhere "else" (the old fixed coords were up to 40+ m off and
+    // kept pointing at spent spots).
+    if (obj.type === 'collect' && this.player) {
+      const px = this.player.position.x;
+      const pz = this.player.position.z;
+      const nearest = (spots: Array<{ x: number; z: number }>) => {
+        let b: { x: number; z: number } | null = null;
+        let bd = Infinity;
+        for (const s of spots) {
+          const d = Math.hypot(s.x - px, s.z - pz);
+          if (d < bd) { bd = d; b = s; }
+        }
+        return b ? new THREE.Vector3(b.x, 0, b.z) : null;
+      };
+      // petals → the closest UNPICKED herb
+      if (t === 'petalo') {
+        const spots = w.herbs
+          .filter((h) => !state.pickedHerbs.has(h.id))
+          .map((h) => ({ x: h.pos.x, z: h.pos.z }));
+        const hit = nearest(spots);
+        if (hit) return hit;
+      }
+      // oak planks → the closest crate that has not been emptied
+      // (interactables `crate_madera_*` with `available()` true)
+      if (t === 'madera') {
+        const spots = w.interactables
+          .filter((it) => it.id.startsWith('crate_madera_') && (!it.available || it.available()))
+          .map((it) => ({ x: it.pos.x, z: it.pos.z }));
+        const hit = nearest(spots);
+        if (hit) return hit;
+      }
+      // reef fish → the closest stranded catch not yet taken
+      if (t === 'pez') {
+        const spots = w.interactables
+          .filter((it) => it.id.startsWith('fish_spot_') && (!it.available || it.available()))
+          .map((it) => ({ x: it.pos.x, z: it.pos.z }));
+        const hit = nearest(spots);
+        if (hit) return hit;
+      }
+      // dragon scales → the closest LIVING dragon (they drop them)
+      if (t === 'escama') {
+        const spots = (this.dragons?.list() ?? [])
+          .filter((d) => d.alive)
+          .map((d) => ({ x: d.pos.x, z: d.pos.z }));
+        const hit = nearest(spots);
+        if (hit) return hit;
+      }
+      // Morwen's seal → the Gaviota Sangrienta herself (live position)
+      if (t === 'sello') {
+        const g = this.naval?.enemies.find((b) => b.ship.id === 'gaviota' && !b.ship.sunk);
+        if (g) return new THREE.Vector3(g.ship.pos.x, 0, g.ship.pos.z);
+      }
+      // maple seed → under the Great Maple
+      if (t === 'semilla_arce') {
+        const seed = w.interactables.find((it) => it.id === 'seed_arce');
+        if (seed && (!seed.available || seed.available())) return seed.pos.clone();
+      }
+    }
+    // 4) collect items → static source areas (last resort: the dynamic
+    // branches above already caught everything with a real source)
     const SOURCES: Record<string, [number, number]> = {
-      petalo: [22, 158],        // plaza + prado norte (the mission text)
-      madera: [14, 252],        // Bram's stamped crates — the dock first
-      lona: [26, 170],          // Rosa prepares the canvas (market row)
-      cuerda: [34, 176],        // Tom has the hemp rope (market row)
-      sello: [-425, -308],      // aboard the Gaviota Sangrienta
-      escama: [40, -320],       // the dragons of the frozen peaks
+      petalo: [22, 150],        // village square + meadows (the mission text)
+      madera: [17.5, 231.5],   // Bram's stamped crates — the home pier
+      lona: [11, 172],         // Rosa prepares the canvas (her stall)
+      cuerda: [18, 226],       // Tom has the hemp rope (the dock)
+      sello: [-425, -308],     // aboard the Gaviota Sangrienta
+      escama: [-136, -252],    // the drake nest by the stone circle
+      semilla_arce: [-120, -270],   // the Great Maple
+      moneda_antigua: [-15, 622],   // tides drop old coins on the Mist Isles
+      espejo: [575, 108],      // the lighthouse plateau chest
+      mapa_tesoro: [-178, -187],    // the crystal-grotto captain's chest
+      corazon_cuervo: [-398, -450], // Kraivenn's cove
+      reliquia_cuervo: [-398, -450],
     };
     if (obj.type === 'collect' && SOURCES[t]) {
       return new THREE.Vector3(SOURCES[t][0], 0, SOURCES[t][1]);
     }
-    // 5) flag objectives → hand-mapped landmarks
-    const FLAGS: Record<string, [number, number]> = {
-      reached_crow: [-560, -420],   // Crow Isle waters
-      morwen_defeated: [-425, -308],
-      maren_herbs_done: [26, 170],
-      read_letter: [20, 150],
-    };
-    if (obj.type === 'flag' && FLAGS[t]) {
-      return new THREE.Vector3(FLAGS[t][0], 0, FLAGS[t][1]);
+    // 5) flag objectives → mapped to the REAL landmark each flag lives at.
+    // Fase 16 rewrite: the old four entries were up to 40 m off the actual
+    // trigger spots (maren_herbs_done pointed at the square — 40 m from
+    // Maren; read_letter pointed at the square while the letter is read
+    // from the inventory). Everything now resolves to live data where it
+    // exists and to verified coordinates otherwise.
+    if (obj.type === 'flag') {
+      // 5a) flags completed by talking to a specific NPC → that NPC, live
+      const FLAG_NPC: Record<string, string> = {
+        maren_herbs_done: 'maren',
+      };
+      const npcFlag = FLAG_NPC[t]
+        ? this.npcs.find((n) => n.def.id === FLAG_NPC[t] || n.def.dialogueId === FLAG_NPC[t])
+        : undefined;
+      if (npcFlag) return npcFlag.position.clone();
+      // 5b) dragon flags → the LIVE dragon while it exists (else its lair)
+      const DRAGON_LAIRS: Record<string, [number, number]> = {
+        vaelthara_seen: [-243, -140], vaelthara_dead: [-243, -140],
+        skarnvind_seen: [0, 460], skarnvind_dead: [0, 460],
+        ancestro_seen: [20, -300], ancestro_dead: [20, -300],
+        kraivenn_seen: [-398, -450], kraivenn_dead: [-398, -450],
+        drake_stones_dead: [-136, -252],
+        drake_grotto_dead: [196, -172],
+      };
+      const DRAGON_FLAG_TO_ID: Record<string, string> = {
+        vaelthara_seen: 'vaelthara', vaelthara_dead: 'vaelthara',
+        skarnvind_seen: 'skarnvind', skarnvind_dead: 'skarnvind',
+        ancestro_seen: 'ancestro', ancestro_dead: 'ancestro',
+        kraivenn_seen: 'kraivenn', kraivenn_dead: 'kraivenn',
+      };
+      const dId = DRAGON_FLAG_TO_ID[t];
+      if (dId) {
+        const live = (this.dragons?.list() ?? []).find((d) => d.def.id === dId && d.alive);
+        if (live) return new THREE.Vector3(live.pos.x, 0, live.pos.z);
+      }
+      if (DRAGON_LAIRS[t]) return new THREE.Vector3(DRAGON_LAIRS[t][0], 0, DRAGON_LAIRS[t][1]);
+      // 5c) the lore tablets — the marker points at the physical tablet
+      // (the interactable), not at a random nearby clearing
+      const LORE_TO_INTERACTABLE: Record<string, string> = {
+        lore_tablet_ruins: 'tablet_ruins',
+        lore_stones_center: 'stones_center',
+        lore_tower_door: 'tower_door',
+      };
+      const loreId = LORE_TO_INTERACTABLE[t];
+      if (loreId) {
+        const it = w.interactables.find((x) => x.id === loreId);
+        if (it) return it.pos.clone();
+      }
+      // 5d) discovery flags → the POI's true coordinates
+      const POI_FLAGS: Record<string, string> = {
+        poi_faro: 'faro', poi_grotto: 'grotto', gran_arce_seen: 'granarce',
+        knight_seen: 'cala',
+      };
+      const poi = POIS.find((p) => p.id === POI_FLAGS[t]);
+      if (poi) return new THREE.Vector3(poi.x, 0, poi.z);
+      // 5e) sailing / story landmarks — verified against the actual triggers
+      const FLAGS: Record<string, [number, number]> = {
+        reached_crow: [-540, -450],     // ISLANDS.crow — the real island centre
+        morwen_defeated: [-425, -308], // the Gaviota's cove anchorage
+        elite_hunter_sunk: [-360, -490], // the flagship wreck reef
+        cart_hitched: [30, 156],       // the cart by the stable
+        // read_letter intentionally NOT mapped: the letter is read from the
+        // inventory (Tab), so a map pin would send you walking nowhere.
+      };
+      if (t === 'reached_crow') {
+        const crow = ISLANDS.find((i) => i.id === 'crow');
+        if (crow) return new THREE.Vector3(crow.x, 0, crow.z);
+      }
+      if (t === 'cart_hitched' && this.mounts?.cart) {
+        return new THREE.Vector3(this.mounts.cart.pos.x, 0, this.mounts.cart.pos.z);
+      }
+      if (t === 'morwen_defeated') {
+        const g = this.naval?.enemies.find((b) => b.ship.id === 'gaviota');
+        if (g && !g.ship.sunk) return new THREE.Vector3(g.ship.pos.x, 0, g.ship.pos.z);
+      }
+      if (FLAGS[t]) return new THREE.Vector3(FLAGS[t][0], 0, FLAGS[t][1]);
     }
     void qid;
     void state;
@@ -2713,7 +3059,7 @@ export class Game {
         const p = this.player!;
         p.health = Math.min(p.stats.maxHealth, p.health + 45);
         this.audio.playEvent('pickup');
-        useGameStore.getState().notify('item', 'Poción de curación', 'Salud restaurada.');
+        useGameStore.getState().notify('item', 'Healing potion', 'Health restored.');
       }
     };
     gameApi.readItem = (id) => {
@@ -2729,15 +3075,30 @@ export class Game {
       if (!ITEMS[id]?.equipable) return;
       st().equip(id);
       this.combat?.onUiEquip();
+      this.applyStats();
+      this.syncSwordVisuals();
       this.audio.playEvent('unlock');
+      // Fase 16 — armor / wings get their own hints
+      const kind = ITEMS[id]?.kind;
+      if (kind === 'armor') {
+        useGameStore.getState().notify('item', ITEMS[id].name, 'Armor equipped: more max health and less damage taken.');
+        return;
+      }
+      if (kind === 'wings') {
+        useGameStore.getState().notify(
+          'item', ITEMS[id].name,
+          'Wings equipped. Jump from a height and hold SPACE in the air to glide.',
+        );
+        return;
+      }
       const w = WEAPONS[id];
       const hint = w
         ? w.kind === 'bow'
-          ? 'Mantén pulsado el clic para tensar; suelta para disparar. Las flechas clavadas se recuperan.'
+          ? 'Hold the click to draw; release to fire. Stuck arrows can be recovered.'
           : w.kind === 'spear'
-            ? 'Clic para estocadas rápidas de largo alcance; mantén pulsado para un golpe pesado.'
-            : 'Clic para atacar; mantén pulsado para un golpe pesado que tambalea a las bestias.'
-        : 'Haz clic izquierdo para atacar.';
+            ? 'Click for long-reaching quick thrusts; hold for a heavy blow.'
+            : 'Click to attack; hold for a heavy blow that staggers beasts.'
+        : 'Left-click to attack.';
       useGameStore.getState().notify('item', ITEMS[id].name, hint);
     };
     gameApi.unequipWeapon = () => {
@@ -2745,6 +3106,79 @@ export class Game {
       this.combat?.onUiEquip();
     };
     gameApi.equippedWeapon = () => st().equippedWeapon;
+    gameApi.equippedArmor = () => st().equippedArmor;
+    gameApi.equippedWings = () => st().equippedWings;
+    gameApi.unequipArmor = () => {
+      st().unequipArmor();
+      this.applyStats();
+      this.combat?.onUiEquip();
+    };
+    gameApi.unequipWings = () => {
+      st().unequipWings();
+      this.applyStats();
+      this.combat?.onUiEquip();
+    };
+
+    // --- Fase 16 — merchant system (the smiths) ---
+    gameApi.shopCatalog = (vendor) => {
+      const def = VENDORS[vendor];
+      if (!def) return null;
+      const s = st();
+      const levelOk = s.level >= def.minLevel;
+      const coins = s.countItem('coin');
+      return {
+        name: def.name,
+        title: def.title,
+        minLevel: def.minLevel,
+        levelOk,
+        level: s.level,
+        coins,
+        entries: def.entries.map((e) => {
+          const item = ITEMS[e.item];
+          const statsBits: string[] = [];
+          if (item?.armor) statsBits.push(`+${item.armor.hp} health · −${Math.round(item.armor.reduce * 100)}% damage`);
+          if (item?.glide) statsBits.push(`planeo ${item.glide.speed} m/s · descenso ${Math.abs(item.glide.sink)} m/s`);
+          if (item?.kind === 'weapon') {
+            const w = WEAPONS[e.item];
+            if (w) statsBits.push(`${w.lightDmg}/${w.heavyDmg} light/heavy damage`);
+          }
+          return {
+            id: e.item,
+            name: item?.name ?? e.item,
+            desc: item?.desc ?? '',
+            icon: item?.icon ?? 'Package',
+            price: e.price,
+            note: e.note,
+            owned: s.hasItem(e.item),
+            canAfford: coins >= e.price,
+            rarity: item?.rarity,
+            stats: statsBits.join(' · '),
+          };
+        }),
+      };
+    };
+    gameApi.buyShopItem = (vendor, itemId) => {
+      const def = VENDORS[vendor];
+      const entry = def?.entries.find((e) => e.item === itemId);
+      if (!def || !entry) return 'level';
+      const s = st();
+      if (s.level < def.minLevel) return 'level';
+      if (s.countItem('coin') < entry.price) return 'gold';
+      if (!s.removeItem('coin', entry.price)) return 'gold';
+      s.addItem(itemId, 1);
+      this.audio.playEvent('unlock');
+      useGameStore.getState().notify(
+        'item',
+        ITEMS[itemId]?.name ?? itemId,
+        `${def.name}: "Fair deal." You have ${s.countItem('coin')} coins left.`,
+      );
+      return 'ok';
+    };
+
+    // Fase 15 — resolve the standing pirate toll negotiation
+    gameApi.negotiateChoice = (option) => {
+      this.pirateAmbush?.resolve(option);
+    };
 
     gameApi.journal = () => st().journal;
     gameApi.quests = (): QuestView[] => {
@@ -2842,6 +3276,9 @@ export class Game {
       // Luces realistas: flag global — cada dueño de PointLight lo consulta
       // al frame siguiente (antorchas, farol, brasas de dragón, fuego VFX).
       gfxRuntime.pointLights = gfx.realLights;
+      // Fase 16 — oleaje OFF ⇒ sin wakes interactivos (jugador/barcos): en un
+      // mar plano los anillos de estela se leen como un bloom feo.
+      gfxRuntime.waves = gfx.waves;
       // Rebuild the grass ring at the new density right away
       if (this.player) {
         this.world?.vegetation.refreshGrassNear(this.player.position.x, this.player.position.z);
@@ -2878,7 +3315,7 @@ export class Game {
       const sz = p.position.z + Math.cos(p.yaw) * 14;
       if (kind === 'ship') {
         const w = this.naval!.spawnAdminShip(p.position.x, p.position.z);
-        return `Barco fondeado en el agua (${w.x.toFixed(0)}, ${w.z.toFixed(0)})`;
+        return `Ship anchored in the water (${w.x.toFixed(0)}, ${w.z.toFixed(0)})`;
       }
       if (kind === 'horse') {
         const coats = ['bay', 'black', 'chestnut', 'grey'] as const;
@@ -2889,11 +3326,11 @@ export class Game {
           `admin_h_${Date.now() % 100000}`, name, coat,
           sx, sz, true, 0,
         );
-        return `${name} (${coat}) apareció frente a ti`;
+        return `${name} (${coat}) appeared before you`;
       }
       if (kind === 'dragon') {
         const d = this.dragons!.adminSpawn(species ?? 'drake_stones', sx, sz);
-        return d ? `${d.def.name} invocado — ¡cuidado!` : null;
+        return d ? `${d.def.name.replace(' (summoned)', '')} appeared — docile and rideable (E)` : null;
       }
       return null;
     };
@@ -2902,10 +3339,10 @@ export class Game {
       this.player.flying = on;
       if (on) {
         this.player.velocity.set(0, 0, 0);
-        useGameStore.getState().notify('info', 'Modo vuelo ACTIVADO', 'ESPACIO sube · E baja · MAYÚS acelera');
+        useGameStore.getState().notify('info', 'Flight mode ON', 'SPACE up · E down · SHIFT faster');
       } else {
         this.player.verticalVel = 0;
-        useGameStore.getState().notify('info', 'Modo vuelo desactivado', 'La gravedad vuelve a mandar.');
+        useGameStore.getState().notify('info', 'Flight mode OFF', 'Gravity is in charge again.');
       }
       return on;
     };
@@ -2968,8 +3405,8 @@ export class Game {
         fromLook: corpseCenter,
         toLook: corpseCenter,
         fov: 46,
-        title: firstEver ? 'PRIMER DRAGÓN ABATIDO' : undefined,
-        subtitle: firstEver ? 'las canciones aún no se atreven a contarlo' : undefined,
+        title: firstEver ? 'FIRST DRAGON FELLED' : undefined,
+        subtitle: firstEver ? 'the songs do not yet dare tell it' : undefined,
       },
       // 2 — the hero: over-the-shoulder of the knight, dragon beyond.
       //    Fase 11 — REAL ACTING: the vow over the fallen beast — the blade
@@ -3003,8 +3440,8 @@ export class Game {
         fromLook: corpseCenter,
         toLook: corpseCenter,
         fov: 52,
-        title: `${d.def.name.toUpperCase()} HA CAÍDO`,
-        subtitle: d.def.title ?? 'la leyenda de las mareas',
+        title: `${d.def.name.toUpperCase()} HAS FALLEN`,
+        subtitle: d.def.title ?? 'the legend of the tides',
       },
     ];
 
@@ -3043,6 +3480,14 @@ export class Game {
       grassBlades: w?.vegetation.stats.blades,
       waterSegments: (w?.water as unknown as { mesh?: { geometry: { parameters?: { widthSegments?: number } } } })
         ?.mesh?.geometry?.parameters?.widthSegments,
+      // Fase 16 — interactive-water gate (wakes OFF when the sea is flat)
+      waves: gfxRuntime.waves,
+      // Fase 16 — merchant anchors for the E2E (positions + dwarf scale)
+      npcs: this.npcs.map((n) => ({
+        id: n.def.id,
+        x: Math.round(n.position.x), z: Math.round(n.position.z),
+        scale: n.def.scale ?? null,
+      })),
       settings: { ...this.settings },
     };
   }
@@ -3050,6 +3495,12 @@ export class Game {
   /** Fase 13 — E2E: aplicar ajustes por el mismo camino que el panel UI. */
   debugApplySettings(s: Settings): void {
     gameApi.applySettings(s);
+  }
+
+  /** Fase 16 — E2E: the live quest-marker resolution (or null). */
+  debugQuestTarget(): { x: number; z: number } | null {
+    const t = this.resolveQuestTarget();
+    return t ? { x: Math.round(t.x * 10) / 10, z: Math.round(t.z * 10) / 10 } : null;
   }
 
   /** Fase 9 (PDF §6.2) — chapter milestone cinematic (short panoramic card).
@@ -3118,15 +3569,15 @@ export class Game {
   /** Replayable cinematics for the admin panel. */
   adminCinematicList(): Array<{ key: string; label: string }> {
     return [
-      { key: 'intro', label: 'Introducción — El Legado de Eirik' },
-      { key: 'cap1', label: 'Hito · Capítulo I completo' },
-      { key: 'cap2', label: 'Hito · Capítulo II completo' },
-      { key: 'cap3', label: 'Hito · Capítulo III completo' },
-      { key: 'cap4', label: 'Hito · Capítulo IV completo' },
-      { key: 'victoria', label: 'Victoria de dragón (genérica)' },
-      { key: 'final_guardian', label: 'FINAL I — El Guardián de la Marea' },
-      { key: 'final_crown', label: 'FINAL II — La Corona de las Islas' },
-      { key: 'final_free', label: 'FINAL III — El Mar sin Dueño' },
+      { key: 'intro', label: 'Intro — The Legacy of Eirik' },
+      { key: 'cap1', label: 'Milestone · Chapter I complete' },
+      { key: 'cap2', label: 'Milestone · Chapter II complete' },
+      { key: 'cap3', label: 'Milestone · Chapter III complete' },
+      { key: 'cap4', label: 'Milestone · Chapter IV complete' },
+      { key: 'victoria', label: 'Dragon victory (generic)' },
+      { key: 'final_guardian', label: 'FINAL I — The Warden of the Tide' },
+      { key: 'final_crown', label: 'FINAL II — The Crown of the Isles' },
+      { key: 'final_free', label: 'FINAL III — The Sea Without a Master' },
     ];
   }
 
@@ -3136,10 +3587,10 @@ export class Game {
     if (this.cinematics.active || this.endings?.isPlaying) return false;
     if (this.naval?.boardingActive) return false;
     const chapters: Record<string, { n: number; title: string; sub: string }> = {
-      cap1: { n: 1, title: 'CAPÍTULO I COMPLETO', sub: 'el legado de Eirik' },
-      cap2: { n: 2, title: 'CAPÍTULO II COMPLETO', sub: 'los mares olvidados' },
-      cap3: { n: 3, title: 'CAPÍTULO III COMPLETO', sub: 'el rumor de las alas' },
-      cap4: { n: 4, title: 'CAPÍTULO IV COMPLETO', sub: 'la corona hundida' },
+      cap1: { n: 1, title: 'CHAPTER I COMPLETE', sub: 'the legacy of Eirik' },
+      cap2: { n: 2, title: 'CHAPTER II COMPLETE', sub: 'the forgotten seas' },
+      cap3: { n: 3, title: 'CHAPTER III COMPLETE', sub: 'the whisper of wings' },
+      cap4: { n: 4, title: 'CHAPTER IV COMPLETE', sub: 'the sunken crown' },
     };
     if (key.startsWith('cap') && chapters[key]) {
       this.playChapterCinematic(chapters[key], true);
@@ -3385,8 +3836,8 @@ export class Game {
         fromLook: hero,
         toLook: hero,
         fov: 52,
-        title: 'LA LEYENDA DEL CABALLERO',
-        subtitle: 'las canciones aún no se atreven a contarlo',
+        title: 'THE LEGEND OF THE KNIGHT',
+        subtitle: 'the songs do not yet dare tell it',
       },
     ];
     this.musicIntensityTarget = 0.5;
@@ -3411,7 +3862,7 @@ export class Game {
     const completed = completedIds.size;
     if (this.lastQuestCount >= 0 && newly.length > 0) {
       const store = useGameStore.getState();
-      store.notify('quest', 'Misión completada', 'Consulta tu diario (J) para saber más.');
+      store.notify('quest', 'Quest completed', 'Check your journal (J) to learn more.');
       this.audio.playEvent('quest');
       this.musicIntensityTarget = 0.8;
       this.autosave();
@@ -3420,10 +3871,10 @@ export class Game {
       // Fase 9 — chapter milestone cinematics (PDF §6.2). Wait for any open
       // dialogue to close so the letterbox never fights a conversation.
       const CHAPTER_FINAL: Record<string, { n: number; title: string; sub: string }> = {
-        q3_chest: { n: 1, title: 'CAPÍTULO I COMPLETO', sub: 'el legado de Eirik' },
-        q5_raven: { n: 2, title: 'CAPÍTULO II COMPLETO', sub: 'los mares olvidados' },
-        q9_ancestro: { n: 3, title: 'CAPÍTULO III COMPLETO', sub: 'el rumor de las alas' },
-        q12_acero: { n: 4, title: 'CAPÍTULO IV COMPLETO', sub: 'la corona hundida' },
+        q3_chest: { n: 1, title: 'CHAPTER I COMPLETE', sub: 'the legacy of Eirik' },
+        q5_raven: { n: 2, title: 'CHAPTER II COMPLETE', sub: 'the forgotten seas' },
+        q9_ancestro: { n: 3, title: 'CHAPTER III COMPLETE', sub: 'the whisper of wings' },
+        q12_acero: { n: 4, title: 'CHAPTER IV COMPLETE', sub: 'the sunken crown' },
       };
       for (const id of newly) {
         const ch = CHAPTER_FINAL[id];

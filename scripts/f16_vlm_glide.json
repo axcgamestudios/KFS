@@ -1,0 +1,28 @@
+{
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "message": {
+        "content": "1) No, the character is lying on the ground.\n2) Yes, there are white, wing-like structures (likely a cape or glider) spread out behind the character.\n3) No, the body is in a prone/lying position on the ground, not leaning forward in flight.\n4) Yes, the landscape is a grassy area with wooden structures and a table, resembling a village or meadow.",
+        "role": "assistant"
+      }
+    }
+  ],
+  "created": 1791861231,
+  "id": "20261013111343408f6a53872e4464",
+  "model": "glm-5v-turbo",
+  "object": "chat.completion",
+  "request_id": "20261013111343408f6a53872e4464",
+  "usage": {
+    "completion_tokens": 86,
+    "completion_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "prompt_tokens": 545,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "total_tokens": 631
+  }
+}

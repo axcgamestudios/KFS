@@ -61,13 +61,13 @@ function SlotButton({ slot, onPick, onEmpty }: { slot: number; onPick: () => voi
     >
       <span className="kfs2-socket"><ScrollText size={14} /></span>
       <span className="flex-1 text-left">
-        <span className="kfs2-btn-title text-sm">Ranura {slot + 1}</span>
+        <span className="kfs2-btn-title text-sm">Slot {slot + 1}</span>
         {meta ? (
           <span className="block text-xs font-normal tracking-normal normal-case opacity-70">
-            Nivel {meta.level} · Día {meta.dayCount} · {SaveSystem.formatPlaytime(meta.playtime)}
+            Level {meta.level} · Day {meta.dayCount} · {SaveSystem.formatPlaytime(meta.playtime)}
           </span>
         ) : (
-          <span className="block text-xs font-normal tracking-normal normal-case opacity-40">Vacía</span>
+          <span className="block text-xs font-normal tracking-normal normal-case opacity-40">Empty</span>
         )}
       </span>
       <span className="kfs2-arrow"><ChevronRight size={15} /></span>
@@ -163,7 +163,7 @@ export default function MainMenu() {
         <div className="kfs2-rise" style={{ ['--rise-delay' as string]: '0.25s' }}>
           <p className="mb-4 flex items-center gap-3 text-[0.68rem] font-semibold tracking-[0.5em] text-[#e2b95c] md:text-xs">
             <span className="inline-block h-[1px] w-8 bg-[#e2b95c]/70" />
-            AXCGAMES STUDIOS PRESENTA
+            AXCGAMES STUDIOS PRESENTS
           </p>
         </div>
 
@@ -172,31 +172,31 @@ export default function MainMenu() {
             <MenuButton
               primary
               icon={<Sparkles size={15} />}
-              label="Nueva partida"
+              label="New Game"
               onClick={() => gameApi.startNewGame()}
               sheenDelay="0.4s"
             />
             <MenuButton
               icon={<Play size={15} />}
-              label="Continuar"
+              label="Continue"
               disabled={!hasSave}
-              title={hasSave ? undefined : 'No hay partidas guardadas'}
+              title={hasSave ? undefined : 'No saved games'}
               onClick={() => {
                 if (!gameApi.continueGame()) {
-                  notifyFlash('No se encontró ninguna partida que cargar.');
+                  notifyFlash('No saved game found to load.');
                 }
               }}
               sheenDelay="1.9s"
             />
             <MenuButton
               icon={<ScrollText size={15} />}
-              label="Cargar partida"
+              label="Load Game"
               onClick={() => setSubMenu('load')}
               sheenDelay="3.4s"
             />
             <MenuButton
               icon={<Settings2 size={15} />}
-              label="Ajustes"
+              label="Settings"
               onClick={() => useGameStore.getState().openOverlay('settings')}
               sheenDelay="4.9s"
             />
@@ -206,7 +206,7 @@ export default function MainMenu() {
         {subMenu === 'load' && (
           <div className="kfs2-rise kfs2-panel w-80 p-5" style={{ ['--rise-delay' as string]: '0.1s' }}>
             <h3 className="kfs2-btn-title mb-4 text-sm">
-              Cargar partida
+              Load Game
             </h3>
             <div className="flex flex-col gap-2">
               {[0, 1, 2].map((slot) => (
@@ -215,44 +215,44 @@ export default function MainMenu() {
                   slot={slot}
                   onPick={() => {
                     if (!gameApi.loadSlot(slot)) {
-                      notifyFlash('La ranura está vacía o dañada.');
+                      notifyFlash('The slot is empty or corrupted.');
                     }
                   }}
-                  onEmpty={() => notifyFlash('La ranura está vacía. Comienza una nueva partida.')}
+                  onEmpty={() => notifyFlash('The slot is empty. Start a new game.')}
                 />
               ))}
             </div>
             <div className="mt-4">
-              <MenuButton icon={<ChevronRight size={15} />} label="Volver" onClick={() => setSubMenu(null)} />
+              <MenuButton icon={<ChevronRight size={15} />} label="Back" onClick={() => setSubMenu(null)} />
             </div>
           </div>
         )}
 
         {subMenu === 'credits' && (
           <div className="kfs2-rise kfs2-panel max-w-md p-6" style={{ ['--rise-delay' as string]: '0.1s' }}>
-            <h3 className="kfs2-btn-title mb-4 text-sm">Créditos</h3>
+            <h3 className="kfs2-btn-title mb-4 text-sm">Credits</h3>
             <div className="space-y-3 text-sm leading-relaxed text-[#c6bda8]">
               <p>
                 <span className="kfs2-btn-title text-[#f0e6cd]">
                   Kingdoms of the Forgotten Seas
                 </span>{' '}
-                — una aventura de mundo abierto medieval: cada árbol, cada ola y cada copo de
-                nieve nace de las matemáticas de la isla.
+                — a medieval open-world adventure: every tree, every wave and every
+                snowflake is born from the island's mathematics.
               </p>
               <hr className="kfs2-hr" />
               <p>
-                Un juego de <span className="kfs2-btn-title text-[#e2b95c]">AXCGames Studios</span> · 2026
+                A game by <span className="kfs2-btn-title text-[#e2b95c]">AXCGames Studios</span> · 2026
               </p>
               <p>
-                Motor: Three.js sobre Next.js · Música y sonido: síntesis WebAudio en tiempo real ·
-                Modelos y texturas: repositorio oficial del estudio
+                Engine: Three.js on Next.js · Music and sound: real-time WebAudio synthesis ·
+                Models and textures: the studio's official repository
               </p>
               <p className="italic">
-                «Donde cae una escama, pronto cae su dueño.» — Bram el Herrero
+                "Where a scale falls, its owner soon follows." — Bram the Smith
               </p>
             </div>
             <div className="mt-5">
-              <MenuButton icon={<ChevronRight size={15} />} label="Volver" onClick={() => setSubMenu(null)} />
+              <MenuButton icon={<ChevronRight size={15} />} label="Back" onClick={() => setSubMenu(null)} />
             </div>
           </div>
         )}
@@ -274,7 +274,7 @@ export default function MainMenu() {
           onClick={() => setSubMenu('credits')}
         >
           <Ship size={13} />
-          UN JUEGO DE AXCGAMES STUDIOS
+          A GAME BY AXCGAMES STUDIOS
         </button>
       )}
     </div>

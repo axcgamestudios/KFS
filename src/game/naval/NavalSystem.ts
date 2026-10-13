@@ -8,6 +8,7 @@ import type { GameState } from '../systems/GameState';
 import { WIND } from '../world/WorldConfig';
 import { clamp, damp, dampAngle } from '../core/MathUtils';
 import { getFlameFX } from '../world/FlameFX';
+import { InstancedSpritePool } from '../systems/InstancedSpritePool';
 
 /** HUD snapshot while sailing (consumed by the React layer). */
 export interface SailingHud {
@@ -62,7 +63,7 @@ class BoardingCrew {
 
   constructor(captain: boolean, lx: number, lz: number, palette: CharacterPalette) {
     this.isCaptain = captain;
-    this.name = captain ? 'Capitana Morwen' : 'Corsario del Cuervo';
+    this.name = captain ? 'Captain Morwen' : 'Crow Corsair';
     this.hp = captain ? 110 : 46;
     this.maxHp = this.hp;
     this.lx = lx;
@@ -98,7 +99,8 @@ class BoardingCrew {
   }
 }
 
-interface EnemyBrain {
+/** Pirate AI state — one per enemy hull (patrol routes, chase, broadsides). */
+export interface EnemyBrain {
   ship: Ship;
   mode: 'patrol' | 'chase' | 'broadside' | 'grappled';
   waypoints: Array<{ x: number; z: number }>;
@@ -113,69 +115,10 @@ interface EnemyBrain {
   respawnTimer: number;
 }
 
-/** Simple pooled sprite burst (splashes, flashes, smoke). */
-class SpritePool {
-  private sprites: THREE.Sprite[] = [];
-  private active: Array<{ sp: THREE.Sprite; t: number; dur: number; grow: number; vel?: THREE.Vector3 }> = [];
-
-  constructor(
-    scene: THREE.Scene,
-    count: number,
-    color: string,
-    private additive = false,
-  ) {
-    const canvas = document.createElement('canvas');
-    canvas.width = canvas.height = 64;
-    const ctx = canvas.getContext('2d')!;
-    const grad = ctx.createRadialGradient(32, 32, 2, 32, 32, 30);
-    grad.addColorStop(0, color);
-    grad.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, 64, 64);
-    const tex = new THREE.CanvasTexture(canvas);
-    for (let i = 0; i < count; i++) {
-      const sp = new THREE.Sprite(new THREE.SpriteMaterial({
-        map: tex,
-        transparent: true,
-        depthWrite: false,
-        opacity: 0,
-        blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
-      }));
-      sp.visible = false;
-      scene.add(sp);
-      this.sprites.push(sp);
-    }
-  }
-
-  spawn(pos: THREE.Vector3, scale: number, dur: number, grow = 1.6, vel?: THREE.Vector3): void {
-    const sp = this.sprites.find((s) => !s.visible);
-    if (!sp) return;
-    sp.position.copy(pos);
-    sp.scale.setScalar(scale);
-    sp.material.opacity = 0.9;
-    sp.visible = true;
-    this.active.push({ sp, t: 0, dur, grow, vel: vel?.clone() });
-  }
-
-  update(dt: number): void {
-    for (let i = this.active.length - 1; i >= 0; i--) {
-      const a = this.active[i];
-      a.t += dt;
-      const k = a.t / a.dur;
-      if (k >= 1) {
-        a.sp.visible = false;
-        this.active.splice(i, 1);
-        continue;
-      }
-      a.sp.material.opacity = 0.9 * (1 - k);
-      a.sp.scale.multiplyScalar(1 + a.grow * dt);
-      if (a.vel) {
-        a.sp.position.addScaledVector(a.vel, dt);
-        a.vel.y += dt * 0.4;
-      }
-    }
-  }
-}
+/** Simple pooled sprite burst (splashes, flashes, smoke).
+ *  Fase 15 — the shared InstancedSpritePool renders the whole pool as ONE
+ *  instanced batch (was: one THREE.Sprite = one draw call each). */
+// (class SpritePool replaced by systems/InstancedSpritePool)
 
 interface Cannonball {
   mesh: THREE.Mesh;
@@ -224,12 +167,14 @@ export class NavalSystem {
   /** Fase 3 hook: cannonballs can strike flying dragons (sea wyvern fight).
    *  Return an object whose damage(amount) applies the hit, or null. */
   dragonHitTest: ((pos: THREE.Vector3, prevPos?: THREE.Vector3) => { damage: (amount: number) => void } | null) | null = null;
+  /** Fase 15 — sea-serpent hit test for cannonballs (set by Game). */
+  seaBeasts: import('../systems/SeaBeastSystem').SeaBeastSystem | null = null;
 
   private balls: Cannonball[] = [];
   private ballPool: THREE.Mesh[] = [];
-  private splashes: SpritePool;
-  private smoke: SpritePool;
-  private flashes: SpritePool;
+  private splashes: InstancedSpritePool;
+  private smoke: InstancedSpritePool;
+  private flashes: InstancedSpritePool;
   private barrels: LootBarrel[] = [];
   private t = 0;
   private windBase = 2.4;
@@ -245,10 +190,10 @@ export class NavalSystem {
     private state: GameState,
     private cb: NavalCallbacks,
   ) {
-    this.splashes = new SpritePool(scene, 40, 'rgba(230,242,238,0.95)');
+    this.splashes = new InstancedSpritePool(scene, 40, 'rgba(230,242,238,0.95)', false);
     getFlameFX(scene); // Fase 7 — cannon fire wears real flames
-    this.smoke = new SpritePool(scene, 48, 'rgba(70,66,62,0.8)');
-    this.flashes = new SpritePool(scene, 24, 'rgba(255,170,60,1)', true);
+    this.smoke = new InstancedSpritePool(scene, 48, 'rgba(70,66,62,0.8)', false);
+    this.flashes = new InstancedSpritePool(scene, 24, 'rgba(255,170,60,1)', true);
     const ballGeo = new THREE.SphereGeometry(0.15, 8, 6);
     const ballMat = new THREE.MeshStandardMaterial({ color: 0x1e1e22, roughness: 0.5, metalness: 0.6 });
     for (let i = 0; i < 26; i++) {
@@ -274,7 +219,7 @@ export class NavalSystem {
   spawnPlayerShip(x: number, z: number, heading = Math.PI): Ship {
     if (this.playerShip) return this.playerShip;
     const ship = new Ship({
-      id: 'colibri', name: 'Colibrí de Mar', kind: 'caravel', isPlayer: true,
+      id: 'colibri', name: 'Sea Hummingbird', kind: 'caravel', isPlayer: true,
       x, z, heading,
     });
     ship.anchored = true;
@@ -320,7 +265,7 @@ export class NavalSystem {
     }
     const ship = new Ship({
       id: `admin_${Date.now() % 100000}`,
-      name: 'Navío Errante', kind: 'pirate', isPlayer: false,
+      name: 'Wandering Vessel', kind: 'pirate', isPlayer: false,
       x: bestX, z: bestZ, heading: Math.random() * Math.PI * 2,
     });
     ship.anchored = true;
@@ -334,7 +279,7 @@ export class NavalSystem {
   spawnEnemies(): void {
     // Morwen's brig — anchored in the cove of the Crow Isle (quest ship)
     const gaviota = new Ship({
-      id: 'gaviota', name: 'Gaviota Sangrienta', kind: 'pirate', isPlayer: false,
+      id: 'gaviota', name: 'Bloody Gull', kind: 'pirate', isPlayer: false,
       x: -425, z: -308, heading: 2.2, hullHp: 120, cannonCd: 6.5,
     });
     this.scene.add(gaviota.group);
@@ -356,7 +301,7 @@ export class NavalSystem {
 
     // A roaming raider between the Mist Isles and Aldmor's south shore
     const zharpa = new Ship({
-      id: 'zharpa', name: 'Zarpa de Sal', kind: 'pirate', isPlayer: false,
+      id: 'zharpa', name: 'Salt Claw', kind: 'pirate', isPlayer: false,
       x: 110, z: 430, heading: 0.4, hullHp: 100, cannonCd: 7,
     });
     this.scene.add(zharpa.group);
@@ -377,11 +322,52 @@ export class NavalSystem {
     });
   }
 
+  /** Fase 15 — PIRATE AMBUSH: spawn the Black Siren already hunting.
+   *  Returns the brain so the ambush system can watch her fate. */
+  spawnAmbushPirate(x: number, z: number, name: string): EnemyBrain {
+    const ship = new Ship({
+      id: 'sirena', name, kind: 'pirate', isPlayer: false,
+      x, z, heading: Math.PI, hullHp: 130, cannonCd: 4.2,
+    });
+    this.scene.add(ship.group);
+    if (this.colliders) ship.bindColliderRegistry(this.colliders);
+    this.dressShip(ship);
+    const brain: EnemyBrain = {
+      ship,
+      mode: 'chase',
+      waypoints: [],
+      wpIndex: 0,
+      fireCd: 2,
+      aggroNotified: true,
+      quest: false,
+      respawnAt: null,
+      respawnTimer: 0,
+    };
+    this.enemies.push(brain);
+    return brain;
+  }
+
+  /** Fase 15 — the ambush ends without loot: the Siren slips away quietly. */
+  fleeAmbushPirate(brain: EnemyBrain): void {
+    const i = this.enemies.indexOf(brain);
+    if (i >= 0) this.enemies.splice(i, 1);
+    // Free her collider cells (far-away sync = out of range) and hide the hull
+    brain.ship.syncColliders(-9999, -9999);
+    this.scene.remove(brain.ship.group);
+  }
+
+  /** Fase 15 — true when the ambush ship is no longer a threat. */
+  isBrainGone(brain: EnemyBrain): boolean {
+    return !this.enemies.includes(brain) || brain.ship.sunk || brain.ship.sinking > 0;
+  }
+
   /** Real effects for learned navigation skills. */
   applyPerks(): void {
     const ship = this.playerShip;
     if (!ship) return;
-    ship.perks.speedMult = this.state.learnedSkills.has('nav_marino') ? 1.12 : 1;
+    // Fase 16 — Marinería raised 1.12→1.2: the hull got its +40% base and
+    // the skill must still feel like it's WORTH a point on top of it.
+    ship.perks.speedMult = this.state.learnedSkills.has('nav_marino') ? 1.2 : 1;
     ship.perks.windEase = this.state.learnedSkills.has('nav_viento') ? 2.2 : 1;
     ship.perks.cannonCdMult = this.state.learnedSkills.has('nav_bordo') ? 1.35 : 1;
   }
@@ -462,8 +448,8 @@ export class NavalSystem {
       ship.rudderInput = 0;
     }
     this.cb.sound('anchor');
-    this.cb.notify('info', ship.anchored ? 'Ancla fondeada' : 'Ancla izada',
-      ship.anchored ? `${ship.name} se detiene. Puedes desembarcar si hay costa cerca.` : 'Listos para navegar.');
+    this.cb.notify('info', ship.anchored ? 'Anchor dropped' : 'Anchor raised',
+      ship.anchored ? `${ship.name} comes to a stop. You can go ashore if land is near.` : 'Ready to sail.');
   }
 
   firePlayer(side: 'port' | 'starboard'): void {
@@ -473,7 +459,7 @@ export class NavalSystem {
     if (!shots) {
       if (this.t - this.lastDenyT > 1.2) {
         this.lastDenyT = this.t;
-        this.cb.notify('info', 'Cañones recargando…', 'La bordada aún no está lista.');
+        this.cb.notify('info', 'Cannons reloading…', 'The broadside is not ready yet.');
       }
       return;
     }
@@ -495,9 +481,9 @@ export class NavalSystem {
       this.spawnBall(shot.from, dir.multiplyScalar(speed), fromPlayer);
       // Muzzle flash + gun smoke (Fase 7: real flame burst at the muzzle)
       getFlameFX().burst(shot.from, 0.9, 3, 0.75);
-      this.flashes.spawn(shot.from, 1.2, 0.14, 3);
-      this.smoke.spawn(shot.from.clone().add(new THREE.Vector3(0, 0.4, 0)), 1.8, 1.6, 1.4,
-        new THREE.Vector3(dir.x * 2, 0.6, dir.z * 2));
+      this.flashes.spawn(shot.from, 1.2, 0.14, undefined, { grow: 3 });
+      this.smoke.spawn(shot.from.clone().add(new THREE.Vector3(0, 0.4, 0)), 1.8, 1.6,
+        new THREE.Vector3(dir.x * 2, 0.6, dir.z * 2), { grow: 1.4 });
       if (i === 0) this.cb.sound('cannon');
     }
   }
@@ -574,14 +560,14 @@ export class NavalSystem {
     this.cb.sound('grapple');
     this.cb.music(0.95);
     if (brain.quest) {
-      this.cb.lore('¡Abordaje!', [
-        'Ganchos de abordaje muerden el casco de la Gaviota Sangrienta. Las dos naves quedan amarradas, mecidas por la misma ola.',
-        'En la cubierta, entre barriles y jaulas de cuervo, la Capitana Morwen desenvaina su sable. «El Guardián cría cachorros… Ven a buscar tu sello, cachorro.»',
+      this.cb.lore('Boarding!', [
+        'Grappling hooks bite into the Bloody Gull’s hull. The two ships lie lashed together, rocked by the same wave.',
+        'On deck, among the barrels and the crow cages, Captain Morwen draws her cutlass. “The Warden raises pups… Come take your seal, pup.”',
       ]);
     } else {
-      this.cb.lore('¡Abordaje!', [
-        'Los ganchos vuelan y las cubiertas casi se tocan. La tripulación del cuervo carga con cuchillos entre los dientes.',
-        'Derrota a los corsarios y sácale el botín a ese casco podrido.',
+      this.cb.lore('Boarding!', [
+        'The hooks fly and the decks nearly touch. The crow’s crew charges with knives between their teeth.',
+        'Cut down the corsairs and strip the loot from that rotten hull.',
       ]);
     }
     this.onBoardingStarted?.(enemy);
@@ -610,7 +596,7 @@ export class NavalSystem {
           c.hp -= damage;
           hitAny = true;
           this.cb.sound('hit_hull');
-          this.flashes.spawn(cw.clone().setY(cw.y + 1.2), 0.5, 0.1, 2);
+          this.flashes.spawn(cw.clone().setY(cw.y + 1.2), 0.5, 0.1, undefined, { grow: 2 });
           // Fase 9 — hit reaction: reel back along the blow direction
           // (the captain has poise; the corsairs get bullied)
           if (c.hp > 0) {
@@ -627,7 +613,7 @@ export class NavalSystem {
             c.dead = true;
             c.moving = false;
             if (c.isCaptain) {
-              this.cb.notify('quest', '¡Morwen ha caído!', 'El Cuervo de Tres Cabezas ha perdido a su capitana.');
+              this.cb.notify('quest', 'Morwen has fallen!', 'The Three-Headed Crow has lost its captain.');
             }
           }
           break;
@@ -684,9 +670,9 @@ export class NavalSystem {
           c.dead = true;
           c.moving = false;
           const w = b.brain.ship.toWorld(c.lx, 1.1, c.lz);
-          this.flashes.spawn(w.clone().setY(w.y + 0.4), 1.6, 0.16, 3);
+          this.flashes.spawn(w.clone().setY(w.y + 0.4), 1.6, 0.16, undefined, { grow: 3 });
           this.cb.sound('hit_hull');
-          this.cb.notify('quest', '¡REMATE!', `${c.name} cae bajo el golpe del Guardián. La cubierta queda en silencio.`);
+          this.cb.notify('quest', 'FINISHER!', `${c.name} falls beneath the Warden’s blow. The deck falls silent.`);
           this.cb.music(0.5);
         }
       }
@@ -703,8 +689,8 @@ export class NavalSystem {
     this.state.addItem('madera', 2);
     this.state.giveXp(120);
     this.state.setFlag('morwen_defeated');
-    this.cb.notify('quest', '¡La Gaviota Sangrienta es tuya!',
-      'Sello de la Orden, 90 monedas y madera de primera añadidos al inventario.');
+    this.cb.notify('quest', 'The Bloody Gull is yours!',
+      'Seal of the Order, 90 coins, and prime timber added to your inventory.');
     this.cb.music(0.8);
     // The pirate brig is scuttled by her own boiling powder store
     brain.ship.grappled = false;
@@ -791,7 +777,7 @@ export class NavalSystem {
       const cand = this.helmCandidate(playerWorld);
       if (cand) {
         return {
-          prompt: `Zarpar a bordo del ${cand.name}`,
+          prompt: `Set sail aboard the ${cand.name}`,
           run: () => this.cb.returnPlayerToShip(cand),
         };
       }
@@ -802,7 +788,7 @@ export class NavalSystem {
     const boardable = this.canBoard();
     if (boardable) {
       return {
-        prompt: `Abordar la ${boardable.ship.name}`,
+        prompt: `Board the ${boardable.ship.name}`,
         run: () => this.startBoarding(boardable),
       };
     }
@@ -813,7 +799,7 @@ export class NavalSystem {
       const spot = this.findLandingSpot(active);
       if (spot) {
         return {
-          prompt: 'Desembarcar en tierra firme',
+          prompt: 'Go ashore',
           run: () => this.disembark(spot),
         };
       }
@@ -825,7 +811,7 @@ export class NavalSystem {
       const d = Math.hypot(barrel.pos.x - playerWorld.x, barrel.pos.z - playerWorld.z);
       if (d < 9) {
         return {
-          prompt: 'Recuperar el botín flotante',
+          prompt: 'Recover the floating loot',
           run: () => {
             barrel.claimed = true;
             barrel.mesh.visible = false;
@@ -834,7 +820,7 @@ export class NavalSystem {
             if (Math.random() < 0.5) this.state.addItem('madera', 1);
             this.state.giveXp(20);
             this.cb.sound('hit_hull');
-            this.cb.notify('item', 'Botín recuperado', `${coins} monedas de oro del casco hundido.`);
+            this.cb.notify('item', 'Loot recovered', `${coins} gold coins from the sunken hull.`);
           },
         };
       }
@@ -867,7 +853,7 @@ export class NavalSystem {
     ship.sailState = 0;
     this.helmShip = null;
     this.onDisembark?.(spot);
-    this.cb.notify('info', 'Has desembarcado', `${ship.name} queda fondeado aquí. Vuélvete a acercar a su costado para zarpar de nuevo.`);
+    this.cb.notify('info', 'You have gone ashore', `${ship.name} lies at anchor here. Come back to her side to set sail again.`);
   }
 
   onDisembark?: (spot: { x: number; z: number }) => void;
@@ -888,6 +874,74 @@ export class NavalSystem {
 
   // -------------------------------------------------------------- update
 
+  /** Fase 15 — hull vs hull: circle-approximated collision between every
+   *  live pair of ships. Pushes both hulls apart, kills the closing speed
+   *  and deals RAM damage when the impact is hard. Anchored/admin ships
+   *  are pushed too (the sea gives a little) but take no damage at rest. */
+  private resolveShipCollisions(dt: number): void {
+    void dt;
+    const live: Ship[] = [];
+    if (this.playerShip && this.playerShip.sinking === 0 && !this.playerShip.sunk) {
+      live.push(this.playerShip);
+    }
+    for (const brain of this.enemies) {
+      if (brain.ship.sinking === 0 && !brain.ship.sunk) live.push(brain.ship);
+    }
+    for (const s of this.extraShips) {
+      if (s.sinking === 0 && !s.sunk) live.push(s);
+    }
+    const R = 7.4; // collision circle per hull (16 m hull, beam-beam contact)
+    for (let i = 0; i < live.length; i++) {
+      for (let j = i + 1; j < live.length; j++) {
+        const a = live[i];
+        const b = live[j];
+        // Grappled/frozen hulls (mid-boarding) sit together ON PURPOSE
+        if (a.grappled && b.grappled) continue;
+        if (a.frozen || b.frozen) continue;
+        const dx = b.pos.x - a.pos.x;
+        const dz = b.pos.z - a.pos.z;
+        const d = Math.hypot(dx, dz);
+        const minD = R + R;
+        if (d >= minD || d < 0.001) continue;
+        // push both apart along the contact axis (half each)
+        const push = (minD - d) / 2;
+        const nx = dx / d;
+        const nz = dz / d;
+        a.pos.x -= nx * push;
+        a.pos.z -= nz * push;
+        b.pos.x += nx * push;
+        b.pos.z += nz * push;
+        a.syncTransform();
+        b.syncTransform();
+        // closing speed along the axis → ram damage when hard
+        const vaX = Math.sin(a.heading) * a.speed;
+        const vaZ = Math.cos(a.heading) * a.speed;
+        const vbX = Math.sin(b.heading) * b.speed;
+        const vbZ = Math.cos(b.heading) * b.speed;
+        const closing = (vaX - vbX) * nx + (vaZ - vbZ) * nz;
+        if (closing > 2.2) {
+          const dmg = closing * 1.9;
+          a.applyDamage(dmg);
+          b.applyDamage(dmg);
+          if (this.t - this.lastRamT > 0.6) {
+            this.lastRamT = this.t;
+            this.cb.sound('hit_hull');
+            this.cb.sound('creak');
+            const mid = new THREE.Vector3(
+              a.pos.x + nx * R, this.water.waveHeightAt(a.pos.x + nx * R, a.pos.z + nz * R) + 1, a.pos.z + nz * R,
+            );
+            this.splashes.spawn(mid, 2.2, 0.8, undefined, { grow: 2.4 });
+            this.smoke.spawn(mid, 1.6, 1.2, new THREE.Vector3(0, 1.4, 0), { grow: 1.8 });
+          }
+        }
+        a.speed *= 0.35;
+        b.speed *= 0.35;
+      }
+    }
+  }
+
+  private lastRamT = -10;
+
   update(dt: number, playerWorld: THREE.Vector3): SailingHud | null {
     this.t += dt;
 
@@ -901,8 +955,8 @@ export class NavalSystem {
     if (ship && ship.sinking > 0 && !this.sinkRespawn) {
       this.sinkRespawn = { timer: 3.2 };
       this.cb.sound('sink');
-      this.cb.notify('quest', '¡El Colibrí de Mar se hunde!',
-        'Las olas te devuelven a la costa. Bram prometerá revisar el casco… por un precio.');
+      this.cb.notify('quest', 'The Sea Hummingbird is sinking!',
+        'The waves wash you back to shore. Bram will promise to look over the hull… for a price.');
       this.cb.music(0.9);
     }
     if (this.sinkRespawn) {
@@ -961,6 +1015,10 @@ export class NavalSystem {
       s.syncColliders(playerWorld.x, playerWorld.z);
     }
 
+    // --- Fase 15 — ship-vs-ship collision: hulls are SOLID against each
+    //     other (they used to ghost through). Push-out + ram damage. ---
+    this.resolveShipCollisions(dt);
+
     // --- Effects ---
     this.splashes.update(dt);
     this.smoke.update(dt);
@@ -978,12 +1036,16 @@ export class NavalSystem {
     if (this.boarding) this.updateBoarding(dt, playerWorld);
 
     // --- HUD ---
-    if (ship && (this.playerSailing || this.playerNearShip(playerWorld))) {
+    // Fase 15 — while sailing, the HUD follows the ship at the HELM (admin
+    // ships included): `ship` is only the Colibrí, which doesn't exist yet
+    // during an admin-ship voyage.
+    const hudShip = this.playerSailing ? (this.activeShip ?? ship) : ship;
+    if (hudShip && (this.playerSailing || this.playerNearShip(playerWorld))) {
       let enemyHud: SailingHud['enemy'] = null;
       let bestD = Infinity;
       for (const brain of this.enemies) {
         if (brain.ship.sunk || brain.ship.sinking > 0) continue;
-        const d = Math.hypot(brain.ship.pos.x - ship.pos.x, brain.ship.pos.z - ship.pos.z);
+        const d = Math.hypot(brain.ship.pos.x - hudShip.pos.x, brain.ship.pos.z - hudShip.pos.z);
         if (d < bestD) {
           bestD = d;
           if (d < 240) {
@@ -995,17 +1057,17 @@ export class NavalSystem {
           }
         }
       }
-      const rel = Math.atan2(Math.sin(WIND.dir - ship.heading), Math.cos(WIND.dir - ship.heading));
+      const rel = Math.atan2(Math.sin(WIND.dir - hudShip.heading), Math.cos(WIND.dir - hudShip.heading));
       return {
-        hull: ship.hullHp,
-        hullMax: ship.maxHullHp,
-        knots: Math.abs(ship.speed) * 1.944,
-        sailState: ship.sailState,
+        hull: hudShip.hullHp,
+        hullMax: hudShip.maxHullHp,
+        knots: Math.abs(hudShip.speed) * 1.944,
+        sailState: hudShip.sailState,
         windRel: rel,
-        cdPort: clamp(1 - ship.cdPort / ship.cannonCd, 0, 1),
-        cdStar: clamp(1 - ship.cdStar / ship.cannonCd, 0, 1),
-        anchored: ship.anchored,
-        shipName: ship.name,
+        cdPort: clamp(1 - hudShip.cdPort / hudShip.cannonCd, 0, 1),
+        cdStar: clamp(1 - hudShip.cdStar / hudShip.cannonCd, 0, 1),
+        anchored: hudShip.anchored,
+        shipName: hudShip.name,
         enemy: enemyHud,
         boarding: this.boarding !== null,
       };
@@ -1083,7 +1145,7 @@ export class NavalSystem {
       brain.mode = 'chase';
       if (!brain.aggroNotified) {
         brain.aggroNotified = true;
-        this.cb.notify('quest', '¡Vela negra al acecho!', `${enemy.name} ha virado hacia ti. ¡A los cañones!`);
+        this.cb.notify('quest', 'Black sail on the prowl!', `${enemy.name} has come about toward you. Man the cannons!`);
         this.cb.music(0.75);
       }
     } else if (distToPlayer > 380 && brain.mode !== 'patrol') {
@@ -1186,9 +1248,9 @@ export class NavalSystem {
             } else {
               tgt.ship.applyDamage(dmg);
             }
-            this.smoke.spawn(p.clone(), 1.4, 1.1, 1.6, new THREE.Vector3(0, 1.2, 0));
+            this.smoke.spawn(p.clone(), 1.4, 1.1, new THREE.Vector3(0, 1.2, 0), { grow: 1.6 });
             getFlameFX().burst(p.clone(), 0.8, 3, 0.6);
-            this.flashes.spawn(p.clone(), 1.1, 0.1, 2);
+            this.flashes.spawn(p.clone(), 1.1, 0.1, undefined, { grow: 2 });
             this.cb.sound('hit_hull');
             if (ball.fromPlayer && tgt.ship.isPlayer === false) {
               this.cb.music(0.7);
@@ -1204,8 +1266,20 @@ export class NavalSystem {
         const dragon = this.dragonHitTest(p, ballPrev);
         if (dragon) {
           dragon.damage(42);
-          this.flashes.spawn(p.clone(), 1.7, 0.12, 2);
-          this.smoke.spawn(p.clone(), 1.5, 1.0, 1.9, new THREE.Vector3(0, 1, 0));
+          this.flashes.spawn(p.clone(), 1.7, 0.12, undefined, { grow: 2 });
+          this.smoke.spawn(p.clone(), 1.5, 1.0, new THREE.Vector3(0, 1, 0), { grow: 1.9 });
+          this.cb.sound('hit_hull');
+          dead = true;
+        }
+      }
+
+      // --- Sea-serpent impacts (Fase 15: the beasts of the abyss) ---
+      if (!dead && this.seaBeasts) {
+        const beast = this.seaBeasts.projectileHitTest(p, 0.55, ballPrev);
+        if (beast) {
+          this.seaBeasts.damage(beast, (ball.fromPlayer ? 9 : 6) + Math.random() * 5);
+          this.flashes.spawn(p.clone(), 1.6, 0.12, undefined, { grow: 2.2 });
+          this.splashes.spawn(new THREE.Vector3(p.x, p.y + 0.6, p.z), 1.5, 0.9, undefined, { grow: 2.4 });
           this.cb.sound('hit_hull');
           dead = true;
         }
@@ -1215,7 +1289,7 @@ export class NavalSystem {
       if (!dead) {
         const wh = this.water.waveHeightAt(p.x, p.z);
         if (p.y <= wh + 0.05) {
-          this.splashes.spawn(new THREE.Vector3(p.x, Math.max(0.2, wh + 0.2), p.z), 1.4, 0.9, 2.2);
+          this.splashes.spawn(new THREE.Vector3(p.x, Math.max(0.2, wh + 0.2), p.z), 1.4, 0.9, undefined, { grow: 2.2 });
           this.cb.sound('splash');
           dead = true;
         }
@@ -1380,6 +1454,11 @@ export class NavalSystem {
         ...b.ship.serialize(),
         questBoarded: b.questBoarded ?? false,
       })),
+      // Fase 16 — admin ships survive a load: they are "yours" like the
+      // Colibrí, and used to evaporate on every reload.
+      extras: this.extraShips
+        .filter((s) => !s.sunk)
+        .map((s) => ({ id: s.id, ...s.serialize() })),
     };
   }
 
@@ -1401,6 +1480,32 @@ export class NavalSystem {
         }
       }
     });
+    this.restoreExtras(data?.extras);
+  }
+
+  /**
+   * Fase 16 — rebuild the saved admin ships on a fresh session. Each extra
+   * is recreated exactly where it was anchored (heading, hull, sails), then
+   * re-dressed with the GLB hull. Live extras without a save entry stay.
+   */
+  private restoreExtras(list: NavalSaveData['extras']): void {
+    if (!list) return;
+    for (const d of list) {
+      if (!d || this.extraShips.some((s) => s.id === d.id)) continue;
+      const ship = new Ship({
+        id: d.id,
+        name: 'Wandering Vessel',
+        kind: 'pirate',
+        isPlayer: false,
+        x: d.x, z: d.z, heading: d.heading,
+      });
+      ship.anchored = true;
+      this.scene.add(ship.group);
+      if (this.colliders) ship.bindColliderRegistry(this.colliders);
+      this.extraShips.push(ship);
+      this.dressShip(ship);
+      ship.deserialize({ ...d });
+    }
   }
 }
 
@@ -1415,5 +1520,10 @@ export interface NavalSaveData {
     x: number; z: number; heading: number; hullHp: number;
     sailState: 0 | 1 | 2; anchored: boolean; sunk: boolean; sinking: number;
     questBoarded?: boolean;
+  }>;
+  /** Fase 16 — admin ships, so they survive a reload (optional: old saves). */
+  extras?: Array<{
+    id: string; x: number; z: number; heading: number; hullHp: number;
+    sailState: 0 | 1 | 2; anchored: boolean; sunk: boolean; sinking: number;
   }>;
 }

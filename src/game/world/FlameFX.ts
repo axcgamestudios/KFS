@@ -21,6 +21,9 @@ import * as THREE from 'three';
  */
 
 // ---------------------------------------------------------------- shader
+// Fase 15 — INSTANCED variant: one InstancedMesh draws every transient flame
+// in a single call. Per-instance data arrives as instanced attributes
+// (aSeed/aHeat/aIntensity/aScaleX/aScaleY) + instanceMatrix carries position.
 
 const VERT = /* glsl */ `
   uniform float uScaleX;
@@ -37,6 +40,34 @@ const VERT = /* glsl */ `
     vec4 mv = modelViewMatrix * vec4(0.0, 0.0, 0.0, 1.0);
     mv.x += position.x * uScaleX;
     mv.y += position.y * uScaleY * (1.0 + squash) + uScaleY * 0.5; // anchor = base
+    gl_Position = projectionMatrix * mv;
+  }
+`;
+
+/** Instanced billboard: center from instanceMatrix, size from instanced attrs. */
+const VERT_INST = /* glsl */ `
+  attribute float aSeed;
+  attribute float aHeat;
+  attribute float aIntensity;
+  attribute float aScaleX;
+  attribute float aScaleY;
+  uniform float uTime;
+  varying vec2 vUv;
+  varying float vSeed;
+  varying float vHeat;
+  varying float vIntensity;
+
+  void main() {
+    vUv = uv;
+    vSeed = aSeed;
+    vHeat = aHeat;
+    vIntensity = aIntensity;
+    float squash = sin(uTime * 12.0 + aSeed * 41.0) * 0.07
+                 + sin(uTime * 4.3 + aSeed * 13.0) * 0.05;
+    // instance center in view space (rotation irrelevant: flames billboard)
+    vec4 mv = modelViewMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+    mv.x += position.x * aScaleX;
+    mv.y += position.y * aScaleY * (1.0 + squash) + aScaleY * 0.5;
     gl_Position = projectionMatrix * mv;
   }
 `;
@@ -114,12 +145,76 @@ const FRAG = /* glsl */ `
   }
 `;
 
+/** Fase 15 — instanced fragment: seed/heat/intensity arrive as varyings. */
+const FRAG_INST = /* glsl */ `
+  uniform float uTime;
+  varying vec2 vUv;
+  varying float vSeed;
+  varying float vHeat;
+  varying float vIntensity;
+
+  float hash(vec2 p) {
+    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+  }
+  float vnoise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(
+      mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x),
+      mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x),
+      f.y
+    );
+  }
+  float fbm(vec2 p) {
+    float v = 0.0;
+    float a = 0.5;
+    for (int i = 0; i < 3; i++) {
+      v += a * vnoise(p);
+      p = p * 2.03 + vec2(11.3, 7.7);
+      a *= 0.55;
+    }
+    return v;
+  }
+
+  void main() {
+    if (vIntensity <= 0.004) discard;
+    vec2 uv = vUv;
+    float t = uTime * 2.4 + vSeed * 37.0;
+
+    float taper = smoothstep(0.0, 1.0, uv.y);
+    float halfW = mix(0.30, 0.05, taper * taper);
+    float cx = abs(uv.x - 0.5) + uv.y * 0.10;
+    float body = 1.0 - smoothstep(halfW, halfW * 2.4, cx);
+
+    float n1 = fbm(vec2(uv.x * 3.6 + vSeed * 9.0, uv.y * 2.4 - t * 0.85));
+    float n2 = fbm(vec2(uv.x * 7.0 - t * 0.33 + vSeed, uv.y * 5.4 - t * 1.5));
+    float f = clamp((body * 1.9 - n1 * 1.02 - n2 * 0.58) * 2.3, 0.0, 1.0);
+
+    f *= smoothstep(0.0, 0.10, uv.y);
+    f *= 1.0 - smoothstep(0.62, 1.0, uv.y + (n1 - 0.5) * 0.35);
+    f = pow(f, 1.62);
+    if (f < 0.012) discard;
+
+    vec3 col = mix(vec3(0.42, 0.024, 0.002), vec3(0.92, 0.24, 0.010), smoothstep(0.03, 0.44, f));
+    col = mix(col, vec3(1.0, 0.46, 0.045), smoothstep(0.40, 0.78, f));
+    col = mix(col, vec3(1.0, 0.62, 0.14), smoothstep(0.80, 0.99, f) * (0.3 + 0.7 * vHeat));
+    col *= 0.84 + 0.28 * vHeat;
+    col = min(col, vec3(1.0, 0.64, 0.22));
+
+    gl_FragColor = vec4(col, f * vIntensity);
+    #include <tonemapping_fragment>
+    #include <colorspace_fragment>
+  }
+`;
+
 // ---------------------------------------------------------------- core
 
-/** One pooled transient flame (dragon breath, bursts). */
+/** One pooled transient flame slot (dragon breath, bursts).
+ *  Fase 15 — all slots live in ONE InstancedMesh (single draw call). */
 interface TransientFlame {
-  mesh: THREE.Mesh;
-  mat: THREE.ShaderMaterial;
+  slot: number;          // instance index inside the InstancedMesh
+  pos: THREE.Vector3;    // live world position (velocity-integrated)
   t: number;
   dur: number;
   vel: THREE.Vector3;
@@ -171,6 +266,19 @@ export class FlameFX {
   private baseMat: THREE.ShaderMaterial;
   private persistent: PersistentFlame[] = [];
   private pool: TransientFlame[] = [];
+  /** Fase 15 — the whole transient pool renders as ONE InstancedMesh. */
+  private instMesh: THREE.InstancedMesh | null = null;
+  private instSeed: THREE.InstancedBufferAttribute | null = null;
+  private instHeat: THREE.InstancedBufferAttribute | null = null;
+  private instIntensity: THREE.InstancedBufferAttribute | null = null;
+  private instScaleX: THREE.InstancedBufferAttribute | null = null;
+  private instScaleY: THREE.InstancedBufferAttribute | null = null;
+  private instMat4 = new THREE.Matrix4();
+  private instPos = new THREE.Vector3();
+  private instQuat = new THREE.Quaternion();
+  private instScale0 = new THREE.Vector3();
+  /** One extra frame of uploads after the last flame dies (final matrices). */
+  private instDirty = false;
   private embers: THREE.Points | null = null;
   private emberData: {
     origin: THREE.Vector3;
@@ -323,31 +431,64 @@ export class FlameFX {
 
   /** Fase 14 — presupuesto de llamas transitorias activas a la vez (el
    *  aliento de dragón generaba >100 quads aditivos por segundo: cada uno
-   *  es un draw call transparente). Por calidad: media 44, baja 24. */
+   *  es un draw call transparente). Por calidad: media 44, baja 24.
+   *  Fase 15 — ahora todo el pool es UN InstancedMesh (1 draw call), el
+   *  presupuesto sigue limitando cuántas se animan por frame (CPU). */
   private budget = 150;
   setBudget(n: number): void { this.budget = Math.max(8, Math.min(150, Math.round(n))); }
 
   private activeCount = 0;
 
+  /** Fase 15 — build the shared InstancedMesh the first time it is needed. */
+  private ensureInstanced(): void {
+    if (this.instMesh) return;
+    const MAX = 150;
+    const geo = new THREE.PlaneGeometry(1, 1);
+    this.instSeed = new THREE.InstancedBufferAttribute(new Float32Array(MAX), 1);
+    this.instHeat = new THREE.InstancedBufferAttribute(new Float32Array(MAX), 1);
+    this.instIntensity = new THREE.InstancedBufferAttribute(new Float32Array(MAX), 1);
+    this.instScaleX = new THREE.InstancedBufferAttribute(new Float32Array(MAX), 1);
+    this.instScaleY = new THREE.InstancedBufferAttribute(new Float32Array(MAX), 1);
+    geo.setAttribute('aSeed', this.instSeed);
+    geo.setAttribute('aHeat', this.instHeat);
+    geo.setAttribute('aIntensity', this.instIntensity);
+    geo.setAttribute('aScaleX', this.instScaleX);
+    geo.setAttribute('aScaleY', this.instScaleY);
+    const mat = new THREE.ShaderMaterial({
+      vertexShader: VERT_INST,
+      fragmentShader: FRAG_INST,
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      uniforms: { uTime: this.timeU } as unknown as Record<string, THREE.IUniform>,
+    });
+    const mesh = new THREE.InstancedMesh(geo, mat, MAX);
+    mesh.frustumCulled = false;
+    mesh.renderOrder = 5;
+    mesh.name = 'flame_fx_instanced';
+    // all slots hidden (zero scale) until spawned
+    this.instScale0.set(0, 0, 0);
+    for (let i = 0; i < MAX; i++) {
+      mesh.setMatrixAt(i, this.instMat4.compose(this.instPos.set(0, -999, 0), this.instQuat, this.instScale0));
+      this.instIntensity!.setX(i, 0);
+    }
+    this.scene.add(mesh);
+    this.instMesh = mesh;
+    // pre-allocate the slot records
+    for (let i = 0; i < MAX; i++) {
+      this.pool.push({
+        slot: i, pos: new THREE.Vector3(), t: 0, dur: 1, vel: new THREE.Vector3(),
+        drag: 1, gravity: 0, grow: 1, baseOpacity: 1, baseScale: 1, active: false,
+      });
+    }
+  }
+
   private takeTransient(): TransientFlame | null {
     // el presupuesto cuenta ACTIVAS (no el tamaño del pool)
     if (this.activeCount >= this.budget) return null; // Fase 14 — presupuesto
+    this.ensureInstanced();
     for (const f of this.pool) if (!f.active) return f;
-    if (this.pool.length >= 150) return null; // hard cap
-    // grow the pool lazily
-    const mat = this.makeMaterial(Math.random() * 100, 0.5, 1, 1, 0);
-    const mesh = new THREE.Mesh(this.geo, mat);
-    mesh.visible = false;
-    mesh.frustumCulled = false;
-    mesh.renderOrder = 5;
-    mesh.name = 'flame_fx_transient';
-    this.scene.add(mesh);
-    const f: TransientFlame = {
-      mesh, mat, t: 0, dur: 1, vel: new THREE.Vector3(),
-      drag: 1, gravity: 0, grow: 1, baseOpacity: 1, baseScale: 1, active: false,
-    };
-    this.pool.push(f);
-    return f;
+    return null; // pool lleno (150)
   }
 
   /** Spawn a short-lived flame (dragon breath, impacts, muzzle fire). */
@@ -359,7 +500,7 @@ export class FlameFX {
     opts: { heat?: number; grow?: number; drag?: number; gravity?: number; opacity?: number } = {},
   ): void {
     const f = this.takeTransient();
-    if (!f) return;
+    if (!f || !this.instMesh) return;
     f.active = true;
     this.activeCount++;
     f.t = 0;
@@ -370,14 +511,19 @@ export class FlameFX {
     f.grow = opts.grow ?? 2.2;
     f.baseOpacity = opts.opacity ?? 0.85;
     f.baseScale = scale;
-    f.mesh.position.copy(pos);
-    f.mesh.visible = true;
-    f.mat.uniforms.uSeed.value = Math.random() * 100;
-    f.mat.uniforms.uHeat.value = opts.heat ?? 0.55;
-    f.mat.uniforms.uScaleX.value = scale * 0.9;
-    f.mat.uniforms.uScaleY.value = scale * 1.5;
-    f.mat.uniforms.uIntensity.value = f.baseOpacity;
-    f.mat.uniforms.uFlicker.value = 0;
+    f.pos.copy(pos);
+    this.instMesh.setMatrixAt(f.slot, this.instMat4.compose(f.pos, this.instQuat, this.instScale0.set(1, 1, 1)));
+    this.instMesh.instanceMatrix.needsUpdate = true;
+    this.instSeed!.setX(f.slot, Math.random() * 100);
+    this.instHeat!.setX(f.slot, opts.heat ?? 0.55);
+    this.instScaleX!.setX(f.slot, scale * 0.9);
+    this.instScaleY!.setX(f.slot, scale * 1.5);
+    this.instIntensity!.setX(f.slot, f.baseOpacity);
+    this.instSeed!.needsUpdate = true;
+    this.instHeat!.needsUpdate = true;
+    this.instIntensity!.needsUpdate = true;
+    this.instScaleX!.needsUpdate = true;
+    this.instScaleY!.needsUpdate = true;
   }
 
   /** One-shot fire burst (impacts, cannon muzzle, charge puffs). */
@@ -404,25 +550,41 @@ export class FlameFX {
     this.lastNow = now;
     this.timeU.value += dt;
 
-    // transient flames: physics + growth + fade
-    for (const f of this.pool) {
-      if (!f.active) continue;
-      f.t += dt;
-      const k = f.t / f.dur;
-      if (k >= 1) {
-        f.active = false;
-        this.activeCount = Math.max(0, this.activeCount - 1);
-        f.mesh.visible = false;
-        continue;
+    // transient flames: physics + growth + fade (Fase 15 — instanced pool:
+    // write matrix + intensity per active slot, ONE draw call for them all)
+    if (this.instMesh && (this.activeCount > 0 || this.instDirty)) {
+      this.instDirty = this.activeCount > 0;
+      let anyMoved = this.activeCount > 0;
+      for (const f of this.pool) {
+        if (!f.active) continue;
+        f.t += dt;
+        const k = f.t / f.dur;
+        if (k >= 1) {
+          f.active = false;
+          this.activeCount = Math.max(0, this.activeCount - 1);
+          this.instIntensity!.setX(f.slot, 0);
+          // park the instance far away with zero scale
+          this.instMesh.setMatrixAt(f.slot, this.instMat4.compose(
+            this.instPos.set(0, -999, 0), this.instQuat, this.instScale0.set(0, 0, 0),
+          ));
+          continue;
+        }
+        const dampK = Math.max(0, 1 - f.drag * dt);
+        f.vel.multiplyScalar(dampK);
+        f.vel.y += f.gravity * dt;
+        const growK = 1 + f.grow * f.t;
+        f.pos.addScaledVector(f.vel, dt);
+        this.instMesh.setMatrixAt(f.slot, this.instMat4.compose(f.pos, this.instQuat, this.instScale0.set(1, 1, 1)));
+        this.instScaleX!.setX(f.slot, f.baseScale * 0.9 * growK);
+        this.instScaleY!.setX(f.slot, f.baseScale * 1.5 * growK);
+        this.instIntensity!.setX(f.slot, f.baseOpacity * (1 - k * k));
       }
-      const damp = Math.max(0, 1 - f.drag * dt);
-      f.vel.multiplyScalar(damp);
-      f.vel.y += f.gravity * dt;
-      f.mesh.position.addScaledVector(f.vel, dt);
-      const growK = 1 + f.grow * f.t;
-      f.mat.uniforms.uScaleX.value = f.baseScale * 0.9 * growK;
-      f.mat.uniforms.uScaleY.value = f.baseScale * 1.5 * growK;
-      f.mat.uniforms.uIntensity.value = f.baseOpacity * (1 - k * k);
+      if (anyMoved) {
+        this.instMesh.instanceMatrix.needsUpdate = true;
+        this.instIntensity!.needsUpdate = true;
+        this.instScaleX!.needsUpdate = true;
+        this.instScaleY!.needsUpdate = true;
+      }
     }
 
     // embers: rise, waver, respawn
@@ -457,8 +619,13 @@ export class FlameFX {
   dispose(): void {
     for (const f of this.persistent) this.scene.remove(f.mesh);
     this.persistent.length = 0;
-    for (const f of this.pool) { this.scene.remove(f.mesh); f.mat.dispose(); }
-    this.pool.length = 0;
+    if (this.instMesh) {
+      this.scene.remove(this.instMesh);
+      (this.instMesh.material as THREE.Material).dispose();
+      this.instMesh.geometry.dispose();
+      this.instMesh = null;
+      this.pool.length = 0;
+    }
     if (this.embers) {
       this.embers.geometry.dispose();
       this.scene.remove(this.embers);

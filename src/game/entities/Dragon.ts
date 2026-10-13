@@ -100,7 +100,16 @@ export class Dragon {
   staggerMeter = 0;
   visibleToPlayer = true;
 
-  private yaw = 0;
+  yaw = 0; // Fase 15 — public: the rider's yaw follows it
+  /** Fase 15 — dragon riding (admin spawns): the hero rides this dragon. */
+  rideable = false;
+  ridden = false;
+  private rideSpeed = 0;
+  private rideVy = 0;
+  /** Active breath time / cooldown while ridden (left click). */
+  private rideFireT = 0;
+  private rideFireCd = 0;
+  private rideWingT = 0;
   private target = new THREE.Vector3();
   private action: 'bite' | 'claw' | 'tail' | 'fire' | 'none' = 'none';
   private hitDone = false;
@@ -254,7 +263,16 @@ export class Dragon {
     this.yaw = dampAngle(this.yaw, want, rate, dt);
   }
 
-  /** Fire breath cone test: is the target inside length/width from the mouth? */
+  /**
+   * Fire breath cone test: is the target inside the flame STREAM?
+   * Fase 16 — the old check allowed a ~70° half-angle cone (140° total!):
+   * the player burned while standing far outside the visible flame, which
+   * read as "the fire hits you from anywhere". The real flame VFX is a
+   * narrow jet (VfxSystem.fireBreath: centre spread 0.35 + 0.16·dist m,
+   * particle radius ~0.5-0.9 m). The damage volume now mirrors that jet:
+   * a ray from the mouth with a distance-dependent half-width, plus a
+   * minimum forward distance so the dragon never roasts its own collarbone.
+   */
   private inFireCone(playerPos: THREE.Vector3, terrain: TerrainHeight, maxLen: number): boolean {
     this.model.mouthWorldPos(tmpA);
     tmpB.copy(playerPos).sub(tmpA);
@@ -265,7 +283,14 @@ export class Dragon {
     this.group.getWorldDirection(tmpC);
     tmpB.normalize();
     const along = tmpB.dot(tmpC);
-    if (along < 0.35) return false; // ~70° half-angle cone
+    const fwd = along * len;                       // distance down the jet
+    if (fwd < 1.6) return false;                   // dead zone right at the mouth
+    // Perpendicular distance from the jet axis
+    const perp = Math.sqrt(Math.max(0, len * len - fwd * fwd));
+    // Half-width of the visible flame at that distance (matches the VFX
+    // spread 0.35 + 0.16·dist, plus a particle's own radius)
+    const halfW = 0.9 + fwd * 0.19;
+    if (perp > halfW) return false;
     // Fire must not pass through terrain
     for (let i = 1; i <= 3; i++) {
       const k = (i / 3) * Math.min(len, maxLen);
@@ -276,6 +301,15 @@ export class Dragon {
   }
 
   // ---------------------------------------------------------------- update
+
+  /**
+   * Fase 16 — E2E only: expose the fire-breath damage cone so browser probes
+   * can verify the hitbox geometry without provoking a real dragon fight.
+   */
+  debugFireCone(target: THREE.Vector3, terrain: TerrainHeight): boolean {
+    this.group.updateMatrixWorld(true);
+    return this.inFireCone(target, terrain, this.def.fireRange);
+  }
 
   /**
    * @param targetPos what the dragon hunts (player position, or the ship
@@ -303,7 +337,8 @@ export class Dragon {
     this.perceptionT -= dt;
     if (this.perceptionT <= 0) {
       this.perceptionT = 0.35;
-      if (this.alive && !this.aggro && this.state !== 'die' && targetAlive) {
+      // Fase 15 — tamed dragons (admin mounts) NEVER turn on their rider
+      if (this.alive && !this.aggro && !this.rideable && this.state !== 'die' && targetAlive) {
         if (this.state === 'sleep') {
           // Sleeping dragons wake ANGRY when disturbed — bosses present on wake
           if (distTarget3 < 26) {
@@ -852,6 +887,175 @@ export class Dragon {
       { center: tmpA.clone(), radius: this.bodyRadius, head: false },
       { center: tmpB.clone(), radius: this.headRadius, head: true },
     ];
+  }
+
+  // ---------------------------------------------------------------- riding
+
+  /** Fase 15 — the hero takes the saddle: AI off, calm, controls external. */
+  enterRideMode(): void {
+    this.ridden = true;
+    this.aggro = false;
+    this.attackCd = 999;
+    this.state = 'idle';
+    this.stateT = 0;
+    this.rideSpeed = 0;
+    this.rideVy = 0;
+    this.rideFireT = 0;
+    this.rideFireCd = 0;
+    this.model.mouthGlow(0);
+    this.model.setEyeGlow(0);
+  }
+
+  /** The hero dismounts: the dragon goes back to a calm grounded life. */
+  exitRideMode(): void {
+    this.ridden = false;
+    this.attackCd = 1.5;
+    this.state = 'idle';
+    this.stateT = 0;
+    this.rideSpeed = 0;
+    this.rideVy = 0;
+    this.model.mouthGlow(0);
+  }
+
+  /** Saddle point: between the shoulder blades, behind the neck base. */
+  rideSeatWorld(out: THREE.Vector3): THREE.Vector3 {
+    const s = this.def.scale;
+    return out.set(this.pos.x + Math.sin(this.yaw) * 0.55 * s,
+      this.pos.y + 0.92 * s,
+      this.pos.z + Math.cos(this.yaw) * 0.55 * s);
+  }
+
+  /** Where the hero lands after dismounting (beside the dragon, safe). */
+  dismountSpot(out: THREE.Vector3, terrain: TerrainHeight): THREE.Vector3 {
+    const sideX = Math.cos(this.yaw);
+    const sideZ = -Math.sin(this.yaw);
+    const x = this.pos.x + sideX * (this.bodyRadius + 1.2);
+    const z = this.pos.z + sideZ * (this.bodyRadius + 1.2);
+    return out.set(x, Math.max(terrain.height(x, z), 0.6) + 0.4, z);
+  }
+
+  /** True when the dragon hovers too high to dismount safely. */
+  get tooHighToDismount(): boolean {
+    return this.flying && this.pos.y > Math.max(0, this.terrainRef?.height(this.pos.x, this.pos.z) ?? 0) + this.legHeight + 5.5;
+  }
+
+  /** Riding speed (HUD) in m/s. */
+  get rideVel(): number {
+    return Math.hypot(this.rideSpeed, this.flying ? this.rideVy : 0);
+  }
+
+  /**
+   * Fase 15 — the rider's dragon: W/S forward & brake, A/D turn,
+   * ESPACIO climb / take off, MAYÚS descend / land, clic izq. fire breath.
+   * Runs INSTEAD of the AI update while ridden.
+   */
+  rideControl(
+    dt: number,
+    ctl: { fwd: number; turn: number; up: boolean; down: boolean; fire: boolean },
+    terrain: TerrainHeight,
+    hooks: DragonHooks,
+  ): void {
+    this.terrainRef = terrain;
+    const def = this.def;
+    const groundHere = Math.max(terrain.height(this.pos.x, this.pos.z), 0); // sea level floor
+
+    // --- Vertical: takeoff / climb / descend / land ---
+    if (!this.flying) {
+      if (ctl.up) {
+        this.flying = true;
+        this.rideVy = 6.2;
+        this.anim.mode = 'takeoff';
+        this.anim.t = 0;
+        hooks.wing(def.boss);
+        hooks.thud(false);
+        tmpA.set(this.pos.x, groundHere + 0.3, this.pos.z);
+        hooks.landingDust(tmpA, def.scale);
+      } else {
+        this.rideVy = 0;
+        this.pos.y = damp(this.pos.y, groundHere + this.legHeight, 12, dt);
+      }
+    }
+    if (this.flying) {
+      let targetVy = 0;
+      if (ctl.up) targetVy = 7.2;
+      else if (ctl.down) targetVy = -7.8;
+      this.rideVy = damp(this.rideVy, targetVy, 3.2, dt);
+      this.pos.y += this.rideVy * dt;
+      const minY = groundHere + this.legHeight;
+      if (this.pos.y <= minY) {
+        this.pos.y = minY;
+        if (ctl.down || this.rideVy < -3.5) {
+          // touch down
+          this.flying = false;
+          this.rideVy = 0;
+          hooks.thud(def.boss);
+          tmpA.set(this.pos.x, groundHere + 0.3, this.pos.z);
+          hooks.landingDust(tmpA, def.scale * 1.2);
+        } else {
+          this.rideVy = Math.max(this.rideVy, 0.5); // skim the ground
+        }
+      }
+      // hard ceiling: nothing above the clouds
+      if (this.pos.y > 240) this.pos.y = 240;
+      // wingbeat soundtrack
+      this.rideWingT -= dt;
+      if (this.rideWingT <= 0) {
+        this.rideWingT = 0.85;
+        hooks.wing(def.boss);
+      }
+    }
+
+    // --- Horizontal: throttle along the facing ---
+    // Fase 15 — ground-only species (speedFly = 0, e.g. the Vigilias drake)
+    // still fly under the hero's command: fall back to a brisk ground×1.9.
+    const flySpeed = def.speedFly > 0.1 ? def.speedFly : def.speedGround * 1.9;
+    const maxRide = (this.flying ? flySpeed : def.speedGround) * 0.52;
+    let target = 0;
+    if (ctl.fwd > 0) target = maxRide;
+    else if (ctl.fwd < 0) target = -2.2;
+    const accel = target > this.rideSpeed ? 1.9 : 3.4;
+    this.rideSpeed = damp(this.rideSpeed, target, accel, dt);
+    // Turn (wide and banking in the air, tighter on the ground)
+    const turnRate = this.flying ? 1.55 : 2.1;
+    this.yaw += ctl.turn * turnRate * dt * (this.rideSpeed < -0.1 ? -1 : 1);
+    this.pos.x += Math.sin(this.yaw) * this.rideSpeed * dt;
+    this.pos.z += Math.cos(this.yaw) * this.rideSpeed * dt;
+
+    // --- Fire breath (clic izquierdo) ---
+    if (this.rideFireCd > 0) this.rideFireCd -= dt;
+    if (ctl.fire && this.rideFireT <= 0 && this.rideFireCd <= 0) {
+      this.rideFireT = 0.001;
+      hooks.fire();
+    }
+    if (this.rideFireT > 0) {
+      this.rideFireT += dt;
+      this.anim.mode = 'fire_breath';
+      this.anim.t = Math.min(1, this.rideFireT / 1.7);
+      this.model.mouthWorldPos(tmpA);
+      this.group.getWorldDirection(tmpB);
+      hooks.fireStream(tmpA, tmpB, dt, def.scale);
+      this.model.mouthGlow(1);
+      if (!ctl.fire || this.rideFireT > 1.7) {
+        this.rideFireT = 0;
+        this.rideFireCd = 2.1;
+        this.model.mouthGlow(0);
+      }
+    } else if (this.rideFireCd <= 0.9) {
+      // --- Locomotion animation ---
+      if (this.flying) {
+        this.anim.mode = Math.abs(this.rideSpeed) > maxRide * 0.55 ? 'fly' : 'glide';
+        this.anim.t = 0;
+      } else {
+        this.anim.mode = Math.abs(this.rideSpeed) > 0.5 ? 'walk' : 'idle';
+        this.anim.t = 0;
+      }
+    }
+    this.anim.speed = Math.abs(this.rideSpeed);
+    this.anim.turn = ctl.turn;
+
+    // --- Transform + model ---
+    this.applyTransform(dt);
+    this.model.update(dt, this.anim);
   }
 
   dispose(): void {

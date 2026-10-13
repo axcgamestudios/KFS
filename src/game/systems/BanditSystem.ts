@@ -34,7 +34,7 @@ import { damp, dampAngle } from '../core/MathUtils';
 
 export interface BanditHooks {
   playerDamage: (dmg: number, fromX?: number, fromZ?: number, reason?: string, opts?: { unblockable?: boolean }) => void;
-  sound: (kind: 'swing' | 'damage' | 'hit_scale' | 'block' | 'stagger') => void;
+  sound: (kind: 'swing' | 'damage' | 'hit_scale' | 'block' | 'stagger' | 'bow_release') => void;
   notify: (kind: 'info' | 'item' | 'quest', title: string, body?: string) => void;
   giveXp: (xp: number) => void;
   addCoins: (n: number) => void;
@@ -44,6 +44,8 @@ export interface BanditHooks {
   hitStop: (dur: number) => void;
   /** Fase 12 — a bandit died (kill streaks + bounty counters). */
   onBanditKilled?: (captain: boolean) => void;
+  /** Fase 17 — a thrown bandit crashed (AoE splash + screenshake). */
+  onThrownCrash?: (pos: THREE.Vector3, victims: number) => void;
 }
 
 interface CampDef {
@@ -56,17 +58,45 @@ interface CampDef {
 
 /** Four hand-placed camps guarding roads and POI approaches. */
 const CAMPS: CampDef[] = [
-  { id: 'camp_camino', name: 'Emboscada del Camino Real', x: 62, z: 58, radius: 10 },
-  { id: 'camp_vaelthara', name: 'Lobos de Vaelthara', x: -206, z: -112, radius: 11 },
-  { id: 'camp_vigilias', name: 'La Peña del Cuervo Rojo', x: -118, z: -232, radius: 10 },
-  { id: 'camp_costa', name: 'Corsarios de la Costa Oeste', x: -286, z: 170, radius: 11 },
+  { id: 'camp_camino', name: 'King\'s Road Ambush', x: 62, z: 58, radius: 10 },
+  { id: 'camp_vaelthara', name: 'Wolves of Vaelthara', x: -206, z: -112, radius: 11 },
+  { id: 'camp_vigilias', name: 'The Red Crow\'s Crag', x: -118, z: -232, radius: 10 },
+  { id: 'camp_costa', name: 'West Coast Corsairs', x: -286, z: 170, radius: 11 },
 ];
+
+/** Fase 17 — the bandit cast per the combat spec:
+ *  · thief  — fast cutthroat, quick white-glow lights
+ *  · heavy  — armoured axe-and-board bruiser, slow YELLOW heavies
+ *  · shooter— musket skirmisher, keeps range, BLUE unblockable volleys
+ *  · captain— elite foreman, mixed attacks + the finisher window. */
+export type BanditRole = 'thief' | 'heavy' | 'shooter' | 'captain';
+
+interface RoleDef {
+  hp: number;
+  damage: number;
+  aggroRadius: number;
+  chaseSpeed: number;
+  poise: boolean;           // light hits never stagger him
+  meleeCooldown: [number, number];
+}
+const ROLE_DEFS: Record<BanditRole, RoleDef> = {
+  thief:   { hp: 58,  damage: 11, aggroRadius: 17, chaseSpeed: 4.7, poise: false, meleeCooldown: [0.9, 1.5] },
+  heavy:   { hp: 118, damage: 22, aggroRadius: 16, chaseSpeed: 3.1, poise: true,  meleeCooldown: [1.5, 2.3] },
+  shooter: { hp: 62,  damage: 17, aggroRadius: 19, chaseSpeed: 3.8, poise: false, meleeCooldown: [2.6, 3.4] },
+  captain: { hp: 135, damage: 20, aggroRadius: 20, chaseSpeed: 3.9, poise: true,  meleeCooldown: [0.9, 1.4] },
+};
+
+/** Telegraph glow colours (the danger-signal system). */
+const GLOW_WHITE = new THREE.Color(0.92, 0.92, 0.95);
+const GLOW_RED = new THREE.Color(1.0, 0.16, 0.1);
+const GLOW_YELLOW = new THREE.Color(1.0, 0.82, 0.1);
+const GLOW_BLUE = new THREE.Color(0.22, 0.62, 1.0);
 
 /** HP fraction under which the REMATE prompt lights up. */
 const FINISHER_HP_FRAC = 0.3;
 const CAPTAIN_FINISHER_HP_FRAC = 0.35;
 
-type BanditState = 'patrol' | 'chase' | 'hold' | 'attack' | 'stagger' | 'dead';
+type BanditState = 'patrol' | 'chase' | 'hold' | 'attack' | 'aim' | 'stagger' | 'dead';
 
 class Bandit {
   readonly group = new THREE.Group();
@@ -75,6 +105,7 @@ class Bandit {
   hp: number;
   maxHp: number;
   readonly captain: boolean;
+  readonly role: BanditRole;
   readonly camp: CampDef;
   private campIndex: number;
   private angle = Math.random() * Math.PI * 2;
@@ -97,6 +128,24 @@ class Bandit {
   private idlePause = 2 + Math.random() * 3;
   readonly pos = new THREE.Vector3();
 
+  // ---- Fase 17 — the choreography states ----
+  /** AIRBORNE: launched / juggled / grabbed — no AI, physics owns him. */
+  airborne = false;
+  airVy = 0;
+  throwVX = 0;
+  throwVZ = 0;
+  thrown = false;
+  /** Grabbed by the rope: parked at the whirl point every frame. */
+  grabbed = false;
+  /** Flat on his back (ground slam, whirlwind, crash landing). */
+  knockdownT = 0;
+  /** VAULTED: back turned to the player — bonus damage, no attacks. */
+  backTurnedT = 0;
+  /** Musket aim progress 0..1 (shooters only, BLUE telegraph). */
+  aimT = 0;
+  /** Telegraph glow sprite above the head (lazily built). */
+  glow: THREE.Sprite | null = null;
+
   // ---- Fase 11 — choreography state ----
   /** Weapon-up guard timer (raised after a hero whiff nearby). */
   guardT = 0;
@@ -112,14 +161,19 @@ class Bandit {
   private feintT = 0;
   private feintCd = 3 + Math.random() * 5;
 
-  constructor(campIndex: number, camp: CampDef, captain: boolean, seed: number) {
+  constructor(campIndex: number, camp: CampDef, captain: boolean, seed: number, role?: BanditRole) {
     this.camp = camp;
     this.captain = captain;
+    this.role = role ?? (captain ? 'captain' : 'thief');
     this.campIndex = campIndex;
-    this.maxHp = captain ? 130 : 65;
+    const def = ROLE_DEFS[this.role];
+    this.maxHp = def.hp;
     this.hp = this.maxHp;
-    this.aggroRadius = captain ? 20 : 16;
-    this.damage = captain ? 20 : 12;
+    this.aggroRadius = def.aggroRadius;
+    this.damage = def.damage;
+    this.chaseSpeed = def.chaseSpeed;
+    this.poise = def.poise;
+    this.meleeCooldown = def.meleeCooldown;
     this.anchor.set(camp.x, 0, camp.z);
     void seed;
     this.ringSide = Math.random() < 0.5 ? 1 : -1;
@@ -128,9 +182,24 @@ class Bandit {
 
   readonly aggroRadius: number;
   readonly damage: number;
+  readonly chaseSpeed: number;
+  readonly poise: boolean;
+  private readonly meleeCooldown: [number, number];
 
   get indexSeed(): number {
     return this.campIndex;
+  }
+
+  /** Seconds until a YELLOW heavy lands (HUD parry cue). */
+  get heavyLeft(): number {
+    if (this.state !== 'attack' || this.attackKind !== 'heavy') return Infinity;
+    return Math.max(0, (0.55 - this.attackT) * this.attackDur);
+  }
+
+  /** Seconds until the BLUE volley cracks (HUD dodge cue). */
+  get aimLeft(): number {
+    if (this.state !== 'aim') return Infinity;
+    return (1 - this.aimT) * 1.15;
   }
 
   private pickPatrolTarget(): void {
@@ -176,16 +245,23 @@ class Bandit {
     if (this.dead) return { died: false, guarded: false };
     let guarded = false;
     let dealt = amount;
+    // Fase 17 — exposed states bleed: back-turned (vault) ×1.5, floored ×1.25
+    if (this.backTurnedT > 0) dealt *= 1.5;
+    else if (this.knockdownT > 0) dealt *= 1.25;
     // Fase 11 — the guard soaks LIGHT hits (sparks + clang); heavies smash it
-    if (this.guardT > 0 && !heavy) {
+    if (this.guardT > 0 && !heavy && this.backTurnedT <= 0 && !this.airborne) {
       guarded = true;
       dealt = amount * 0.35;
       this.guardT = Math.min(this.guardT, 0.3); // the guard buckles a little
     }
     this.hp -= dealt;
     this.aggro = true;
+    // Fase 17 — a hit on an airborne bandit POPs him back up (juggle!)
+    if (this.airborne && !this.grabbed) {
+      this.airVy = Math.max(this.airVy, 1.8);
+    }
     // physical reaction: every landed hit shoves the bandit a step back
-    if (fromX !== undefined && fromZ !== undefined) {
+    if (fromX !== undefined && fromZ !== undefined && !this.airborne) {
       const dx = this.pos.x - fromX;
       const dz = this.pos.z - fromZ;
       const len = Math.hypot(dx, dz);
@@ -195,7 +271,7 @@ class Bandit {
         this.knockZ = (dz / len) * power;
         this.knockT = 0.24;
       }
-    } else {
+    } else if (!this.airborne) {
       this.knockX = this.knockZ = 0;
       this.knockT = 0.2;
     }
@@ -204,12 +280,16 @@ class Bandit {
       this.deathT = 0;
       this.respawnT = 360 + Math.random() * 120; // 6–8 min
       this.attackT = 0;
+      this.airborne = false;
+      this.grabbed = false;
+      this.setGlow(null);
       return { died: true, guarded };
     }
-    // captains have poise — light hits don't stagger them (guards neither)
-    if ((heavy || !this.captain) && this.guardT <= 0) {
+    // poise roles (heavy / captain) don't stagger on light hits — and NOBODY
+    // staggers out of the air (the juggle would die instantly)
+    if ((heavy || !this.poise) && this.guardT <= 0 && !this.airborne) {
       this.state = 'stagger';
-      this.staggerT = this.captain && heavy ? 0.55 : 0.42;
+      this.staggerT = this.poise && heavy ? 0.55 : 0.42;
       this.attackT = 0;
     }
     return { died: false, guarded };
@@ -224,9 +304,139 @@ class Bandit {
     this.respawnT = 360 + Math.random() * 120;
     this.attackT = 0;
     this.guardT = 0;
+    this.airborne = false;
+    this.grabbed = false;
+    this.setGlow(null);
     hooks.sound('hit_scale');
     hooks.cameraShake(this.captain ? 0.55 : 0.35);
     hooks.hitStop(0.14);
+  }
+
+  // ------------------------------------------------- Fase 17 combat API
+
+  /** AIR LAUNCH: fling him skyward — the juggle begins. */
+  launch(vy: number): void {
+    if (this.dead) return;
+    this.airborne = true;
+    this.grabbed = false;
+    this.airVy = vy;
+    this.attackT = 0;
+    this.aimT = 0;
+    this.state = 'stagger';
+    this.staggerT = 99; // held until the landing resolves it
+    this.knockX = this.knockZ = 0;
+    this.guardT = 0;
+    this.setGlow(null);
+  }
+
+  /** Juggle pop: keep him floating while the dance continues. */
+  jugglePop(): void {
+    if (this.airborne && !this.dead) this.airVy = Math.max(this.airVy, 1.7);
+  }
+
+  /** Rope grab: park him at the whirl point (CombatSystem drives it). */
+  holdAt(x: number, y: number, z: number): void {
+    if (this.dead) return;
+    this.grabbed = true;
+    this.airborne = true;
+    this.airVy = 0;
+    this.pos.set(x, y - 0.9, z);
+    this.state = 'stagger';
+    this.staggerT = 99;
+  }
+
+  /** The throw: a ballistic arc that detonates where he lands. */
+  throwFrom(dirX: number, dirZ: number, power: number): void {
+    if (this.dead) return;
+    this.grabbed = false;
+    this.airborne = true;
+    this.thrown = true;
+    this.airVy = 4.6;
+    this.throwVX = dirX * power;
+    this.throwVZ = dirZ * power;
+    this.state = 'stagger';
+    this.staggerT = 99;
+  }
+
+  /** Flat on his back for a beat (slam / whirlwind / crash). */
+  knockdown(dur: number): void {
+    if (this.dead) return;
+    if (this.airborne) return; // he'll fold on landing
+    this.knockdownT = Math.max(this.knockdownT, dur);
+    this.attackT = 0;
+    this.aimT = 0;
+    this.state = 'stagger';
+    this.staggerT = Math.max(this.staggerT, dur);
+    this.setGlow(null);
+  }
+
+  /** VAULT: back turned, wide open. */
+  turnBack(dur: number): void {
+    if (this.dead) return;
+    this.backTurnedT = Math.max(this.backTurnedT, dur);
+    this.attackT = 0;
+    this.aimT = 0;
+    this.setGlow(null);
+  }
+
+  /** Rope-dart yank toward the player (light ones only). */
+  pull(dx: number, dz: number): void {
+    if (this.dead || this.airborne) return;
+    const len = Math.hypot(dx, dz);
+    if (len < 0.01) return;
+    if (this.poise) {
+      // heavies & captains dig in: only a stumble
+      this.knockX = (-dx / len) * 2.2;
+      this.knockZ = (-dz / len) * 2.2;
+      this.knockT = 0.2;
+    } else {
+      this.knockX = (-dx / len) * 7.5;
+      this.knockZ = (-dz / len) * 7.5;
+      this.knockT = 0.3;
+      this.state = 'stagger';
+      this.staggerT = Math.max(this.staggerT, 0.5);
+      this.attackT = 0;
+    }
+  }
+
+  /** Telegraph glow: null hides it. */
+  setGlow(color: THREE.Color | null, flash = 1): void {
+    if (!this.glow) {
+      if (!color) return;
+      this.glow = Bandit.makeGlowSprite();
+      this.glow.position.set(0, 2.42, 0);
+      this.group.add(this.glow);
+    }
+    this.glow.visible = !!color;
+    if (color) {
+      (this.glow.material as THREE.SpriteMaterial).color.copy(color);
+      (this.glow.material as THREE.SpriteMaterial).opacity = 0.55 + 0.45 * flash;
+      const s = 0.5 + 0.16 * flash;
+      this.glow.scale.set(s, s, 1);
+    }
+  }
+
+  private static glowTexture(): THREE.CanvasTexture {
+    if (!Bandit.GLOW_TEX) {
+      const c = document.createElement('canvas');
+      c.width = c.height = 64;
+      const ctx = c.getContext('2d')!;
+      const grad = ctx.createRadialGradient(32, 32, 2, 32, 32, 30);
+      grad.addColorStop(0, 'rgba(255,255,255,1)');
+      grad.addColorStop(0.35, 'rgba(255,255,255,0.55)');
+      grad.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, 64, 64);
+      Bandit.GLOW_TEX = new THREE.CanvasTexture(c);
+    }
+    return Bandit.GLOW_TEX;
+  }
+  private static GLOW_TEX: THREE.CanvasTexture | null = null;
+
+  private static makeGlowSprite(): THREE.Sprite {
+    return new THREE.Sprite(new THREE.SpriteMaterial({
+      map: Bandit.glowTexture(), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    }));
   }
 
   update(
@@ -273,10 +483,85 @@ class Bandit {
       this.pickPatrolTarget();
     }
 
-    // --- timers (Fase 11) ---
+    // --- timers (Fase 11/17) ---
     if (this.guardT > 0) this.guardT -= dt;
     if (this.attackCooldown > 0) this.attackCooldown -= dt;
     if (this.knockT > 0) this.knockT = Math.max(0, this.knockT - dt);
+    if (this.backTurnedT > 0) this.backTurnedT -= dt;
+
+    // ================= Fase 17 — choreography states =================
+    if (this.grabbed) {
+      // the rope owns him: park at the whirl point, pose limp
+      g.position.copy(this.pos);
+      g.rotation.y = this.yaw;
+      g.rotation.x = damp(g.rotation.x, -1.25, 10, dt);
+      this.model?.update({ dt: farAnim ? 0 : dt, speed: 0, moving: false, grounded: true, swimming: false, attackT: 0, blockT: 0, rollT: 0, bowDraw: -1 });
+      return;
+    }
+    if (this.airborne) {
+      // ballistic: launched, juggled or thrown
+      this.airVy -= 13.5 * dt;
+      this.pos.y += this.airVy * dt;
+      if (this.thrown) {
+        this.pos.x += this.throwVX * dt;
+        this.pos.z += this.throwVZ * dt;
+        this.pos.x = THREE.MathUtils.clamp(this.pos.x, -1005, 1005);
+        this.pos.z = THREE.MathUtils.clamp(this.pos.z, -1005, 1005);
+      }
+      const groundY = terrain.height(this.pos.x, this.pos.z);
+      if (this.pos.y <= groundY) {
+        this.pos.y = groundY;
+        this.airborne = false;
+        if (this.thrown) {
+          // CRASH LANDING: the throw detonates where he lands (the system
+          // reads pendingCrash and splashes the pack)
+          this.thrown = false;
+          this.pendingCrash = new THREE.Vector3(this.pos.x, this.pos.y, this.pos.z);
+          this.knockdownT = 1.35;
+          this.staggerT = 1.35;
+          this.state = 'stagger';
+        } else {
+          this.knockdownT = Math.max(this.knockdownT, 0.85);
+          this.staggerT = this.knockdownT;
+          this.state = 'stagger';
+          hooks.sound('damage');
+        }
+        this.hasToken = false;
+      } else {
+        g.position.copy(this.pos);
+        g.rotation.y = this.yaw;
+        // on his back, spinning if he was hurled
+        g.rotation.x = damp(g.rotation.x, this.thrown ? -1.5 : -1.15, 8, dt);
+        if (this.thrown) g.rotation.y += dt * 9;
+        this.model?.update({ dt: farAnim ? 0 : dt, speed: 0, moving: false, grounded: false, swimming: false, attackT: 0, blockT: 0, rollT: 0, bowDraw: -1 });
+        return;
+      }
+    }
+    if (this.knockdownT > 0) {
+      // flat on his back: the get-up reads clearly from any angle
+      this.knockdownT -= dt;
+      g.position.copy(this.pos);
+      g.rotation.y = this.yaw;
+      const lie = Math.min(1, this.knockdownT / 0.35);
+      g.rotation.x = damp(g.rotation.x, -1.42 * lie, 12, dt);
+      this.model?.update({ dt: farAnim ? 0 : dt, speed: 0, moving: false, grounded: true, swimming: false, attackT: 0, blockT: 0, rollT: 0, bowDraw: -1 });
+      if (this.knockdownT <= 0) {
+        this.staggerT = 0;
+        this.state = 'chase';
+        this.attackCooldown = Math.max(this.attackCooldown, 0.4);
+      }
+      return;
+    }
+    if (this.backTurnedT > 0) {
+      // VAULTED: he lost the player — searches the wrong way, wide open
+      g.position.copy(this.pos);
+      this.yaw = dampAngle(this.yaw, Math.atan2(-dx, -dz), 6, dt);
+      g.rotation.y = this.yaw;
+      g.rotation.x = damp(g.rotation.x, 0, 10, dt);
+      this.model?.update({ dt: farAnim ? 0 : dt, speed: 0, moving: false, grounded: true, swimming: false, attackT: 0, blockT: 0, rollT: 0.12, bowDraw: -1 });
+      return;
+    }
+    // ===================================================================
 
     // --- state logic ---
     let targetSpeed = 0;
@@ -285,17 +570,28 @@ class Bandit {
     if (this.state === 'stagger') {
       this.staggerT -= dt;
       if (this.staggerT <= 0) this.state = 'chase';
+      this.setGlow(null);
     } else if (this.state === 'attack') {
       this.attackT += dt / this.attackDur;
+      // --- the danger signal: WHITE builds, RED flashes at the perfect-
+      //     dodge window; YELLOW marks the parryable heavies ---
+      const impactK = this.attackKind === 'heavy' ? 0.55 : 0.45;
+      if (this.attackKind === 'heavy') {
+        this.setGlow(GLOW_YELLOW, 0.6 + 0.4 * Math.sin(this.attackT * 18));
+      } else if (this.attackT > impactK - 0.34) {
+        this.setGlow(GLOW_RED, 0.55 + 0.45 * Math.sin(this.attackT * 42));
+      } else {
+        this.setGlow(GLOW_WHITE, 0.5 + 0.5 * this.attackT);
+      }
       // damage lands mid-swing if the player is still in range
-      if (!this.hitDone && this.attackT >= (this.attackKind === 'heavy' ? 0.55 : 0.45)) {
+      if (!this.hitDone && this.attackT >= impactK) {
         this.hitDone = true;
-        if (playerVulnerable && dist < 2.6) {
+        if (playerVulnerable && dist < 2.7) {
           const facing = Math.sin(this.yaw) * dx + Math.cos(this.yaw) * dz;
           if (facing > 0) {
-            // Fase 11 — the captain's overhead is UNBLOCKABLE: it must be dodged
-            const unblockable = this.captain && this.attackKind === 'heavy';
-            hooks.playerDamage(this.damage, this.pos.x, this.pos.z, 'bandit', { unblockable });
+            // Fase 17 — bandit melee is blockable & parryable (Q); only the
+            // musket volleys are unblockable (BLUE)
+            hooks.playerDamage(this.damage, this.pos.x, this.pos.z, 'bandit');
           }
         }
       }
@@ -303,20 +599,67 @@ class Bandit {
         this.attackT = 0;
         this.state = 'chase';
         this.hasToken = false; // the slot frees up the moment the swing ends
-        this.attackCooldown = this.captain ? 0.9 + Math.random() * 0.5 : 1.25 + Math.random() * 0.75;
+        this.attackCooldown = this.meleeCooldown[0] + Math.random() * (this.meleeCooldown[1] - this.meleeCooldown[0]);
+        this.setGlow(null);
+      }
+    } else if (this.state === 'aim') {
+      // --- the musketeer: BLUE glow while the shot charges, then the crack ---
+      this.aimT += dt / 1.15;
+      this.yaw = dampAngle(this.yaw, Math.atan2(dx, dz), 12, dt);
+      this.setGlow(GLOW_BLUE, 0.5 + 0.5 * this.aimT);
+      if (dist < 3.2) {
+        // rushed at the gun: he drops it and fights dirty
+        this.aimT = 0;
+        this.state = 'chase';
+        this.attackCooldown = Math.max(this.attackCooldown, 0.5);
+        this.setGlow(null);
+      } else if (this.aimT >= 1) {
+        this.aimT = 0;
+        this.state = 'chase';
+        this.hasToken = false;
+        this.attackCooldown = this.meleeCooldown[0] + Math.random() * (this.meleeCooldown[1] - this.meleeCooldown[0]);
+        this.setGlow(null);
+        if (dist < 16 && playerVulnerable) {
+          // the volley: UNBLOCKABLE — dodge or die (a roll through it is a
+          // PERFECT DODGE: slow-mo + the counter window opens)
+          hooks.playerDamage(this.damage, this.pos.x, this.pos.z, 'musket', { unblockable: true });
+          hooks.weaponImpact(new THREE.Vector3(
+            this.pos.x + Math.sin(this.yaw) * 0.9,
+            this.pos.y + 1.35,
+            this.pos.z + Math.cos(this.yaw) * 0.9,
+          ));
+          hooks.blockSparks(new THREE.Vector3(playerPos.x, playerPos.y + 1.2, playerPos.z));
+          hooks.sound('bow_release');
+        }
       }
     } else if (this.aggro && this.guardT <= 0) {
       this.state = 'chase';
       if (this.hasToken) {
-        // ---- ATTACKER: close the distance and swing ----
-        if (dist < 2.05) {
+        // ---- ATTACKER: close the distance and swing (or aim) ----
+        const meleeRange = this.role === 'heavy' ? 2.35 : this.role === 'thief' ? 1.95 : 2.1;
+        if (this.role === 'shooter' && dist > 4.5 && dist < 15 && this.attackCooldown <= 0) {
+          // the musket takes the token at range
+          this.state = 'aim';
+          this.aimT = 0.001;
+        } else if (dist < (this.role === 'shooter' ? 2.2 : meleeRange)) {
           if (this.attackCooldown <= 0) {
             this.state = 'attack';
             this.hitDone = false;
             this.attackT = 0.001;
             const roll = Math.random();
-            this.attackKind = this.captain && roll < 0.35 ? 'heavy' : roll < 0.55 ? 'light2' : 'light1';
-            this.attackDur = this.attackKind === 'heavy' ? 0.95 : 0.7;
+            if (this.role === 'heavy') {
+              this.attackKind = roll < 0.6 ? 'heavy' : 'light1';
+              this.attackDur = this.attackKind === 'heavy' ? 1.05 : 0.8;
+            } else if (this.role === 'thief') {
+              this.attackKind = roll < 0.5 ? 'light1' : 'light2';
+              this.attackDur = 0.55;
+            } else if (this.role === 'shooter') {
+              this.attackKind = 'light1';
+              this.attackDur = 0.6;
+            } else {
+              this.attackKind = roll < 0.35 ? 'heavy' : roll < 0.55 ? 'light2' : 'light1';
+              this.attackDur = this.attackKind === 'heavy' ? 0.95 : 0.7;
+            }
             hooks.sound('swing');
             this.yaw = Math.atan2(dx, dz); // square up for the blow
           } else {
@@ -325,15 +668,15 @@ class Bandit {
           }
         } else {
           this.target.set(playerPos.x, 0, playerPos.z);
-          targetSpeed = this.captain ? 3.9 : 4.3;
+          targetSpeed = this.chaseSpeed;
           this.moving = true;
         }
       } else {
-        // ---- HOLDER: the ring. No token -> orbit the player at ~3.1 m,
-        // shifting with your ring side, feinting now and then. The pack
-        // reads like it is taking turns — because it is. ----
+        // ---- HOLDER: the ring. No token -> orbit the player, shifting with
+        // your ring side, feinting now and then. The pack reads like it is
+        // taking turns — because it is. Shooters ring WIDE. ----
         this.state = 'hold';
-        const ringR = 3.1;
+        const ringR = this.role === 'shooter' ? 8.5 : this.role === 'heavy' ? 2.7 : 3.1;
         const nx = -dx / Math.max(0.001, dist);
         const nz = -dz / Math.max(0.001, dist);
         // tangential direction * ringSide
@@ -420,6 +763,8 @@ class Bandit {
 
     // --- animation ---
     this.phase += dt * (this.speedSm > 3.2 ? 8.6 : 5.4) * (this.moving ? 1 : 0);
+    // shooters aim their musket like a bow (BLUE telegraph reads on the pose)
+    const aimPose = this.state === 'aim' ? Math.min(1, this.aimT * 1.6) : -1;
     this.model?.update({
       dt: farAnim ? 0 : dt,
       speed: this.speedSm,
@@ -431,9 +776,13 @@ class Bandit {
       // Fase 11 — the guard is a real weapon-up stance (block pose layer)
       blockT: this.guardT > 0 ? Math.min(1, this.guardT * 4) : 0,
       rollT: 0,
-      bowDraw: -1,
+      bowDraw: aimPose,
     });
   }
+
+  /** Fase 17 — set while a thrown bandit just crash-landed (the system
+   *  detonates the AoE and clears it). */
+  pendingCrash: THREE.Vector3 | null = null;
 
   /** The hero's blade just cut air near this bandit — snap to guard. */
   onPlayerWhiff(playerPos: THREE.Vector3): void {
@@ -453,6 +802,14 @@ class Bandit {
     this.staggerT = 0;
     this.guardT = 0;
     this.hasToken = false;
+    this.airborne = false;
+    this.grabbed = false;
+    this.thrown = false;
+    this.knockdownT = 0;
+    this.backTurnedT = 0;
+    this.aimT = 0;
+    this.pendingCrash = null;
+    this.setGlow(null);
     this.group.visible = true;
     this.group.rotation.set(0, 0, 0);
     this.group.scale.setScalar(1);
@@ -495,11 +852,17 @@ export class BanditSystem {
     let n = 0;
     for (let c = 0; c < CAMPS.length; c++) {
       const camp = CAMPS[c];
-      const crew = 4; // 3 swords + captain
-      for (let i = 0; i < crew; i++) {
-        const captain = i === 0;
-        const bandit = new Bandit(c, camp, captain, c * 31 + i * 7);
-        const angle = (i / crew) * Math.PI * 2;
+      // Fase 17 — the full cast per camp: cutthroat, bruiser, musketeer +
+      // the captain (elite foreman). Four reads like a real ambush.
+      const crew: Array<{ role: BanditRole; captain: boolean }> = [
+        { role: 'thief', captain: false },
+        { role: 'heavy', captain: false },
+        { role: 'shooter', captain: false },
+        { role: 'captain', captain: true },
+      ];
+      for (let i = 0; i < crew.length; i++) {
+        const bandit = new Bandit(c, camp, crew[i].captain, c * 31 + i * 7, crew[i].role);
+        const angle = (i / crew.length) * Math.PI * 2;
         bandit.pos.set(
           camp.x + Math.cos(angle) * 3.2,
           0,
@@ -509,7 +872,7 @@ export class BanditSystem {
         bandit.group.position.copy(bandit.pos);
         this.scene.add(bandit.group);
         this.bandits.push(bandit);
-        this.attachVisual(bandit, captain);
+        this.attachVisual(bandit, crew[i].captain);
         n++;
       }
     }
@@ -529,9 +892,11 @@ export class BanditSystem {
   spawnAmbush(x: number, z: number, count = 3): number {
     let spawned = 0;
     const camp = { ...CAMPS[0], x, z, radius: 4 };
+    const roles: BanditRole[] = ['thief', 'shooter', 'captain', 'thief', 'heavy'];
     for (let i = 0; i < count; i++) {
-      const captain = i === 0 && count >= 3;
-      const bandit = new Bandit(0, camp as CampDef, captain, 9000 + this.bandits.length * 13 + i);
+      const role = roles[i % roles.length];
+      const captain = role === 'captain';
+      const bandit = new Bandit(0, camp as CampDef, captain, 9000 + this.bandits.length * 13 + i, role);
       const a = (i / count) * Math.PI * 2 + Math.random();
       const r = 13 + Math.random() * 5;
       bandit.pos.set(x + Math.cos(a) * r, 0, z + Math.sin(a) * r);
@@ -549,24 +914,54 @@ export class BanditSystem {
   private attachVisual(bandit: Bandit, captain: boolean): void {
     this.assets.loadModel('knight_rigged.glb').then((scene) => {
       if (bandit.dead) return; // died before the model arrived
+      const weaponKind = bandit.role === 'heavy' ? 'axe' : bandit.role === 'shooter' ? 'sword' : 'sword';
       const model = new KnightModelGLB({
         scene,
-        bandit: { seed: bandit.pos.x * 3.1 + bandit.pos.z, captain },
+        bandit: { seed: bandit.pos.x * 3.1 + bandit.pos.z, captain, shield: bandit.role === 'heavy' },
         // Fase 11 — bandits carry the rusted variant of the master-forged
         // sword (red-black steel, plain pommel); captains get a garnet.
         weaponFactory: (kind) => (kind === 'sword'
           ? buildHeroSword({ rusted: true, captain })
           : this.kits ? this.kits.weapon(kind) : null),
+        shieldFactory: this.kits ? () => this.kits!.create('shield_02') : undefined,
       });
-      model.setWeapon('sword');
-      model.setShield(false);
+      model.setWeapon(weaponKind as 'sword' | 'axe');
+      model.setShield(bandit.role === 'heavy');
       bandit.model = model;
       bandit.group.add(model.root);
+      // role body language: thieves lean & small, heavies are slabs, shooters
+      // wiry marksmen, captains stand tall
+      if (!captain) {
+        const s = bandit.role === 'heavy' ? 1.06 : bandit.role === 'shooter' ? 0.96 : 0.95;
+        model.root.scale.setScalar(s);
+      }
+      // Fase 17 — the musketeer's firearm: a real flintlock on the shoulder
+      if (bandit.role === 'shooter') {
+        const musket = this.buildMusket();
+        bandit.group.add(musket);
+      }
     }).catch(() => {
       // GLB unavailable — leave an empty group (bandits simply don't spawn)
       bandit.group.visible = false;
       bandit.takeDamage(99999, true);
     });
+  }
+
+  /** A simple flintlock musket riding the shooter's back. */
+  private buildMusket(): THREE.Group {
+    const g = new THREE.Group();
+    g.name = 'musket_prop';
+    const wood = new THREE.MeshStandardMaterial({ color: 0x4a3320, roughness: 0.85 });
+    const steel = new THREE.MeshStandardMaterial({ color: 0x6a7076, roughness: 0.4, metalness: 0.8 });
+    const stock = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.11, 0.5), wood);
+    stock.position.set(0, 1.32, -0.28);
+    stock.rotation.x = 0.12;
+    g.add(stock);
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.026, 0.95, 7), steel);
+    barrel.rotation.x = Math.PI / 2 - 0.06;
+    barrel.position.set(0, 1.44, 0.18);
+    g.add(barrel);
+    return g;
   }
 
   // ------------------------------------------------------------ combat API
@@ -664,6 +1059,107 @@ export class BanditSystem {
     return null;
   }
 
+  // ------------------------------------------------------------ Fase 17 API
+
+  /** HOOK DASH target: nearest alive bandit within maxDist of the origin
+   *  (frontal preference, any state — even airborne). */
+  hookTargetCheck(
+    origin: THREE.Vector3,
+    yaw: number,
+    maxDist: number,
+  ): { bandit: Bandit; point: THREE.Vector3 } | null {
+    let best: Bandit | null = null;
+    let bestScore = -Infinity;
+    for (const b of this.bandits) {
+      if (b.dead || !b.group.visible) continue;
+      const dx = b.pos.x - origin.x;
+      const dz = b.pos.z - origin.z;
+      const d = Math.hypot(dx, dz);
+      if (d > maxDist || d < 0.01) continue;
+      const ang = Math.atan2(dx, dz) - yaw;
+      const wrapped = Math.abs(Math.atan2(Math.sin(ang), Math.cos(ang)));
+      // frontal bandits win ties; close ones win overall
+      const score = -d - wrapped * 3.2;
+      if (score > bestScore) {
+        best = b;
+        bestScore = score;
+      }
+    }
+    if (!best) return null;
+    return { bandit: best, point: best.center() };
+  }
+
+  /** AIR LAUNCH: fling a bandit skyward. */
+  launch(bandit: unknown, vy: number): void {
+    (bandit as Bandit).launch(vy);
+  }
+
+  /** Juggle pop (an air light connected). */
+  juggle(bandit: unknown): void {
+    (bandit as Bandit).jugglePop();
+  }
+
+  /** Nearest AIRBORNE bandit near a point (air grab + bounce). */
+  airborneNear(pos: THREE.Vector3, radius: number): Bandit | null {
+    let best: Bandit | null = null;
+    let bestD = Infinity;
+    for (const b of this.bandits) {
+      if (b.dead || !b.airborne || b.grabbed) continue;
+      const d = Math.hypot(b.pos.x - pos.x, b.pos.z - pos.z);
+      if (d < radius && Math.abs(b.pos.y - pos.y) < 4.2 && d < bestD) {
+        best = b;
+        bestD = d;
+      }
+    }
+    return best;
+  }
+
+  /** Rope grab: park the victim at the whirl point. */
+  holdBanditAt(bandit: unknown, x: number, y: number, z: number): void {
+    (bandit as Bandit).holdAt(x, y, z);
+  }
+
+  /** The throw. */
+  throwBandit(bandit: unknown, dirX: number, dirZ: number, power: number): void {
+    (bandit as Bandit).throwFrom(dirX, dirZ, power);
+  }
+
+  /** Knock him flat. */
+  knockdown(bandit: unknown, dur: number): void {
+    (bandit as Bandit).knockdown(dur);
+  }
+
+  /** Leave him back-turned (vault). */
+  turnBanditBack(bandit: unknown, dur: number): void {
+    (bandit as Bandit).turnBack(dur);
+  }
+
+  /** Rope-dart yank. */
+  pullBandit(bandit: unknown, dx: number, dz: number): void {
+    (bandit as Bandit).pull(dx, dz);
+  }
+
+  /** Which defense does the incoming danger demand? (HUD cue) */
+  dangerCue(playerPos: THREE.Vector3): 'parry' | 'dodge' | null {
+    let cue: 'parry' | 'dodge' | null = null;
+    let soonest = Infinity;
+    for (const b of this.bandits) {
+      if (b.dead || !b.group.visible) continue;
+      const d = Math.hypot(b.pos.x - playerPos.x, b.pos.z - playerPos.z);
+      // YELLOW: a heavy is coming down on someone nearby → Q PARRY!
+      if (b.heavyLeft < 0.7 && d < 3.6 && b.heavyLeft < soonest) {
+        cue = 'parry';
+        soonest = b.heavyLeft;
+      }
+      // BLUE: the musket volley is about to crack → C DODGE!
+      if (b.aimLeft < 0.7 && d < 16 && b.aimLeft < soonest) {
+        cue = 'dodge';
+        soonest = b.aimLeft;
+      }
+    }
+    return cue;
+  }
+
   /** Apply player damage to a bandit; handles loot/XP on death. */
   damage(bandit: unknown, amount: number, heavy: boolean): void {
     const b = bandit as Bandit;
@@ -687,8 +1183,8 @@ export class BanditSystem {
       this.hooks.onBanditKilled?.(b.captain);
       this.hooks.notify(
         'item',
-        b.captain ? '¡Capitán bandido derrotado!' : 'Bandido abatido',
-        `Botín: ${coins} monedas de oro.`,
+        b.captain ? 'Bandit captain defeated!' : b.role === 'heavy' ? 'Bruiser down' : b.role === 'shooter' ? 'Musketeer down' : 'Bandit down',
+        `Loot: ${coins} gold coins.`,
       );
     } else {
       this.hooks.sound('damage');
@@ -729,10 +1225,10 @@ export class BanditSystem {
     this.hooks.giveXp(b.captain ? 70 : 22);
     this.hooks.notify(
       'quest',
-      '¡REMATE!',
+      'FINISHER!',
       b.captain
-        ? 'El capitán cae de rodillas. El camino vuelve a ser de los viajeros.'
-        : 'Limpio y sin drama. Los cuervos rojos aprenderán a temerte.',
+        ? 'The captain falls to his knees. The road belongs to travellers again.'
+        : 'Clean and quiet. The red crows will learn to fear you.',
     );
   }
 
@@ -760,18 +1256,18 @@ export class BanditSystem {
     this.lastPlayer.copy(playerPos);
     this.lastPlayerDefined = true;
 
-    // ---- Fase 11: attack tokens — at most 2 press at once ----
+    // ---- Fase 11: attack tokens — at most 2 press at once (aiming counts) ----
     let attackers = 0;
     const engaged: Bandit[] = [];
     for (const b of this.bandits) {
       if (b.aggroed && !b.dead) engaged.push(b);
     }
     for (const b of engaged) {
-      if (b.state === 'attack') attackers++;
+      if (b.state === 'attack' || b.state === 'aim') attackers++;
     }
     const maxAttackers = Math.max(1, Math.min(2, Math.ceil(engaged.length / 2)));
     for (const b of engaged) {
-      if (b.state === 'attack') {
+      if (b.state === 'attack' || b.state === 'aim') {
         b.hasToken = true; // keep it until the swing ends
         continue;
       }
@@ -786,8 +1282,8 @@ export class BanditSystem {
       this.helpShown = true;
       this.hooks.notify(
         'info',
-        'Primera escaramuza',
-        'Clic con ritmo: combos · mantener clic: golpe pesado · C: esquivar · clic derecho: bloqueo — justo antes del golpe = parada perfecta · en el aire, mantener: colapso · 1-4: cambiar de arma',
+        'First skirmish',
+        'Click with rhythm: 4-hit combos · hold LMB: air launch · C: dodge · Q: parry/block · F: hook dash · E: rope dart · in the air, SPACE+click: ground slam · 1-4: swap weapons',
       );
     }
 
@@ -806,6 +1302,29 @@ export class BanditSystem {
       if (!b.dead) b.group.visible = d2 < 330 * 330;
       if (d2 > 210 * 210) continue;
       b.update(dt, playerPos, this.terrain, playerVulnerable, this.hooks, d2 > 70 * 70);
+      // Fase 17 — a thrown bandit just crash-landed: detonate the AoE
+      if (b.pendingCrash) {
+        const at = b.pendingCrash;
+        b.pendingCrash = null;
+        let victims = 0;
+        for (const other of this.bandits) {
+          if (other === b || other.dead) continue;
+          const od = Math.hypot(other.pos.x - at.x, other.pos.z - at.z);
+          if (od < 2.8 && Math.abs(other.pos.y - at.y) < 2.4) {
+            const res = other.takeDamage(34, true, at.x, at.z);
+            if (!res.died) other.knockdown(1.0);
+            victims++;
+          }
+        }
+        // the hurled man himself eats the crash
+        const res = b.takeDamage(46, true);
+        if (!res.died) b.knockdown(1.35);
+        this.hooks.weaponImpact(at.clone().setY(at.y + 0.4));
+        this.hooks.cameraShake(0.45);
+        this.hooks.hitStop(0.08);
+        this.hooks.sound('hit_scale');
+        this.hooks.onThrownCrash?.(at, victims);
+      }
     }
   }
 

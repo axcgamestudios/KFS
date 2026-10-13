@@ -44,7 +44,7 @@ export default function JournalUI() {
       <div className="kotfs-panel kotfs-panel-corner flex h-full w-full max-w-3xl flex-col p-6">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="kotfs-title text-lg tracking-[0.25em] text-[color:var(--kotfs-gold)]">
-            DIARIO DEL EXPLORADOR
+            EXPLORER'S JOURNAL
           </h2>
           <button
             className="text-[color:var(--kotfs-parchment-dim)] transition hover:text-[color:var(--kotfs-parchment)]"
@@ -62,9 +62,9 @@ export default function JournalUI() {
         <div className="mb-4 flex gap-2">
           {(
             [
-              ['misiones', 'Misiones', BookOpen],
-              ['exploracion', `Exploración (${discoveries.length})`, Compass],
-              ['historia', 'Crónica', ScrollText],
+              ['misiones', 'Quests', BookOpen],
+              ['exploracion', `Exploration (${discoveries.length})`, Compass],
+              ['historia', 'Chronicle', ScrollText],
             ] as Array<[Tab, string, typeof BookOpen]>
           ).map(([id, label, Icon]) => (
             <button
@@ -87,7 +87,7 @@ export default function JournalUI() {
             <div className="space-y-4">
               {quests.length === 0 && (
                 <p className="py-10 text-center italic text-[color:var(--kotfs-parchment-dim)]">
-                  Aún no tienes misiones. Habla con la gente de Puerto Cuervo…
+                  You have no quests yet. Speak with the folk of Crowhaven…
                 </p>
               )}
               {quests.map((q) => (
@@ -103,7 +103,7 @@ export default function JournalUI() {
                           : 'text-[color:var(--kotfs-gold)]'
                       }`}
                     >
-                      {q.status === 'completed' ? 'COMPLETADA' : 'ACTIVA'}
+                      {q.status === 'completed' ? 'COMPLETED' : 'ACTIVE'}
                     </span>
                   </div>
                   <p className="mb-3 text-sm italic leading-relaxed text-[color:var(--kotfs-parchment-dim)]">
@@ -130,7 +130,7 @@ export default function JournalUI() {
             <div className="space-y-4">
               {discoveries.length === 0 && (
                 <p className="py-10 text-center italic text-[color:var(--kotfs-parchment-dim)]">
-                  Ningún lugar descubierto todavía. Sal del camino y mira hacia el horizonte.
+                  No places discovered yet. Stray from the path and look to the horizon.
                 </p>
               )}
               {discoveries.map((d) => (
@@ -148,7 +148,7 @@ export default function JournalUI() {
             <div className="space-y-4">
               {story.length === 0 && (
                 <p className="py-10 text-center italic text-[color:var(--kotfs-parchment-dim)]">
-                  Tu crónica está en blanco. La tinta espera acontecimientos.
+                  Your chronicle is blank. The ink awaits events.
                 </p>
               )}
               {story.map((s) => (
@@ -164,7 +164,7 @@ export default function JournalUI() {
         </div>
 
         <p className="mt-3 text-center text-[0.6rem] tracking-[0.3em] text-[color:var(--kotfs-parchment-dim)] opacity-50">
-          J / ESC PARA CERRAR
+          J / ESC TO CLOSE
         </p>
       </div>
     </div>

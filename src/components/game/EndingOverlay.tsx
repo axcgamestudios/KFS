@@ -61,7 +61,7 @@ export default function EndingOverlay() {
             className="kotfs-title text-5xl md:text-6xl text-center text-[color:var(--kotfs-parchment)]"
             style={{ textShadow: '0 0 60px rgba(201,162,39,0.45), 0 4px 24px rgba(0,0,0,0.9)' }}
           >
-            FIN
+            THE END
           </h2>
           <h3
             className="kotfs-title mt-4 text-lg md:text-xl text-[color:var(--kotfs-gold)] text-center"
@@ -116,7 +116,7 @@ export default function EndingOverlay() {
         className="pointer-events-auto absolute right-6 bottom-[13vh] kotfs-btn text-xs"
         onClick={() => gameApi.skipEnding()}
       >
-        Saltar
+        Skip
       </button>
     </div>
   );

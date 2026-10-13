@@ -3,6 +3,7 @@
 export type InputAction =
   | 'forward' | 'back' | 'left' | 'right'
   | 'jump' | 'sprint' | 'interact' | 'lantern'
+  | 'parry' | 'hookdash' | 'finisher' | 'tonic'
   | 'inventory' | 'map' | 'journal' | 'skills';
 
 export class Input {
@@ -91,7 +92,11 @@ export class Input {
       case 'jump': return this.keys.has('Space');
       case 'sprint': return this.keys.has('ShiftLeft') || this.keys.has('ShiftRight');
       case 'interact': return this.keys.has('KeyE');
-      case 'lantern': return this.keys.has('KeyF');
+      case 'lantern': return this.keys.has('KeyL');
+      case 'parry': return this.keys.has('KeyQ');
+      case 'hookdash': return this.keys.has('KeyF');
+      case 'finisher': return this.keys.has('KeyV');
+      case 'tonic': return this.keys.has('KeyR');
       default: return false;
     }
   }
@@ -105,7 +110,13 @@ export class Input {
   pressed(action: InputAction): boolean {
     switch (action) {
       case 'interact': return this.justPressed.has('KeyE');
-      case 'lantern': return this.justPressed.has('KeyF');
+      // Fase 17 — the lantern moved to L: F is now the HOOK DASH (the
+      // Spider-Man-grade combat spec owns the home row).
+      case 'lantern': return this.justPressed.has('KeyL');
+      case 'parry': return this.justPressed.has('KeyQ');
+      case 'hookdash': return this.justPressed.has('KeyF');
+      case 'finisher': return this.justPressed.has('KeyV');
+      case 'tonic': return this.justPressed.has('KeyR');
       case 'jump': return this.justPressed.has('Space');
       case 'inventory': return this.justPressed.has('Tab');
       case 'map': return this.justPressed.has('KeyM');

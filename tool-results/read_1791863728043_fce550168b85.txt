@@ -1,0 +1,905 @@
+     1→import * as THREE from 'three';
+     2→
+     3→/**
+     4→ * Procedural humanoid character with articulated joints and code-driven
+     5→ * animations (idle breathing, walk, run, jump, swim, weapon swings, block,
+     6→ * dodge roll, bow draw). Reused for the player and all villagers with
+     7→ * different palettes.
+     8→ */
+     9→
+    10→export interface CharacterPalette {
+    11→  skin: number;
+    12→  hair: number;
+    13→  tunic: number;
+    14→  sleeves: number;
+    15→  pants: number;
+    16→  boots: number;
+    17→  cape?: number;
+    18→}
+    19→
+    20→export const PLAYER_PALETTE: CharacterPalette = {
+    21→  skin: 0xc9a17a,
+    22→  hair: 0x4a3120,
+    23→  tunic: 0x3d5a3a,
+    24→  sleeves: 0x8a7a5c,
+    25→  pants: 0x4a3a28,
+    26→  boots: 0x33261a,
+    27→  cape: 0x5a2e22,
+    28→};
+    29→
+    30→const VILLAGER_PALETTES: CharacterPalette[] = [
+    31→  { skin: 0xc9a17a, hair: 0x3a2a1a, tunic: 0x7a5a38, sleeves: 0x9a8a6a, pants: 0x4a4038, boots: 0x33261a },
+    32→  { skin: 0xd9b18a, hair: 0x6a4a2a, tunic: 0x5a6a7a, sleeves: 0x8a9aa5, pants: 0x3a3a42, boots: 0x2a2620 },
+    33→  { skin: 0xb98a62, hair: 0x2a1e12, tunic: 0x8a4a3a, sleeves: 0xa89a88, pants: 0x4a3a2a, boots: 0x302818 },
+    34→  { skin: 0xd9b18a, hair: 0x8a6a3a, tunic: 0x6a7a4a, sleeves: 0xa8a88a, pants: 0x48402a, boots: 0x38301e },
+    35→  { skin: 0xc9a17a, hair: 0x1e1610, tunic: 0x4a4a5e, sleeves: 0x7a8290, pants: 0x38343c, boots: 0x26221c },
+    36→];
+    37→
+    38→export function villagerPalette(i: number): CharacterPalette {
+    39→  return VILLAGER_PALETTES[i % VILLAGER_PALETTES.length];
+    40→}
+    41→
+    42→function box(w: number, h: number, d: number, color: number, rough = 0.85): THREE.Mesh {
+    43→  const m = new THREE.Mesh(
+    44→    new THREE.BoxGeometry(w, h, d),
+    45→    new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: 0.02 }),
+    46→  );
+    47→  m.castShadow = true;
+    48→  return m;
+    49→}
+    50→
+    51→/**
+    52→ * Common visual surface every character body implements (procedural
+    53→ * CharacterModel, GLB-skinned KnightModelGLB, ...). Lets Player / NPCs /
+    54→ * crews swap bodies without touching gameplay code.
+    55→ */
+    56→export interface CharacterVisual {
+    57→  readonly root: THREE.Group;
+    58→  update(p: AnimParams): void;
+    59→  flash(): void;
+    60→  setWeapon(kind: WeaponKind): void;
+    61→  setShield(visible: boolean): void;
+    62→  setEquippedState(equipped: boolean): void;
+    63→  faceYaw?(yaw: number): void;
+    64→  setSwordEquipped?(equipped: boolean): void;
+    65→  /** Fase 7 — guard deflected a hit: recoil impulse on arms/torso. */
+    66→  blockImpact?(): void;
+    67→  /** Fase 8 — dusk lights the night torch in place of the shield. */
+    68→  setNightTorch?(on: boolean): void;
+    69→  dispose(): void;
+    70→}
+    71→
+    72→/** Weapon visual categories (mapped from item ids by the game). */
+    73→export type WeaponKind = 'none' | 'sword' | 'axe' | 'spear' | 'bow';
+    74→
+    75→export interface AnimParams {
+    76→  dt: number;
+    77→  speed: number;        // horizontal speed m/s
+    78→  moving: boolean;
+    79→  grounded: boolean;
+    80→  swimming: boolean;
+    81→  attackT: number;      // 0 = idle, 0..1 during swing
+    82→  talking?: boolean;
+    83→  /** Attack animation variant (Fase 3). Default keeps the classic diagonal slash.
+    84→   *  Fase 11 adds the cinematic set: spin / uppercut / plunge / aircut. */
+    85→  attackKind?: 'light1' | 'light2' | 'heavy' | 'thrust' | 'bowRelease'
+    86→    | 'spin' | 'uppercut' | 'plunge' | 'aircut';
+    87→  /** Block pose blend 0..1. */
+    88→  blockT?: number;
+    89→  /** Dodge roll progress 0..1 (drives the whole-body forward roll). */
+    90→  rollT?: number;
+    91→  /** Fase 11 — quickstep dodge (low dash pose instead of the somersault tuck). */
+    92→  dodgeStep?: boolean;
+    93→  /** Bow draw blend 0..1 (aim pose while drawing). */
+    94→  bowDraw?: number;
+    95→  /** Fase 4 — riding pose on horseback (legs bent around the saddle, reins). */
+    96→  riding?: boolean;
+    97→  /** Fase 4 — riding bounce phase (0..1), driven by the horse gait. */
+    98→  rideBounce?: number;
+    99→}
+   100→
+   101→export class CharacterModel {
+   102→  readonly root = new THREE.Group();
+   103→  protected hips = new THREE.Group();
+   104→  protected chest = new THREE.Group();
+   105→  protected head = new THREE.Group();
+   106→  protected legL = new THREE.Group();
+   107→  protected legR = new THREE.Group();
+   108→  protected kneeL = new THREE.Group();
+   109→  protected kneeR = new THREE.Group();
+   110→  protected armL = new THREE.Group();
+   111→  protected armR = new THREE.Group();
+   112→  protected elbowL = new THREE.Group();
+   113→  protected elbowR = new THREE.Group();
+   114→  protected cape: THREE.Mesh | null = null;
+   115→  private hipSlots: Partial<Record<WeaponKind, THREE.Group>> = {};
+   116→  private handSlots: Partial<Record<WeaponKind, THREE.Group>> = {};
+   117→  private shieldGroup = new THREE.Group();
+   118→  private bowInHand = new THREE.Group();
+   119→  private phase = Math.random() * 10;
+   120→  private t = 0;
+   121→  private weapon: WeaponKind = 'none';
+   122→  private weaponEquippedVisible = false;
+   123→  private flashT = 0;
+   124→  private flashMaterials: THREE.MeshStandardMaterial[] = [];
+   125→
+   126→  constructor(palette: CharacterPalette) {
+   127→    const mkMat = (c: number) => {
+   128→      const m = new THREE.MeshStandardMaterial({ color: c, roughness: 0.85, metalness: 0.02 });
+   129→      this.flashMaterials.push(m);
+   130→      return m;
+   131→    };
+   132→
+   133→    this.root.add(this.hips);
+   134→    this.hips.position.y = 0.94;
+   135→
+   136→    // --- Torso ---
+   137→    this.hips.add(this.chest);
+   138→    this.chest.position.y = 0.08;
+   139→    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.52, 0.26), mkMat(palette.tunic));
+   140→    torso.position.y = 0.3;
+   141→    torso.castShadow = true;
+   142→    this.chest.add(torso);
+   143→    this.flashMaterials.push(torso.material as THREE.MeshStandardMaterial);
+   144→    // Belt
+   145→    const belt = box(0.45, 0.08, 0.28, 0x2e2118);
+   146→    belt.position.y = 0.06;
+   147→    this.chest.add(belt);
+   148→    const buckle = box(0.09, 0.07, 0.03, 0xc9a227, 0.4);
+   149→    buckle.material = new THREE.MeshStandardMaterial({ color: 0xc9a227, roughness: 0.35, metalness: 0.8 });
+   150→    buckle.position.set(0, 0.06, 0.15);
+   151→    this.chest.add(buckle);
+   152→    // Shoulder pads
+   153→    for (const s of [-1, 1]) {
+   154→      const pad = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.1, 0.22), mkMat(palette.sleeves));
+   155→      pad.position.set(s * 0.26, 0.5, 0);
+   156→      pad.castShadow = true;
+   157→      this.chest.add(pad);
+   158→    }
+   159→
+   160→    // --- Head ---
+   161→    this.chest.add(this.head);
+   162→    this.head.position.y = 0.62;
+   163→    const skull = box(0.24, 0.26, 0.24, palette.skin, 0.7);
+   164→    skull.position.y = 0.13;
+   165→    this.head.add(skull);
+   166→    // Hair cap
+   167→    const hair = box(0.26, 0.12, 0.26, palette.hair, 0.9);
+   168→    hair.position.set(0, 0.245, -0.01);
+   169→    this.head.add(hair);
+   170→    // Eyes (dark insets facing +Z)
+   171→    for (const s of [-1, 1]) {
+   172→      const eye = box(0.035, 0.03, 0.02, 0x1e1610, 0.6);
+   173→      eye.position.set(s * 0.055, 0.13, 0.121);
+   174→      this.head.add(eye);
+   175→    }
+   176→
+   177→    // --- Arms (shoulder pivot → elbow pivot → hand) ---
+   178→    const buildArm = (side: number, arm: THREE.Group, elbow: THREE.Group) => {
+   179→      arm.position.set(side * 0.27, 0.48, 0);
+   180→      this.chest.add(arm);
+   181→      const upper = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.34, 0.13), mkMat(palette.sleeves));
+   182→      upper.position.y = -0.17;
+   183→      upper.castShadow = true;
+   184→      arm.add(upper);
+   185→      elbow.position.y = -0.34;
+   186→      arm.add(elbow);
+   187→      const fore = new THREE.Mesh(new THREE.BoxGeometry(0.095, 0.3, 0.11), mkMat(palette.sleeves));
+   188→      fore.position.y = -0.15;
+   189→      fore.castShadow = true;
+   190→      elbow.add(fore);
+   191→      const hand = box(0.09, 0.1, 0.1, palette.skin, 0.7);
+   192→      hand.position.y = -0.33;
+   193→      elbow.add(hand);
+   194→    };
+   195→    buildArm(-1, this.armL, this.elbowL);
+   196→    buildArm(1, this.armR, this.elbowR);
+   197→
+   198→    // --- Legs (hip pivot → knee pivot → foot) ---
+   199→    const buildLeg = (side: number, leg: THREE.Group, knee: THREE.Group) => {
+   200→      leg.position.set(side * 0.12, -0.02, 0);
+   201→      this.hips.add(leg);
+   202→      const thigh = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.42, 0.16), mkMat(palette.pants));
+   203→      thigh.position.y = -0.21;
+   204→      thigh.castShadow = true;
+   205→      leg.add(thigh);
+   206→      knee.position.y = -0.44;
+   207→      leg.add(knee);
+   208→      const shin = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.4, 0.14), mkMat(palette.pants));
+   209→      shin.position.y = -0.2;
+   210→      shin.castShadow = true;
+   211→      knee.add(shin);
+   212→      const boot = box(0.15, 0.12, 0.24, palette.boots);
+   213→      boot.position.set(0, -0.4, 0.04);
+   214→      knee.add(boot);
+   215→    };
+   216→    buildLeg(-1, this.legL, this.kneeL);
+   217→    buildLeg(1, this.legR, this.kneeR);
+   218→
+   219→    // --- Cape (only if palette defines it) ---
+   220→    if (palette.cape !== undefined) {
+   221→      const capeGeo = new THREE.PlaneGeometry(0.44, 0.85, 1, 4);
+   222→      const capeMat = new THREE.MeshStandardMaterial({
+   223→        color: palette.cape, roughness: 0.9, side: THREE.DoubleSide,
+   224→      });
+   225→      this.cape = new THREE.Mesh(capeGeo, capeMat);
+   226→      this.cape.position.set(0, 0.28, -0.16);
+   227→      this.cape.castShadow = true;
+   228→      this.chest.add(this.cape);
+   229→    }
+   230→
+   231→    // --- Weapon park: one hip slot + one hand slot per weapon kind ---
+   232→    for (const kind of ['sword', 'axe', 'spear'] as WeaponKind[]) {
+   233→      const hip = new THREE.Group();
+   234→      const hand = new THREE.Group();
+   235→      this.buildWeapon(kind, hip, hand);
+   236→      hip.visible = false;
+   237→      hand.visible = false;
+   238→      this.chest.add(hip);
+   239→      this.elbowR.add(hand);
+   240→      this.hipSlots[kind] = hip;
+   241→      this.handSlots[kind] = hand;
+   242→    }
+   243→    // Hip weapon rest pose (sword at the belt, axe & spear across the back)
+   244→    if (this.hipSlots.sword) this.hipSlots.sword.position.set(0.22, 0.02, -0.05);
+   245→    if (this.hipSlots.axe) {
+   246→      this.hipSlots.axe.position.set(-0.2, 0.32, -0.18);
+   247→      this.hipSlots.axe.rotation.set(0.35, 0, 2.6);
+   248→    }
+   249→    if (this.hipSlots.spear) {
+   250→      this.hipSlots.spear.position.set(-0.24, 0.1, -0.12);
+   251→      this.hipSlots.spear.rotation.set(0.25, 0, 2.35);
+   252→    }
+   253→    for (const hand of Object.values(this.handSlots)) {
+   254→      hand.position.set(0, -0.36, 0.05);
+   255→      hand.rotation.set(0, 0, Math.PI);
+   256→    }
+   257→
+   258→    // --- Bow: carried on the back at rest, in the LEFT hand while drawn ---
+   259→    this.buildBow(this.bowInHand);
+   260→    this.bowInHand.position.set(0, -0.34, 0.1);
+   261→    this.bowInHand.visible = false;
+   262→    this.elbowL.add(this.bowInHand);
+   263→
+   264→    // --- Shield on the left forearm ---
+   265→    this.buildShield(this.shieldGroup);
+   266→    this.shieldGroup.position.set(-0.02, -0.3, 0.12);
+   267→    this.shieldGroup.rotation.set(Math.PI / 2, 0, 0);
+   268→    this.shieldGroup.visible = false;
+   269→    this.elbowL.add(this.shieldGroup);
+   270→  }
+   271→
+   272→  // ------------------------------------------------------------ weapons
+   273→
+   274→  private buildWeapon(kind: WeaponKind, hip: THREE.Group, hand: THREE.Group): void {
+   275→    const steel = new THREE.MeshStandardMaterial({ color: 0xaab0b6, roughness: 0.35, metalness: 0.85 });
+   276→    const darkSteel = new THREE.MeshStandardMaterial({ color: 0x767c82, roughness: 0.45, metalness: 0.75 });
+   277→    const guardM = new THREE.MeshStandardMaterial({ color: 0xc9a227, roughness: 0.4, metalness: 0.7 });
+   278→    const woodM = new THREE.MeshStandardMaterial({ color: 0x4a3624, roughness: 0.85 });
+   279→    const gripM = new THREE.MeshStandardMaterial({ color: 0x3a2a1a, roughness: 0.9 });
+   280→
+   281→    if (kind === 'sword') {
+   282→      const mk = (parent: THREE.Group) => {
+   283→        const blade = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.78, 0.012), steel);
+   284→        blade.position.y = 0.52;
+   285→        blade.castShadow = true;
+   286→        parent.add(blade);
+   287→        const tip = new THREE.Mesh(new THREE.ConeGeometry(0.033, 0.12, 4), steel);
+   288→        tip.position.y = 0.96;
+   289→        parent.add(tip);
+   290→        const guard = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.035, 0.045), guardM);
+   291→        guard.position.y = 0.13;
+   292→        parent.add(guard);
+   293→        const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.022, 0.22, 6), gripM);
+   294→        grip.position.y = 0.0;
+   295→        parent.add(grip);
+   296→        const pommel = new THREE.Mesh(new THREE.SphereGeometry(0.032, 6, 5), guardM);
+   297→        pommel.position.y = -0.12;
+   298→        parent.add(pommel);
+   299→      };
+   300→      mk(hip);
+   301→      mk(hand);
+   302→      return;
+   303→    }
+   304→
+   305→    if (kind === 'axe') {
+   306→      const mk = (parent: THREE.Group) => {
+   307→        const haft = new THREE.Mesh(new THREE.CylinderGeometry(0.024, 0.028, 0.92, 7), woodM);
+   308→        haft.position.y = 0.42;
+   309→        haft.castShadow = true;
+   310→        parent.add(haft);
+   311→        // Axe head: two flaring blades joined at the socket
+   312→        const headCore = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.16, 0.1), darkSteel);
+   313→        headCore.position.set(0, 0.82, 0);
+   314→        parent.add(headCore);
+   315→        for (const s of [-1, 1]) {
+   316→          const blade = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.05, 0.03, 3), darkSteel);
+   317→          blade.rotation.set(0, 0, -s * Math.PI / 2);
+   318→          blade.rotation.x = Math.PI / 2;
+   319→          blade.position.set(s * 0.13, 0.82, 0);
+   320→          blade.castShadow = true;
+   321→          parent.add(blade);
+   322→        }
+   323→        const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.026, 0.026, 0.18, 7), gripM);
+   324→        grip.position.y = 0.02;
+   325→        parent.add(grip);
+   326→        const pommel = new THREE.Mesh(new THREE.SphereGeometry(0.03, 6, 5), guardM);
+   327→        pommel.position.y = -0.06;
+   328→        parent.add(pommel);
+   329→      };
+   330→      mk(hip);
+   331→      mk(hand);
+   332→      return;
+   333→    }
+   334→
+   335→    // spear
+   336→    const mk = (parent: THREE.Group) => {
+   337→      const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.021, 0.023, 1.72, 7), woodM);
+   338→      shaft.position.y = 0.55;
+   339→      shaft.castShadow = true;
+   340→      parent.add(shaft);
+   341→      const socket = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.024, 0.1, 7), guardM);
+   342→      socket.position.y = 1.42;
+   343→      parent.add(socket);
+   344→      const tip = new THREE.Mesh(new THREE.ConeGeometry(0.045, 0.3, 6), steel);
+   345→      tip.position.y = 1.6;
+   346→      tip.castShadow = true;
+   347→      parent.add(tip);
+   348→      const butt = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.016, 0.12, 6), darkSteel);
+   349→      butt.position.y = -0.32;
+   350→      parent.add(butt);
+   351→    };
+   352→    mk(hip);
+   353→    mk(hand);
+   354→  }
+   355→
+   356→  private buildBow(parent: THREE.Group): void {
+   357→    const woodM = new THREE.MeshStandardMaterial({ color: 0x5a4128, roughness: 0.75 });
+   358→    // Arc of the bow: 5 short segments following a curve
+   359→    const segs = 6;
+   360→    for (let i = 0; i < segs; i++) {
+   361→      const k = i / (segs - 1);          // 0..1 along the bow
+   362→      const ang = (k - 0.5) * 1.9;       // sweep
+   363→      const seg = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.017, 0.19, 5), woodM);
+   364→      seg.position.set(Math.cos(ang) * 0.12 - 0.12, Math.sin(ang) * 0.52, 0);
+   365→      seg.rotation.z = -ang + Math.PI / 2;
+   366→      seg.castShadow = true;
+   367→      parent.add(seg);
+   368→    }
+   369→    // String
+   370→    const stringM = new THREE.MeshStandardMaterial({ color: 0xd8d2c0, roughness: 0.9 });
+   371→    const str = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, 1.04, 4), stringM);
+   372→    str.position.set(-0.085, 0, 0);
+   373→    parent.add(str);
+   374→  }
+   375→
+   376→  private buildShield(parent: THREE.Group): void {
+   377→    // Heater shield: extruded 2D silhouette + iron boss + scale bands
+   378→    const shape = new THREE.Shape();
+   379→    shape.moveTo(-0.26, 0.32);
+   380→    shape.quadraticCurveTo(0, 0.4, 0.26, 0.32);
+   381→    shape.quadraticCurveTo(0.3, 0.05, 0.2, -0.18);
+   382→    shape.quadraticCurveTo(0.1, -0.36, 0, -0.44);
+   383→    shape.quadraticCurveTo(-0.1, -0.36, -0.2, -0.18);
+   384→    shape.quadraticCurveTo(-0.3, 0.05, -0.26, 0.32);
+   385→    const geo = new THREE.ExtrudeGeometry(shape, { depth: 0.035, bevelEnabled: true, bevelThickness: 0.012, bevelSize: 0.012, bevelSegments: 1 });
+   386→    const woodM = new THREE.MeshStandardMaterial({ color: 0x4c3a26, roughness: 0.8 });
+   387→    const shield = new THREE.Mesh(geo, woodM);
+   388→    shield.castShadow = true;
+   389→    parent.add(shield);
+   390→    // Iron boss
+   391→    const boss = new THREE.Mesh(
+   392→      new THREE.SphereGeometry(0.075, 10, 8, 0, Math.PI * 2, 0, Math.PI / 2),
+   393→      new THREE.MeshStandardMaterial({ color: 0x8a9198, roughness: 0.35, metalness: 0.85 }),
+   394→    );
+   395→    boss.rotation.x = Math.PI / 2;
+   396→    boss.position.z = 0.03;
+   397→    boss.castShadow = true;
+   398→    parent.add(boss);
+   399→    // Scale bands (dragon-scale look, tide blue)
+   400→    const scaleM = new THREE.MeshStandardMaterial({ color: 0x2e5a5e, roughness: 0.5, metalness: 0.35 });
+   401→    for (let row = 0; row < 3; row++) {
+   402→      for (let i = 0; i < 4; i++) {
+   403→        const scale = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.012, 6), scaleM);
+   404→        scale.rotation.x = Math.PI / 2;
+   405→        scale.position.set(-0.15 + i * 0.1 + (row % 2) * 0.05, 0.2 - row * 0.19, 0.032);
+   406→        parent.add(scale);
+   407→      }
+   408→    }
+   409→  }
+   410→
+   411→  // ------------------------------------------------------------ state API
+   412→
+   413→  /** Equip a weapon visual by kind (null/'none' hides all). */
+   414→  setWeapon(kind: WeaponKind): void {
+   415→    this.weapon = kind;
+   416→    this.weaponEquippedVisible = kind !== 'none';
+   417→    this.refreshWeaponVisibility();
+   418→  }
+   419→
+   420→  /** Show the shield on the left forearm. */
+   421→  setShield(visible: boolean): void {
+   422→    this.shieldGroup.visible = visible;
+   423→  }
+   424→
+   425→  get hasShieldVisible(): boolean {
+   426→    return this.shieldGroup.visible;
+   427→  }
+   428→
+   429→  /** Legacy API (NPCs, boarding crew): sword shown at the hip. */
+   430→  setSwordEquipped(equipped: boolean): void {
+   431→    this.weapon = equipped ? 'sword' : 'none';
+   432→    this.weaponEquippedVisible = equipped;
+   433→    this.refreshWeaponVisibility();
+   434→  }
+   435→
+   436→  /** Legacy API used by the game: any weapon equipped? */
+   437→  setEquippedState(equipped: boolean): void {
+   438→    this.weaponEquippedVisible = equipped;
+   439→    if (equipped && this.weapon === 'none') this.weapon = 'sword';
+   440→    if (!equipped) this.weapon = 'none';
+   441→    this.refreshWeaponVisibility();
+   442→  }
+   443→
+   444→  /** Brief red flash on the body when the character takes damage. */
+   445→  flash(): void {
+   446→    this.flashT = 1;
+   447→  }
+   448→
+   449→  private refreshWeaponVisibility(): void {
+   450→    for (const kind of ['sword', 'axe', 'spear'] as WeaponKind[]) {
+   451→      const hip = this.hipSlots[kind];
+   452→      const hand = this.handSlots[kind];
+   453→      if (hip) hip.visible = this.weapon === kind && this.weaponEquippedVisible;
+   454→      if (hand) hand.visible = false; // shown only mid-swing by update()
+   455→    }
+   456→  }
+   457→
+   458→  /** Face target yaw (world). */
+   459→  faceYaw(yaw: number): void {
+   460→    this.root.rotation.y = yaw;
+   461→  }
+   462→
+   463→  update(p: AnimParams): void {
+   464→    this.t += p.dt;
+   465→    const walkFreq = p.swimming ? 2.2 : p.speed > 4.5 ? 9.2 : 6.4;
+   466→    if (p.moving) this.phase += p.dt * walkFreq;
+   467→    const ph = this.phase;
+   468→
+   469→    // Damage flash decay (discrete hit feedback)
+   470→    if (this.flashT > 0) {
+   471→      this.flashT = Math.max(0, this.flashT - p.dt * 3.2);
+   472→      const e = this.flashT * 0.55;
+   473→      for (const m of this.flashMaterials) m.emissive.setRGB(e, e * 0.12, e * 0.08);
+   474→    }
+   475→
+   476→    const resetPose = () => {
+   477→      this.legL.rotation.x = 0; this.legR.rotation.x = 0;
+   478→      this.kneeL.rotation.x = 0; this.kneeR.rotation.x = 0;
+   479→      this.armL.rotation.x = 0; this.armR.rotation.x = 0;
+   480→      this.armL.rotation.z = 0.06; this.armR.rotation.z = -0.06;
+   481→      this.elbowL.rotation.x = 0; this.elbowR.rotation.x = 0;
+   482→      this.chest.rotation.x = 0; this.chest.rotation.y = 0;
+   483→      this.hips.position.y = 0.94; this.head.rotation.x = 0; this.head.rotation.y = 0;
+   484→      this.root.rotation.x = 0;
+   485→    };
+   486→    resetPose();
+   487→
+   488→    // --- Dodge roll: full-body tumble, overrides everything else ---
+   489→    const rollT = p.rollT ?? 0;
+   490→    if (rollT > 0) {
+   491→      this.root.rotation.x = rollT * Math.PI * 2;
+   492→      this.hips.position.y = 0.94 - 0.32 * Math.sin(rollT * Math.PI);
+   493→      this.legL.rotation.x = -1.9; this.legR.rotation.x = -1.7;
+   494→      this.kneeL.rotation.x = -1.9; this.kneeR.rotation.x = -1.7;
+   495→      this.armL.rotation.x = -1.4; this.armR.rotation.x = -1.2;
+   496→      this.elbowL.rotation.x = -1.6; this.elbowR.rotation.x = -1.6;
+   497→      this.chest.rotation.x = 0.7;
+   498→      this.head.rotation.x = 0.5;
+   499→      if (this.cape) this.cape.rotation.x = 1.2;
+   500→      this.updateWeaponPose(p, false);
+   501→      return;
+   502→    }
+   503→
+   504→    if (p.swimming) {
+   505→      // Breaststroke: body pitched forward, sweeping arms, flutter kick
+   506→      this.hips.position.y = 0.94;
+   507→      this.root.rotation.x = 0; // pitch handled by Player on a parent group
+   508→      const sweep = Math.sin(ph * 2.2);
+   509→      this.armL.rotation.x = -1.2 + sweep * 1.1;
+   510→      this.armR.rotation.x = -1.2 + sweep * 1.1;
+   511→      this.armL.rotation.z = 0.35 + sweep * 0.3;
+   512→      this.armR.rotation.z = -0.35 - sweep * 0.3;
+   513→      this.elbowL.rotation.x = -0.5;
+   514→      this.elbowR.rotation.x = -0.5;
+   515→      this.legL.rotation.x = 0.25 + Math.sin(ph * 6) * 0.3;
+   516→      this.legR.rotation.x = 0.25 + Math.sin(ph * 6 + Math.PI) * 0.3;
+   517→      this.kneeL.rotation.x = -0.2;
+   518→      this.kneeR.rotation.x = -0.2;
+   519→      this.head.rotation.x = -0.5;
+   520→      if (this.cape) this.cape.rotation.x = 0.9;
+   521→      this.updateWeaponPose(p, false);
+   522→      return;
+   523→    }
+   524→
+   525→    if (p.riding) {
+   526→      // Fase 4 — seat pose: legs wrap the saddle, hands hold the reins,
+   527→      // torso leans into the gait with a two-phase bounce.
+   528→      const bounce = p.rideBounce ?? 0;
+   529→      const bob = Math.sin(bounce * Math.PI * 2);
+   530→      this.hips.position.y = 0.94 + Math.abs(bob) * 0.05;
+   531→      this.root.rotation.x = 0;
+   532→      // Legs bent outward around the horse's barrel
+   533→      this.legL.rotation.x = -0.85;
+   534→      this.legR.rotation.x = -0.85;
+   535→      this.kneeL.rotation.x = -1.35;
+   536→      this.kneeR.rotation.x = -1.35;
+   537→      this.legL.rotation.z = 0.28;
+   538→      this.legR.rotation.z = -0.28;
+   539→      // Arms forward on the reins
+   540→      this.armL.rotation.x = -0.55 + bob * 0.06;
+   541→      this.armR.rotation.x = -0.55 + bob * 0.06;
+   542→      this.armL.rotation.z = 0.18;
+   543→      this.armR.rotation.z = -0.18;
+   544→      this.elbowL.rotation.x = -0.5;
+   545→      this.elbowR.rotation.x = -0.5;
+   546→      this.chest.rotation.x = 0.08 + bob * 0.03;
+   547→      this.head.rotation.x = -0.08;
+   548→      if (this.cape) this.cape.rotation.x = 0.35 + Math.abs(bob) * 0.12;
+   549→      this.updateWeaponPose(p, false);
+   550→      return;
+   551→    }
+   552→
+   553→    if (!p.grounded) {
+   554→      // Airborne pose
+   555→      this.armL.rotation.x = -0.7; this.armR.rotation.x = -0.5;
+   556→      this.armL.rotation.z = 0.5; this.armR.rotation.z = -0.5;
+   557→      this.legL.rotation.x = -0.5; this.legR.rotation.x = 0.35;
+   558→      this.kneeL.rotation.x = -0.7; this.kneeR.rotation.x = -0.3;
+   559→      this.chest.rotation.x = 0.12;
+   560→      if (this.cape) this.cape.rotation.x = 0.55 + Math.sin(this.t * 6) * 0.06;
+   561→      this.updateWeaponPose(p, false);
+   562→      return;
+   563→    }
+   564→
+   565→    // --- Bow draw aim pose (overrides walk arms while aiming) ---
+   566→    const bowDraw = p.bowDraw ?? 0;
+   567→    if (bowDraw > 0) {
+   568→      const sway = Math.sin(this.t * 1.8) * 0.015;
+   569→      this.armL.rotation.x = -1.45 + sway;
+   570→      this.armL.rotation.z = 0.12;
+   571→      this.elbowL.rotation.x = -0.1;
+   572→      this.armR.rotation.x = -1.2 + bowDraw * 0.25 + sway;
+   573→      this.armR.rotation.z = -0.3;
+   574→      this.elbowR.rotation.x = -0.25 - bowDraw * 1.15;
+   575→      this.chest.rotation.y = -0.22;
+   576→      this.chest.rotation.x = 0.05;
+   577→      this.head.rotation.y = 0.12;
+   578→      if (p.moving) {
+   579→        const amp = 0.28;
+   580→        this.legL.rotation.x = Math.sin(ph) * amp;
+   581→        this.legR.rotation.x = Math.sin(ph + Math.PI) * amp;
+   582→        this.hips.position.y = 0.94 + Math.abs(Math.sin(ph)) * 0.03;
+   583→      } else {
+   584→        this.kneeL.rotation.x = -0.12;
+   585→        this.kneeR.rotation.x = -0.18;
+   586→        this.hips.position.y = 0.94 - bowDraw * 0.03;
+   587→      }
+   588→      if (this.cape) this.cape.rotation.x = 0.18 + Math.sin(this.t * 2) * 0.03;
+   589→      this.updateWeaponPose(p, true);
+   590→      return;
+   591→    }
+   592→
+   593→    if (p.moving) {
+   594→      const runK = Math.min(1, p.speed / 6.0);
+   595→      const amp = 0.5 + runK * 0.42;
+   596→      this.legL.rotation.x = Math.sin(ph) * amp;
+   597→      this.legR.rotation.x = Math.sin(ph + Math.PI) * amp;
+   598→      this.kneeL.rotation.x = Math.max(0, -Math.sin(ph - 0.6)) * (0.5 + runK * 0.5);
+   599→      this.kneeR.rotation.x = Math.max(0, -Math.sin(ph + Math.PI - 0.6)) * (0.5 + runK * 0.5);
+   600→      this.armL.rotation.x = Math.sin(ph + Math.PI) * (0.35 + runK * 0.45);
+   601→      this.armR.rotation.x = Math.sin(ph) * (0.35 + runK * 0.45);
+   602→      this.armL.rotation.z = 0.08; this.armR.rotation.z = -0.08;
+   603→      this.elbowL.rotation.x = -0.25 - runK * 0.3;
+   604→      this.elbowR.rotation.x = -0.25 - runK * 0.3;
+   605→      // Body bob & forward lean
+   606→      this.hips.position.y = 0.94 + Math.abs(Math.sin(ph)) * 0.045 * (0.5 + runK);
+   607→      this.chest.rotation.x = 0.05 + runK * 0.14;
+   608→      this.chest.rotation.y = Math.sin(ph) * 0.06;
+   609→      if (this.cape) this.cape.rotation.x = 0.12 + runK * 0.5 + Math.sin(this.t * 5) * 0.05;
+   610→    } else {
+   611→      // Idle: breathing, subtle sway, weight shift
+   612→      const breathe = Math.sin(this.t * 1.6);
+   613→      this.chest.rotation.x = 0.015 + breathe * 0.012;
+   614→      this.chest.scale.y = 1 + breathe * 0.008;
+   615→      this.armL.rotation.x = breathe * 0.03;
+   616→      this.armR.rotation.x = -breathe * 0.03;
+   617→      this.armL.rotation.z = 0.07 + breathe * 0.012;
+   618→      this.armR.rotation.z = -0.07 - breathe * 0.012;
+   619→      this.head.rotation.y = Math.sin(this.t * 0.5) * 0.14;
+   620→      this.hips.position.y = 0.94 + breathe * 0.006;
+   621→      if (p.talking) {
+   622→        this.head.rotation.y = Math.sin(this.t * 2.2) * 0.06;
+   623→        this.armR.rotation.x = Math.sin(this.t * 3.1) * 0.22 - 0.15;
+   624→        this.elbowR.rotation.x = -0.45;
+   625→      }
+   626→      if (this.cape) this.cape.rotation.x = 0.06 + Math.sin(this.t * 1.2) * 0.02;
+   627→    }
+   628→
+   629→    // --- Block pose overlay (right mouse hold) ---
+   630→    const blockT = p.blockT ?? 0;
+   631→    if (blockT > 0) {
+   632→      const k = Math.min(1, blockT);
+   633→      if (this.shieldGroup.visible) {
+   634→        // Shield forward, braced
+   635→        this.armL.rotation.x = THREE.MathUtils.lerp(this.armL.rotation.x, -1.15, k);
+   636→        this.armL.rotation.z = THREE.MathUtils.lerp(this.armL.rotation.z, 0.3, k);
+   637→        this.elbowL.rotation.x = THREE.MathUtils.lerp(this.elbowL.rotation.x, -0.85, k);
+   638→        this.armR.rotation.x = THREE.MathUtils.lerp(this.armR.rotation.x, -0.35, k);
+   639→        this.elbowR.rotation.x = THREE.MathUtils.lerp(this.elbowR.rotation.x, -1.5, k);
+   640→      } else {
+   641→        // Sword held vertical in front
+   642→        this.armR.rotation.x = THREE.MathUtils.lerp(this.armR.rotation.x, -0.95, k);
+   643→        this.armR.rotation.z = THREE.MathUtils.lerp(this.armR.rotation.z, -0.25, k);
+   644→        this.elbowR.rotation.x = THREE.MathUtils.lerp(this.elbowR.rotation.x, -1.35, k);
+   645→        this.armL.rotation.x = THREE.MathUtils.lerp(this.armL.rotation.x, -0.5, k);
+   646→        this.elbowL.rotation.x = THREE.MathUtils.lerp(this.elbowL.rotation.x, -1.0, k);
+   647→      }
+   648→      this.chest.rotation.x = THREE.MathUtils.lerp(this.chest.rotation.x, 0.12, k);
+   649→      this.hips.position.y -= k * 0.06;
+   650→    }
+   651→
+   652→    // --- Attack overlays ---
+   653→    if (p.attackT > 0) {
+   654→      const k = p.attackT;
+   655→      let armX: number, armZ: number, chestY: number, elbow = -0.15;
+   656→      const kind = p.attackKind ?? 'light1';
+   657→      if (kind === 'heavy') {
+   658→        // Overhead smash: big windup up-back, crouch, then slam down
+   659→        let ax: number, az: number, cy: number, hipY = 0;
+   660→        if (k < 0.42) {
+   661→          const u = k / 0.42;
+   662→          ax = THREE.MathUtils.lerp(0, -2.7, u);
+   663→          az = THREE.MathUtils.lerp(-0.08, -0.35, u);
+   664→          cy = THREE.MathUtils.lerp(0, -0.42, u);
+   665→          hipY = -0.1 * u;
+   666→        } else if (k < 0.68) {
+   667→          const u = (k - 0.42) / 0.26;
+   668→          ax = THREE.MathUtils.lerp(-2.7, 0.85, u);
+   669→          az = THREE.MathUtils.lerp(-0.35, 0, u);
+   670→          cy = THREE.MathUtils.lerp(-0.42, 0.38, u);
+   671→          hipY = -0.1 * (1 - u);
+   672→        } else {
+   673→          const u = (k - 0.68) / 0.32;
+   674→          ax = THREE.MathUtils.lerp(0.85, 0, u);
+   675→          az = THREE.MathUtils.lerp(0, -0.06, u);
+   676→          cy = THREE.MathUtils.lerp(0.38, 0, u);
+   677→        }
+   678→        this.armR.rotation.x = ax;
+   679→        this.armR.rotation.z = az;
+   680→        this.chest.rotation.y = cy;
+   681→        this.hips.position.y += hipY;
+   682→        this.chest.rotation.x = 0.18 * Math.sin(k * Math.PI);
+   683→        this.elbowR.rotation.x = -0.5 + Math.max(0, k - 0.42) * 1.6;
+   684→      } else if (kind === 'thrust') {
+   685→        // Spear jab: pull back, lunge forward
+   686→        if (k < 0.35) {
+   687→          const u = k / 0.35;
+   688→          this.armR.rotation.x = THREE.MathUtils.lerp(0, -0.5, u);
+   689→          this.elbowR.rotation.x = THREE.MathUtils.lerp(-0.15, -1.7, u);
+   690→          this.chest.rotation.y = THREE.MathUtils.lerp(0, 0.35, u);
+   691→        } else if (k < 0.6) {
+   692→          const u = (k - 0.35) / 0.25;
+   693→          this.armR.rotation.x = THREE.MathUtils.lerp(-0.5, -1.5, u);
+   694→          this.elbowR.rotation.x = THREE.MathUtils.lerp(-1.7, -0.05, u);
+   695→          this.chest.rotation.y = THREE.MathUtils.lerp(0.35, -0.3, u);
+   696→          this.chest.rotation.x = 0.15 * u;
+   697→        } else {
+   698→          const u = (k - 0.6) / 0.4;
+   699→          this.armR.rotation.x = THREE.MathUtils.lerp(-1.5, 0, u);
+   700→          this.elbowR.rotation.x = THREE.MathUtils.lerp(-0.05, -0.15, u);
+   701→          this.chest.rotation.y = THREE.MathUtils.lerp(-0.3, 0, u);
+   702→        }
+   703→      } else if (kind === 'light2') {
+   704→        // Backhand: windup right, sweep left
+   705→        if (k < 0.35) {
+   706→          const u = k / 0.35;
+   707→          armX = THREE.MathUtils.lerp(0, -1.9, u);
+   708→          armZ = THREE.MathUtils.lerp(-0.08, 0.55, u);
+   709→          chestY = THREE.MathUtils.lerp(0, 0.4, u);
+   710→        } else if (k < 0.75) {
+   711→          const u = (k - 0.35) / 0.4;
+   712→          armX = THREE.MathUtils.lerp(-1.9, 0.4, u);
+   713→          armZ = THREE.MathUtils.lerp(0.55, -0.85, u);
+   714→          chestY = THREE.MathUtils.lerp(0.4, -0.45, u);
+   715→        } else {
+   716→          const u = (k - 0.75) / 0.25;
+   717→          armX = THREE.MathUtils.lerp(0.4, 0, u);
+   718→          armZ = THREE.MathUtils.lerp(-0.85, -0.06, u);
+   719→          chestY = THREE.MathUtils.lerp(-0.45, 0, u);
+   720→        }
+   721→        this.armR.rotation.x = armX!;
+   722→        this.armR.rotation.z = armZ!;
+   723→        this.chest.rotation.y = chestY!;
+   724→        this.elbowR.rotation.x = elbow;
+   725→      } else if (kind === 'bowRelease') {
+   726→        // String snap: right hand flies forward off the cheek
+   727→        const u = Math.min(1, k * 2.2);
+   728→        this.armL.rotation.x = -1.45;
+   729→        this.elbowL.rotation.x = -0.1;
+   730→        this.armR.rotation.x = THREE.MathUtils.lerp(-1.45, -1.2, u);
+   731→        this.elbowR.rotation.x = THREE.MathUtils.lerp(-1.4, -0.2, u);
+   732→        this.chest.rotation.y = -0.22;
+   733→      } else {
+   734→        // light1 — classic diagonal slash (windup → slash → recover)
+   735→        if (k < 0.35) {
+   736→          const u = k / 0.35;
+   737→          armX = THREE.MathUtils.lerp(this.armR.rotation.x, -2.3, u);
+   738→          armZ = THREE.MathUtils.lerp(-0.08, -0.9, u);
+   739→          chestY = THREE.MathUtils.lerp(0, -0.4, u);
+   740→        } else if (k < 0.75) {
+   741→          const u = (k - 0.35) / 0.4;
+   742→          armX = THREE.MathUtils.lerp(-2.3, 0.5, u);
+   743→          armZ = THREE.MathUtils.lerp(-0.9, 0.55, u);
+   744→          chestY = THREE.MathUtils.lerp(-0.4, 0.45, u);
+   745→        } else {
+   746→          const u = (k - 0.75) / 0.25;
+   747→          armX = THREE.MathUtils.lerp(0.5, 0, u);
+   748→          armZ = THREE.MathUtils.lerp(0.55, -0.06, u);
+   749→          chestY = THREE.MathUtils.lerp(0.45, 0, u);
+   750→        }
+   751→        this.armR.rotation.x = armX!;
+   752→        this.armR.rotation.z = armZ!;
+   753→        this.chest.rotation.y = chestY!;
+   754→        this.elbowR.rotation.x = elbow;
+   755→      }
+   756→    }
+   757→
+   758→    this.updateWeaponPose(p, p.attackT > 0);
+   759→  }
+   760→
+   761→  /** Show hip/hand weapon copies + bow according to the current context. */
+   762→  private updateWeaponPose(p: AnimParams, attacking: boolean): void {
+   763→    const hip = this.hipSlots[this.weapon];
+   764→    const showHip = this.weaponEquippedVisible && this.weapon !== 'none';
+   765→    if (hip) hip.visible = showHip && !attacking;
+   766→    // Hand copy: visible only mid-swing for melee weapons
+   767→    if (this.weapon !== 'none' && this.weapon !== 'bow') {
+   768→      const hand = this.handSlots[this.weapon];
+   769→      if (hand) hand.visible = attacking;
+   770→    }
+   771→    // Bow: visible only while aiming/drawing (held in the left hand)
+   772→    const bowDraw = p.bowDraw ?? 0;
+   773→    this.bowInHand.visible = this.weapon === 'bow' && (bowDraw > 0 || (p.attackKind === 'bowRelease' && p.attackT > 0));
+   774→  }
+   775→
+   776→  dispose(): void {
+   777→    this.root.traverse((obj) => {
+   778→      if ((obj as THREE.Mesh).isMesh) {
+   779→        const m = obj as THREE.Mesh;
+   780→        m.geometry.dispose();
+   781→        (m.material as THREE.Material).dispose();
+   782→      }
+   783→    });
+   784→  }
+   785→}
+   786→
+   787→/**
+   788→ * Fase 5 — VillagerModel.
+   789→ * The NPCs of Puerto Cuervo as proper ALDEANOS: seeded per-NPC variety with
+   790→ * hoods, head scarves, aprons, rope belts with pouches, hair (braids, bald
+   791→ * elders), beards, rolled sleeves and body builds (slim / burly). Animates
+   792→ * through the regular CharacterModel layer (walk / pause / talk).
+   793→ */
+   794→export class VillagerModel extends CharacterModel {
+   795→  constructor(palette: CharacterPalette, seed: number, role?: string) {
+   796→    super(palette);
+   797→    const r = (k: number) => {
+   798→      // deterministic per-NPC variety
+   799→      const x = Math.sin(seed * 37.71 + k * 91.13) * 43758.5453;
+   800→      return x - Math.floor(x);
+   801→    };
+   802→    const mkMat = (c: number, rough = 0.9) =>
+   803→      new THREE.MeshStandardMaterial({ color: c, roughness: rough, metalness: 0.02 });
+   804→
+   805→    // --- build variety: slim <0.5, burly >0.5 ---
+   806→    const build = r(1);
+   807→    if (build < 0.42) this.chest.scale.set(0.92, 1.03, 0.94);
+   808→    else if (build > 0.62) { this.chest.scale.set(1.1, 1, 1.08); this.hips.scale.setScalar(1.06); }
+   809→
+   810→    // --- head wear: hood / scarf / bald + beard ---
+   811→    const headWear = r(2);
+   812→    if (headWear < 0.3) {
+   813→      // hood: open cone framing the face
+   814→      const hood = new THREE.Mesh(new THREE.ConeGeometry(0.21, 0.3, 8, 1, true), mkMat(palette.tunic, 0.95));
+   815→      hood.position.y = 0.24;
+   816→      hood.rotation.x = -0.16;
+   817→      hood.castShadow = true;
+   818→      this.head.add(hood);
+   819→      const rim = new THREE.Mesh(
+   820→        new THREE.TorusGeometry(0.16, 0.028, 6, 12),
+   821→        mkMat(palette.boots),
+   822→      );
+   823→      rim.rotation.x = Math.PI / 2;
+   824→      rim.position.y = 0.13;
+   825→      this.head.add(rim);
+   826→    } else if (headWear < 0.55) {
+   827→      // head scarf over the hair
+   828→      const scarf = new THREE.Mesh(
+   829→        new THREE.SphereGeometry(0.155, 10, 8, 0, Math.PI * 2, 0, Math.PI * 0.55),
+   830→        mkMat(palette.sleeves, 0.95),
+   831→      );
+   832→      scarf.position.y = 0.16;
+   833→      scarf.scale.set(1.06, 1, 1.1);
+   834→      scarf.castShadow = true;
+   835→      this.head.add(scarf);
+   836→    } else if (headWear > 0.88) {
+   837→      // bald elder with a beard
+   838→      // (bald look: the hair cap stays but is recoloured to skin)
+   839→      const hairCap = this.head.children.find((c) => (c as THREE.Mesh).isMesh && Math.abs(c.position.y - 0.245) < 0.02) as THREE.Mesh | undefined;
+   840→      if (hairCap) (hairCap.material as THREE.MeshStandardMaterial).color.setHex(palette.skin);
+   841→      const beard = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.14, 0.1), mkMat(palette.hair, 0.95));
+   842→      beard.position.set(0, 0.02, 0.09);
+   843→      this.head.add(beard);
+   844→      const brow = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.03, 0.06), mkMat(palette.hair));
+   845→      brow.position.set(0, 0.045, 0.1);
+   846→      this.head.add(brow);
+   847→    } else if (r(3) < 0.5) {
+   848→      // long hair down the back
+   849→      const hair = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.3, 0.07), mkMat(palette.hair, 0.95));
+   850→      hair.position.set(0, 0.08, -0.135);
+   851→      hair.castShadow = true;
+   852→      this.head.add(hair);
+   853→    }
+   854→
+   855→    // --- working clothes: apron + rope belt with pouch ---
+   856→    if (r(4) < 0.62 || role === 'smith' || role === 'merchant') {
+   857→      const apron = new THREE.Mesh(
+   858→        new THREE.BoxGeometry(0.3, 0.34, 0.015),
+   859→        mkMat(role === 'smith' ? 0x3f2f22 : 0x9a8f7c, 0.95),
+   860→      );
+   861→      apron.position.set(0, 0.16, 0.155);
+   862→      apron.castShadow = true;
+   863→      this.chest.add(apron);
+   864→    }
+   865→    const belt = this.chest.getObjectByName('belt_0') as THREE.Mesh | undefined ?? this.chest.children.find((c) => (c as THREE.Mesh).isMesh && Math.abs((c as THREE.Mesh).position.y - 0.06) < 0.02) as THREE.Mesh | undefined;
+   866→    void belt;
+   867→    // rope belt over the tunic + a worn pouch on the hip
+   868→    const rope = new THREE.Mesh(
+   869→      new THREE.TorusGeometry(0.235, 0.02, 6, 14),
+   870→      mkMat(0x6e5a3e, 1),
+   871→    );
+   872→    rope.rotation.x = Math.PI / 2;
+   873→    rope.position.y = 0.075;
+   874→    rope.scale.set(1.02, 1, 0.95);
+   875→    this.chest.add(rope);
+   876→    const pouch = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.11, 0.06), mkMat(0x5a4630, 1));
+   877→    pouch.position.set(0.19, 0.02, 0.03);
+   878→    this.chest.add(pouch);
+   879→
+   880→    // --- shoulders: patched sleeves for the elders of the port ---
+   881→    if (r(5) < 0.4) {
+   882→      const patch = new THREE.Mesh(
+   883→        new THREE.BoxGeometry(0.1, 0.09, 0.13),
+   884→        mkMat(0x8a7a5c, 0.98),
+   885→      );
+   886→      patch.position.set(0.2, 0.5, 0);
+   887→      this.chest.add(patch);
+   888→    }
+   889→
+   890→    // --- work tool on the belt (smith/merchant flavour) ---
+   891→    if (role === 'smith') {
+   892→      const hammer = new THREE.Group();
+   893→      const haft = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.02, 0.34, 6), mkMat(0x5a4028, 0.9));
+   894→      haft.position.y = 0.17;
+   895→      hammer.add(haft);
+   896→      const headM = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.06, 0.05), new THREE.MeshStandardMaterial({ color: 0x767c82, roughness: 0.45, metalness: 0.75 }));
+   897→      headM.position.y = 0.34;
+   898→      hammer.add(headM);
+   899→      hammer.position.set(0.23, 0.02, -0.02);
+   900→      hammer.rotation.z = 0.35;
+   901→      this.chest.add(hammer);
+   902→    }
+   903→  }
+   904→}
+   905→

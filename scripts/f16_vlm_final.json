@@ -1,0 +1,28 @@
+{
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "message": {
+        "content": "1) Yes, there is a big glowing title text overlay in the center that says \"KINGDOMS OF THE FORGOTTEN SEAS\".\n2) No, the building does not have bright white walls, and the character nearby is tall and slender (wearing dark armor), not short and wide like a dwarf.\n3) No, the building shown is just a simple structure with a white wall and dark roof; it does not look like a blacksmith workshop with an anvil, forge, or chimney.",
+        "role": "assistant"
+      }
+    }
+  ],
+  "created": 1791861316,
+  "id": "20261013111514b8983ab01ef44618",
+  "model": "glm-5v-turbo",
+  "object": "chat.completion",
+  "request_id": "20261013111514b8983ab01ef44618",
+  "usage": {
+    "completion_tokens": 106,
+    "completion_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "prompt_tokens": 1044,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "total_tokens": 1150
+  }
+}

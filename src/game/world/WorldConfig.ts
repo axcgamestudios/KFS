@@ -59,95 +59,104 @@ export interface IslandDef {
 
 export const ISLANDS: IslandDef[] = [
   {
-    id: 'crow', name: 'Isla del Cuervo Viejo',
+    id: 'crow', name: 'Old Crow Isle',
     x: -540, z: -450, radius: 130, height: 46, biome: 'volcanic',
-    journal: 'La isla del mapa de mi padre. Acantilados negros como alas de cuervo y, sobre la cala, una fortaleza de troncos erizada de estandartes rojos. Aquí anida el Cuervo de Tres Cabezas.',
+    journal: 'The island from my father’s map. Cliffs black as crow’s wings, and above the cove a timber fortress bristling with red banners. Here nests the Three-Headed Crow.',
   },
   {
-    id: 'faro', name: 'Farallón del Faro',
+    id: 'faro', name: 'Lighthouse Sea Stack',
     x: 575, z: 108, radius: 82, height: 30, biome: 'volcanic',
-    journal: 'Un farallón de roca volcánica coronado por las ruinas de un faro antiquísimo. Sus fuegos llevaron a los barcos de la Orden de la Marea durante siglos. Ahora solo lo habitan las gaviotas.',
+    journal: 'A sea stack of volcanic rock crowned by the ruins of a lighthouse older than memory. Its fires guided the ships of the Order of the Tide for centuries. Now only the gulls dwell here.',
   },
   {
-    id: 'bruma_a', name: 'Islas de la Bruma',
+    id: 'bruma_a', name: 'Mist Isles',
     x: -60, z: 590, radius: 85, height: 16, biome: 'sandy',
-    journal: 'Dos hermanas de arena blanca y palmeras bajas, siempre envueltas en una bruma tibia. Los pescadores dicen que la marea deja regalos en sus orillas… y que algo más grande también las visita.',
+    journal: 'Two sisters of white sand and low palms, forever wrapped in a warm mist. The fishermen say the tide leaves gifts upon their shores… and that something larger visits them too.',
   },
   {
-    id: 'bruma_b', name: 'Islas de la Bruma',
+    id: 'bruma_b', name: 'Mist Isles',
     x: 40, z: 655, radius: 64, height: 13, biome: 'sandy',
-    journal: 'La hermana menor de las islas. Entre ambas, un paso poco profundo donde el agua brilla turquesa al mediodía.',
+    journal: 'The younger sister of the isles. Between them lies a shallow passage where the water glitters turquoise at noon.',
+  },
+  {
+    id: 'ombligo', name: 'The Navel of the Sea',
+    x: 476, z: 476, radius: 68, height: 15, biome: 'volcanic',
+    journal: 'The dead cartographers were right: at the ocean\'s exact center rises a basalt needle ringed by spiral-carved monoliths. The horn-shaped altar listens… and something vast listens back.',
   },
 ];
 
 export const POIS: POIDef[] = [
   {
-    id: 'village', name: 'Puerto Cuervo', x: 20, z: 150, radius: 90, xp: 20,
-    journal: 'Un pequeño puerto de pescadores en la bahía meridional de Aldmor. Sus muelles huelen a sal y brea. Aquí crecí, y aquí desapareció la pista de mi padre.',
+    id: 'village', name: 'Crowhaven', x: 20, z: 150, radius: 90, xp: 20,
+    journal: 'A small fishing port on Aldmor’s southern bay. Its piers smell of salt and tar. Here I grew up, and here my father’s trail vanished.',
   },
   {
-    id: 'castle', name: 'Castillo de Aldmor', x: 110, z: -40, radius: 85, xp: 30,
-    journal: 'La fortaleza del viejo señor local, alzada sobre una meseta rocosa. Sus murallas vigilan la bahía desde hace tres siglos. Dicen que bajo el torreón descansan los archivos de la Orden de la Marea.',
+    id: 'castle', name: 'Aldmor Castle', x: 110, z: -40, radius: 85, xp: 30,
+    journal: 'The old local lord’s fortress, raised upon a rocky plateau. Its walls have watched over the bay for three centuries. They say the archives of the Order of the Tide rest beneath the keep.',
   },
   {
-    id: 'waterfall', name: 'La Cascada Susurrante', x: -95, z: -195, radius: 45, xp: 25,
-    journal: 'Las aguas caen desde las cumbres occidentales y se pierden entre las rocas. Los pétalos de marfil florecen en la umbría del sendero. Un lugar de extraña calma.',
+    id: 'waterfall', name: 'The Whispering Falls', x: -95, z: -195, radius: 45, xp: 25,
+    journal: 'The waters fall from the western peaks and vanish among the rocks. Ivory petals bloom in the shadow of the trail. A place of strange calm.',
   },
   {
-    id: 'ruins', name: 'Ruinas de Vaelthara', x: -240, z: -140, radius: 45, xp: 35,
-    journal: 'Columnas rotas cubiertas de musgo, más antiguas que cualquier reino vivo. Los símbolos tallados muestran dragones enroscados en espirales de agua. ¿Fue esto una ciudad de los Que Hablaban con Dragones?',
+    id: 'ruins', name: 'Ruins of Vaelthara', x: -240, z: -140, radius: 45, xp: 35,
+    journal: 'Broken columns shrouded in moss, older than any living kingdom. The carved sigils show dragons coiled in spirals of water. Was this once a city of the Dragon-Speakers?',
   },
   {
-    id: 'stones', name: 'El Círculo de las Vigilias', x: -140, z: -260, radius: 40, xp: 25,
-    journal: 'Nueve monolitos alineados en un prado que ninguna oveja se atreve a cruzar. Por la noche, las runas emiten un tenue fulgor. Los aldeanos lo evitan desde siempre.',
+    id: 'stones', name: 'The Circle of Vigils', x: -140, z: -260, radius: 40, xp: 25,
+    journal: 'Nine monoliths standing in a meadow no sheep dares cross. At night the runes give off a faint glow. The villagers have always shunned this place.',
   },
   {
-    id: 'wreck', name: 'El Naufragio de la Costa Oeste', x: -330, z: 190, radius: 45, xp: 30,
-    journal: 'Un casco partido por la mitad, medio enterrado en la arena. La marea deja aportes de madera y sal. Encontré un cargamento con la marca de la taberna de Rosa... y algo más.',
+    id: 'wreck', name: 'The West Coast Wreck', x: -330, z: 190, radius: 45, xp: 30,
+    journal: 'A hull split in two, half-buried in the sand. The tide leaves offerings of timber and salt. I found a cargo stamped with Rosa’s tavern mark... and something more.',
   },
   {
-    id: 'tower', name: 'Torre del Vigía', x: 300, z: 60, radius: 45, xp: 25,
-    journal: 'Una atalaya solitaria sobre el acantilado oriental. Desde arriba se ve todo el mar. La campana está oxidada: nadie vigia ya el horizonte. Alguien debería.',
+    id: 'tower', name: 'The Watchman’s Tower', x: 300, z: 60, radius: 45, xp: 25,
+    journal: 'A lonely watchtower on the eastern cliff. From the top, the whole sea lies in view. The bell has rusted: no one watches the horizon now. Someone should.',
   },
   {
-    id: 'grotto', name: 'La Gruta del Eco', x: 200, z: -180, radius: 40, xp: 30,
-    journal: 'Una caverna al abrigo de las estribaciones montañosas. El eco devuelve las voces con un instante de retraso... como si algo las repitiera desde muy abajo.',
+    id: 'grotto', name: 'The Echoing Grotto', x: 200, z: -180, radius: 40, xp: 30,
+    journal: 'A cavern sheltered in the mountain foothills. The echo returns your voice a heartbeat late... as if something were repeating it from far below.',
   },
   {
-    id: 'peak', name: 'Cumbres de Garrahielo', x: 40, z: -320, radius: 90, xp: 40,
-    journal: 'Las montañas del norte, coronadas de nieve eterna. Los pastores juran que a veces una sombra enorme cruza el cielo al atardecer. Los dragones dormían... ¿durmiendo aún?',
+    id: 'peak', name: 'The Iceclaw Peaks', x: 40, z: -320, radius: 90, xp: 40,
+    journal: 'The mountains of the north, crowned with eternal snow. The shepherds swear that at dusk an enormous shadow sometimes crosses the sky. The dragons once slept here... do they sleep still?',
   },
   {
-    id: 'fortaleza', name: 'Fortaleza del Cuervo', x: -540, z: -450, radius: 100, xp: 60,
-    journal: 'La guarida pirata de la Isla del Cuervo Viejo: una empalizada de troncos rematada por cráneos de moros, cabañas de vela alquitranada y una única torre de vigía. La Gaviota Sangrienta ancla en su cala.',
+    id: 'fortaleza', name: 'Fortress of the Crow', x: -540, z: -450, radius: 100, xp: 60,
+    journal: 'The pirate lair of Old Crow Isle: a log palisade crowned with the skulls of foes, huts of tarred sailcloth, and a single watchtower. The Bloody Gull anchors in its cove.',
   },
   {
-    id: 'faro', name: 'Ruinas del Faro Antiguo', x: 575, z: 108, radius: 60, xp: 40,
-    journal: 'El faro de los Guardianes de la Marea, derruido por la gran guerra. Sus escaleras de caracol suben en espiral hacia nada. En la cima, un brasero apagado espera una llama que nadie recuerda encender.',
+    id: 'faro', name: 'Ruins of the Old Lighthouse', x: 575, z: 108, radius: 60, xp: 40,
+    journal: 'The lighthouse of the Tide Wardens, torn down in the great war. Its spiral stairs climb toward nothing. At the summit, a cold brazier waits for a flame no one remembers how to light.',
   },
   {
-    id: 'bruma', name: 'Las Islas de la Bruma', x: -15, z: 622, radius: 115, xp: 40,
-    journal: 'Arenas blancas, palmeras bajas y niebla tibia. Entre conchas y maderas varadas encontré señales de que alguien ha acampado aquí hace poco. Alguien que cocinó pescado y talló espirales en la arena.',
+    id: 'ombligo', name: 'The Navel of the Sea', x: 476, z: 476, radius: 70, xp: 80,
+    journal: 'A ring of monoliths around a horn-shaped altar, and the ribs of a leviathan fused into the rock. The dead cartographers called this place the navel of the sea: where the ocean listens, and answers.',
   },
   {
-    id: 'nido', name: 'Nido del Ancestro', x: 20, z: -300, radius: 50, xp: 60,
-    journal: 'Una plataforma de roca y hielo corona las Garrahielo, barrida por un viento que silba como una flauta rota. Hay huesos de ballena, un lecho de monedas congeladas... y un cerradero de piedra con la forma exacta de una garra. Algo inmenso duerme aquí. Algo que recuerda a los reyes hundidos.',
+    id: 'bruma', name: 'The Mist Isles', x: -15, z: 622, radius: 115, xp: 40,
+    journal: 'White sands, low palms, and warm fog. Among the shells and stranded driftwood I found signs that someone camped here not long ago. Someone who cooked fish and carved spirals in the sand.',
   },
   {
-    id: 'santuario', name: 'Santuario de Thalassar', x: 160, z: 270, radius: 55, xp: 60,
-    journal: 'Bajo cinco metros de agua turquesa, columnas de mármol verde sostienen el peso del mar. La ciudad de los reyes hundidos descansa ordenada como un cementerio de gigantes… y su altar aún emerge, blanco y paciente, entre las olas.',
+    id: 'nido', name: 'The Ancestor’s Nest', x: 20, z: -300, radius: 50, xp: 60,
+    journal: 'A shelf of rock and ice crowns the Iceclaw Peaks, scoured by a wind that whistles like a broken flute. There are whale bones, a bed of frozen coins... and a stone lock shaped exactly like a claw. Something immense sleeps here. Something that remembers the sunken kings.',
   },
   {
-    id: 'cala', name: 'Cala del Silencio', x: -398, z: -450, radius: 45, xp: 70,
-    journal: 'Un anfiteatro de basalto negro a los pies de la fortaleza pirata. Ni gaviotas ni hierba: solo el eco del mar golpeando la piedra. Un caballero de piedra vela la entrada, la espada baja, desde hace trescientos años.',
+    id: 'santuario', name: 'Sanctuary of Thalassar', x: 160, z: 270, radius: 55, xp: 60,
+    journal: 'Beneath five meters of turquoise water, columns of green marble bear the weight of the sea. The city of the sunken kings rests as ordered as a graveyard of giants… and its altar still rises, white and patient, among the waves.',
   },
   {
-    id: 'insignia', name: 'El Bajío del Almirante', x: -360, z: -490, radius: 45, xp: 60,
-    journal: 'El buque insignia del Cuervo, varado para siempre en un bajío de roca negra. Tres mástiles rotos, un casco agrietado como una costilla vieja. Lo que el Cuervo robó al mar, el mar lo fue a buscar.',
+    id: 'cala', name: 'The Cove of Silence', x: -398, z: -450, radius: 45, xp: 70,
+    journal: 'An amphitheater of black basalt at the foot of the pirate fortress. No gulls, no grass: only the echo of the sea striking the stone. A stone knight keeps the entrance, sword lowered, and has for three hundred years.',
   },
   {
-    id: 'granarce', name: 'El Gran Arce', x: -120, z: -270, radius: 40, xp: 45,
-    journal: 'Un arce dorado más alto que la torre del castillo, con hojas que susurran en un idioma que se parece al viento. Los Guardianes plantaban un arce por cada juramento cumplido. Este es el último que queda.',
+    id: 'insignia', name: 'The Admiral’s Shoal', x: -360, z: -490, radius: 45, xp: 60,
+    journal: 'The Crow’s flagship, stranded forever on a shoal of black rock. Three broken masts, a hull cracked like an old rib. What the Crow stole from the sea, the sea came to reclaim.',
+  },
+  {
+    id: 'granarce', name: 'The Great Maple', x: -120, z: -270, radius: 40, xp: 45,
+    journal: 'A golden maple taller than the castle tower, its leaves whispering in a tongue that sounds like the wind. The Wardens planted a maple for every oath fulfilled. This is the last one left.',
   },
 ];
 
@@ -213,6 +222,7 @@ export const FLATS: FlatDef[] = [
   { x: 20, z: -300, r: 30, h: 88 },    // Nido del Ancestro (snowy summit plateau)
   { x: -398, z: -450, r: 34, h: 2.6 }, // Fase 4: Cala del Silencio (crow cove shelf)
   { x: -360, z: -490, r: 26, h: 1.6 }, // Fase 4: bajío del buque insignia (flagship wreck reef)
+  { x: 476, z: 476, r: 30, h: 12.3 },  // Fase 15: Navel of the Sea — the Horn Altar plateau
 ];
 
 /** Global sailing wind — slow precession, shared by ships, HUD and audio. */

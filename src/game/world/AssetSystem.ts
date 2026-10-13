@@ -83,6 +83,8 @@ export class AssetSystem {
       ['roof_tiles', true],
       ['castle_floor', true],
       ['dungeon_stone', true],
+      // Fase 16 — white concrete for the merchants' establishments
+      ['white_concrete', true],
     ];
     const singles: Array<[keyof AssetSystem, string, boolean]> = [
       ['mapleBark', 'maple_bark.jpg', true],
@@ -173,6 +175,9 @@ export class AssetSystem {
     // Fase 4 ground materials
     wire(mat.cobble, this.pbr.cobblestone, { repeat: 0.42, tint: 0xb5aca0, normalScale: 1.1 });
     wire(mat.dirt, this.pbr.dirt, { repeat: 0.5, tint: 0xb59a76, normalScale: 0.9 });
+    // Fase 16 — white concrete (merchant buildings): NO tint, the albedo is
+    // the finished white surface; satin normal, slight sheen kept by rgh map.
+    wire(mat.concreteWhite, this.pbr.white_concrete, { repeat: 0.5, normalScale: 0.85, roughness: 0.88 });
   }
 
   // ------------------------------------------------------------------ models

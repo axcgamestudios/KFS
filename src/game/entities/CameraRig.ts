@@ -183,9 +183,11 @@ export class CameraRig {
   setShipMode(ship: Ship | null): void {
     if (ship && !this.shipTarget) {
       this.savedDistance = this.targetDistance;
-      this.targetDistance = 17;
-      this.distance = 17;
-      this.pitch = Math.max(this.pitch, 0.22);
+      // Fase 16 — the sailing cam was cramped and low: sails ate the view.
+      // Wider orbit (17→21 m) + higher base pitch: the whole hull reads.
+      this.targetDistance = 21;
+      this.distance = 21;
+      this.pitch = Math.max(this.pitch, 0.34);
       this.shipTarget = ship;
     } else if (!ship && this.shipTarget) {
       this.shipTarget = null;
@@ -194,13 +196,15 @@ export class CameraRig {
     }
   }
 
-  /** Fase 4 — horseback camera: a touch wider, slightly higher pitch. */
-  setMountMode(on: boolean): void {
+  /** Fase 4 — horseback camera: a touch wider, slightly higher pitch.
+   *  Fase 15 — `distance` param: dragons need a much wider orbit (15 m)
+   *  than horses (7.4 m) or the wings fill the whole screen. */
+  setMountMode(on: boolean, distance = 7.4): void {
     if (on && !this.mountMode) {
       this.mountMode = true;
       this.savedMountDistance = this.targetDistance;
-      this.targetDistance = 7.4;
-      this.distance = 7.4;
+      this.targetDistance = distance;
+      this.distance = Math.max(this.distance, distance * 0.55); // glide out, no snap
       this.pitch = Math.max(this.pitch, 0.26);
     } else if (!on && this.mountMode) {
       this.mountMode = false;
@@ -216,7 +220,9 @@ export class CameraRig {
   private updateShip(dt: number, ship: Ship, terrain: TerrainHeight): void {
     this.distance = damp(this.distance, this.targetDistance, 6, dt);
     const pivot = ship.wheelWorld;
-    pivot.y += 1.5;
+    // Fase 16 — pivot raised 1.5→2.6 m: the camera looks DOWN the deck
+    // from above the bulwark line instead of peering through the rigging.
+    pivot.y += 2.6;
     this.lookAt.copy(pivot);
 
     const cosP = Math.cos(this.pitch);

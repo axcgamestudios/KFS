@@ -23,6 +23,9 @@ export class DialogueSystem {
       if (tree.cond && !this.state.hasFlag(tree.cond)) continue;
       if (tree.notCond && this.state.hasFlag(tree.notCond)) continue;
       if (tree.requireItem && !this.state.hasItem(tree.requireItem.id, tree.requireItem.count)) continue;
+      // Fase 16 — level-gated trees (the smiths)
+      if (tree.minLevel !== undefined && this.state.level < tree.minLevel) continue;
+      if (tree.maxLevel !== undefined && this.state.level > tree.maxLevel) continue;
       return tree;
     }
     return null;
@@ -48,8 +51,8 @@ export class DialogueSystem {
         isNarrator: true,
         options: [
           idx < paragraphs.length - 1
-            ? { text: 'Seguir leyendo…', index: 0 }
-            : { text: 'Apartar la mirada', index: 0 },
+            ? { text: 'Keep reading…', index: 0 }
+            : { text: 'Look away', index: 0 },
         ],
       });
     };
@@ -103,6 +106,11 @@ export class DialogueSystem {
         case 'quest': this.state.startQuest(a.id); break;
         case 'xp': this.state.giveXp(a.amount); break;
         case 'talk': this.state.talkMilestone(a.target); break;
+        case 'shop':
+          // Fase 16 — hand over to the merchant panel
+          useGameStore.getState().setShop({ vendor: a.vendor });
+          close = true;
+          break;
         case 'close': close = true; break;
       }
     }
@@ -121,10 +129,16 @@ export class DialogueSystem {
       this.close();
       return;
     }
+    // Fase 15 — options with unmet `requires` (sea-trade goods, forge
+    // materials) are hidden, but the ORIGINAL index is preserved so
+    // choose() still resolves against the unfiltered node.options.
+    const visible = node.options
+      .map((o, i) => ({ o, i }))
+      .filter(({ o }) => !o.requires || o.requires.every((r) => this.state.hasItem(r.id, r.count)));
     useGameStore.getState().setDialogue({
       npcName: this.current.name,
       text: node.text,
-      options: node.options.map((o, i) => ({
+      options: visible.map(({ o, i }) => ({
         text: o.text,
         index: i,
       })),

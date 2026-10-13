@@ -1,0 +1,668 @@
+     1→import * as THREE from 'three';
+     2→import { TerrainHeight } from './TerrainHeight';
+     3→import { smoothstep } from '../core/MathUtils';
+     4→
+     5→/**
+     6→ * Gerstner wave parameters — shared by the water shader AND the CPU-side
+     7→ * waveHeightAt() used for ship buoyancy. Never change one without the other.
+     8→ * Epic set: a long North-Sea swell + two cross swells; chop and ripples live
+     9→ * in the fragment shader so the mesh stays efficiently tessellated.
+    10→ */
+    11→export const WAVES = {
+    12→  amp: [1.35, 0.58, 0.32],
+    13→  len: [34.0, 20.0, 13.5],
+    14→  speed: [1.0, 1.45, 1.9],
+    15→  dirs: [
+    16→    [1.0 / Math.hypot(1.0, 0.28), 0.28 / Math.hypot(1.0, 0.28)],
+    17→    [0.82 / Math.hypot(0.82, 0.57), -0.57 / Math.hypot(0.82, 0.57)],
+    18→    [-0.45 / Math.hypot(0.45, 0.89), 0.89 / Math.hypot(0.45, 0.89)],
+    19→  ],
+    20→} as const;
+    21→
+    22→/** Slow swell-set modulation (waves arrive in groups — real ocean feel).
+    23→ *  Mirrored EXACTLY by CPU waveHeightAt. */
+    24→function swellSet(t: number): number {
+    25→  return 0.82 + 0.22 * Math.sin(t * 0.11) * Math.sin(t * 0.073 + 1.7);
+    26→}
+    27→
+    28→/** Max simultaneous interactive wake sources (boats, splashes, swimming). */
+    29→const WAKE_SLOTS = 28;
+    30→
+    31→interface Wake {
+    32→  x: number;
+    33→  z: number;
+    34→  /** Current ring radius (m) — expands over time. */
+    35→  r: number;
+    36→  /** Strength 0..1 (decays as the ring expands). */
+    37→  s: number;
+    38→  /** Expansion speed (m/s). */
+    39→  v: number;
+    40→  /** Ring radius at which the wake dies. */
+    41→  maxR: number;
+    42→}
+    43→
+    44→/**
+    45→ * Animated ocean: a large plane that follows the player. Waves are computed
+    46→ * in the vertex shader (3 Gerstner waves), shore foam and shallow tint come
+    47→ * from a pre-baked terrain heightmap texture, and day/night colors arrive as
+    48→ * uniforms from the sky system.
+    49→ *
+    50→ * Fase 12:
+    51→ *  · REAL planar reflection — the scene is re-rendered from a mirrored
+    52→ *    camera into a render target, so the knight, ships, dragons and castle
+    53→ *    are truly mirrored on the surface (you can see yourself).
+    54→ *  · Interactive WAKES — boats and swimmers push expanding wave rings +
+    55→ *    foam into the shader (uniform ring buffer).
+    56→ */
+    57→export class WaterSystem {
+    58→  readonly mesh: THREE.Mesh;
+    59→  private material: THREE.ShaderMaterial;
+    60→  private time = 0;
+    61→  private terrain: TerrainHeight;
+    62→
+    63→  // ------------------------------------------------------------- reflection
+    64→  private reflRT: THREE.WebGLRenderTarget | null = null;
+    65→  private reflCam = new THREE.PerspectiveCamera();
+    66→  private reflOn = false;
+    67→  private reflFrame = 0;
+    68→  private reflVisibleK = 1;
+    69→  private texMatrix = new THREE.Matrix4();
+    70→  private clipPlane = new THREE.Plane();
+    71→  private clipVec = new THREE.Vector4();
+    72→  private q4 = new THREE.Vector4();
+    73→  private lookTarget = new THREE.Vector3();
+    74→  private reflPos = new THREE.Vector3();
+    75→  private reflLook = new THREE.Vector3();
+    76→  private reflUp = new THREE.Vector3();
+    77→
+    78→  // ------------------------------------------------------------------ wakes
+    79→  private wakes: Wake[] = [];
+    80→  private wakeArr: THREE.Vector4[] = [];
+    81→  private wakeUniform: { value: THREE.Vector4[] };
+    82→
+    83→  constructor(terrain: TerrainHeight, worldHalf = 716) {
+    84→    this.terrain = terrain;
+    85→    for (let i = 0; i < WAKE_SLOTS; i++) {
+    86→      this.wakes.push({ x: 0, z: 0, r: 0, s: 0, v: 3.4, maxR: 16 });
+    87→      this.wakeArr.push(new THREE.Vector4(0, 0, 0, 0));
+    88→    }
+    89→    this.wakeUniform = { value: this.wakeArr };
+    90→
+    91→    // --- Pre-bake a low-res terrain height texture for shore effects ---
+    92→    // HalfFloat: linear filtering is guaranteed in WebGL2 core (Float32 would
+    93→    // silently sample black on GPUs without OES_texture_float_linear).
+    94→    const texRes = 256;
+    95→    const data = new Uint16Array(texRes * texRes);
+    96→    for (let j = 0; j < texRes; j++) {
+    97→      for (let i = 0; i < texRes; i++) {
+    98→        const x = (i / (texRes - 1) - 0.5) * 2 * worldHalf;
+    99→        const z = (j / (texRes - 1) - 0.5) * 2 * worldHalf;
+   100→        data[j * texRes + i] = THREE.DataUtils.toHalfFloat(terrain.height(x, z));
+   101→      }
+   102→    }
+   103→    const heightTex = new THREE.DataTexture(
+   104→      data, texRes, texRes, THREE.RedFormat, THREE.HalfFloatType,
+   105→    );
+   106→    heightTex.minFilter = THREE.LinearFilter;
+   107→    heightTex.magFilter = THREE.LinearFilter;
+   108→    heightTex.wrapS = THREE.ClampToEdgeWrapping;
+   109→    heightTex.wrapT = THREE.ClampToEdgeWrapping;
+   110→    heightTex.needsUpdate = true;
+   111→
+   112→    this.material = new THREE.ShaderMaterial({
+   113→      transparent: true,
+   114→      depthWrite: false,
+   115→      side: THREE.DoubleSide, // visible from underwater (swimming / diving views)
+   116→      uniforms: {
+   117→        uTime: { value: 0 },
+   118→        uSunDir: { value: new THREE.Vector3(0.4, 0.7, 0.2) },
+   119→        uSunColor: { value: new THREE.Color(1, 0.95, 0.85) },
+   120→        uSkyColor: { value: new THREE.Color(0.55, 0.7, 0.85) },
+   121→        uHorizonColor: { value: new THREE.Color(0.8, 0.85, 0.9) },
+   122→        uDeepColor: { value: new THREE.Color(0.012, 0.085, 0.145) },
+   123→        uShallowColor: { value: new THREE.Color(0.07, 0.34, 0.35) },
+   124→        uFoamColor: { value: new THREE.Color(0.92, 0.95, 0.94) },
+   125→        uNightFactor: { value: 0 },
+   126→        uHeightMap: { value: heightTex },
+   127→        uWorldHalf: { value: worldHalf },
+   128→        uCameraPos: { value: new THREE.Vector3() },
+   129→        /** Radius (m) around the camera where waves still move. */
+   130→        uWaveMotion: { value: 2000.0 },
+   131→        /** Fase 13 — interruptor de oleaje: 1 = mar Gerstner vivo,
+   132→         *  0 = mar espejo (las estelas interactivas siguen funcionando). */
+   133→        uWaveAmp: { value: 1.0 },
+   134→        /** 1 = procedural sky/sun reflection (fallback + distant blend). */
+   135→        uReflQuality: { value: 1 },
+   136→        // Fase 12 — REAL planar reflection
+   137→        uReflMap: { value: null },
+   138→        uReflTexMat: { value: new THREE.Matrix4() },
+   139→        uReflOn: { value: 0 },
+   140→        // Fase 12 — interactive wakes
+   141→        uWakes: this.wakeUniform,
+   142→      },
+   143→      vertexShader: /* glsl */ `
+   144→        uniform float uTime;
+   145→        uniform sampler2D uHeightMap;
+   146→        uniform float uWorldHalf;
+   147→        uniform vec3 uCameraPos;
+   148→        uniform float uWaveMotion;
+   149→        uniform float uWaveAmp;
+   150→        uniform mat4 uReflTexMat;
+   151→        uniform vec4 uWakes[${WAKE_SLOTS}];
+   152→        varying vec3 vWorldPos;
+   153→        varying vec3 vNormal;
+   154→        varying float vShore;
+   155→        varying float vCrest;
+   156→        varying float vSteep;
+   157→        varying vec4 vReflUv;
+   158→        varying float vWakeFoam;
+   159→
+   160→        // Sample terrain height (baked) at world XZ
+   161→        float terrainH(vec2 p) {
+   162→          vec2 uv = p / (uWorldHalf * 2.0) + 0.5;
+   163→          uv = clamp(uv, 0.0, 1.0);
+   164→          return texture2D(uHeightMap, uv).r;
+   165→        }
+   166→
+   167→        void main() {
+   168→          vec3 pos = (modelMatrix * vec4(position, 1.0)).xyz;
+   169→          float shore = terrainH(pos.xz);
+   170→          // Fase 8/11 — quality: the far sea calms down. Waves only MOVE within
+   171→          // uWaveMotion metres of the camera; beyond it the surface is a flat
+   172→          // plane (the fade is a BRANCH: flat vertices skip the whole Gerstner
+   173→          // evaluation — the same pixels, a fraction of the ALU).
+   174→          float dist2cam = distance(pos.xz, uCameraPos.xz);
+   175→          float motionK = 1.0 - smoothstep(uWaveMotion * 0.55, uWaveMotion, dist2cam);
+   176→
+   177→          // Fase 12 — interactive wakes (boats, splashes, swimming):
+   178→          // expanding gaussian rings + a hull dip near the source.
+   179→          float wakeH = 0.0;
+   180→          float wakeFoam = 0.0;
+   181→          if (motionK > 0.004) {
+   182→            for (int i = 0; i < ${WAKE_SLOTS}; i++) {
+   183→              vec4 w = uWakes[i];
+   184→              if (w.w < 0.004) continue;
+   185→              float d = distance(pos.xz, w.xy);
+   186→              float ring = exp(-pow((d - w.z) * 0.55, 2.0));
+   187→              wakeH += ring * w.w * 0.5;
+   188→              wakeFoam += ring * w.w * 0.9;
+   189→              wakeFoam += exp(-d * d * 0.10) * w.w * 0.55;
+   190→            }
+   191→          }
+   192→          vWakeFoam = wakeFoam;
+   193→
+   194→          if (motionK < 0.004) {
+   195→            // ---- FAR SEA: flat, cheap, visually identical to the old fade ----
+   196→            vNormal = vec3(0.0, 1.0, 0.0);
+   197→            vSteep = 0.0;
+   198→            vCrest = 0.0;
+   199→            vWorldPos = pos;
+   200→            vShore = shore;
+   201→            vReflUv = uReflTexMat * vec4(position, 1.0);
+   202→            gl_Position = projectionMatrix * viewMatrix * vec4(pos, 1.0);
+   203→            return;
+   204→          }
+   205→          // Ola completa en aguas profundas, amortiguada en bahías y orilla
+   206→          // (profundo ≤ -20 m → 1.0 · muelle/bahía ≥ -3.5 m → 0.12)
+   207→          float shallowK = 1.0 - smoothstep(-20.0, -3.5, shore);
+   208→          shallowK = clamp(shallowK, 0.12, 1.0);
+   209→
+   210→          float t = uTime;
+   211→          // swell sets: las olas llegan en grupos (mar real)
+   212→          float set = 0.82 + 0.22 * sin(t * 0.11) * sin(t * 0.073 + 1.7);
+   213→          // Fase 13 — oleaje apagado: set = 0 y el mar queda en espejo
+   214→          set *= uWaveAmp;
+   215→
+   216→          // Tres olas Gerstner épicas: el desplazamiento horizontal afila las crestas
+   217→          float amp1 = 1.35 * shallowK * set * motionK, len1 = 34.0;
+   218→          float amp2 = 0.58 * shallowK * set * motionK, len2 = 20.0;
+   219→          float amp3 = 0.32 * shallowK * set * motionK, len3 = 13.5;
+   220→          vec2 d1 = normalize(vec2(1.0, 0.28));
+   221→          vec2 d2 = normalize(vec2(0.82, -0.57));
+   222→          vec2 d3 = normalize(vec2(-0.45, 0.89));
+   223→
+   224→          float k1 = 6.28318 / len1, k2 = 6.28318 / len2, k3 = 6.28318 / len3;
+   225→          float f1 = k1 * dot(d1, pos.xz) - t * 1.0;
+   226→          float f2 = k2 * dot(d2, pos.xz) - t * 1.45;
+   227→          float f3 = k3 * dot(d3, pos.xz) - t * 1.9;
+   228→
+   229→          // Q de Gerstner por ola (pendiente empinada sin lazos)
+   230→          float q1 = 0.9 / (k1 * 1.35 * 3.0);
+   231→          float q2 = 0.9 / (k2 * 0.58 * 3.0);
+   232→          float q3 = 0.9 / (k3 * 0.32 * 3.0);
+   233→
+   234→          float h = amp1 * sin(f1) + amp2 * sin(f2) + amp3 * sin(f3);
+   235→          vec2 hd = d1 * (q1 * amp1 * cos(f1))
+   236→                  + d2 * (q2 * amp2 * cos(f2))
+   237→                  + d3 * (q3 * amp3 * cos(f3));
+   238→          pos.xz += hd;
+   239→          pos.y += h + wakeH;
+   240→
+   241→          // Analytic-ish normal from partial derivatives (+ wake slope)
+   242→          float dhx = amp1 * k1 * cos(f1) * d1.x + amp2 * k2 * cos(f2) * d2.x + amp3 * k3 * cos(f3) * d3.x;
+   243→          float dhz = amp1 * k1 * cos(f1) * d1.y + amp2 * k2 * cos(f2) * d2.y + amp3 * k3 * cos(f3) * d3.y;
+   244→          vNormal = normalize(vec3(-dhx, 1.0, -dhz));
+   245→          vSteep = clamp(length(vec2(dhx, dhz)) * 0.55, 0.0, 1.5);
+   246→
+   247→          vWorldPos = pos;
+   248→          vShore = shore;
+   249→          vCrest = (h + wakeH) / max(0.001, (amp1 + amp2 + amp3));
+   250→          vReflUv = uReflTexMat * vec4(position, 1.0);
+   251→          gl_Position = projectionMatrix * viewMatrix * vec4(pos, 1.0);
+   252→        }
+   253→      `,
+   254→      fragmentShader: /* glsl */ `
+   255→        uniform vec3 uSunDir;
+   256→        uniform vec3 uSunColor;
+   257→        uniform vec3 uSkyColor;
+   258→        uniform vec3 uHorizonColor;
+   259→        uniform vec3 uDeepColor;
+   260→        uniform vec3 uShallowColor;
+   261→        uniform vec3 uFoamColor;
+   262→        uniform float uNightFactor;
+   263→        uniform vec3 uCameraPos;
+   264→        uniform float uTime;
+   265→        uniform float uReflQuality;
+   266→        uniform sampler2D uReflMap;
+   267→        uniform float uReflOn;
+   268→        varying vec3 vWorldPos;
+   269→        varying vec3 vNormal;
+   270→        varying float vShore;
+   271→        varying float vCrest;
+   272→        varying float vSteep;
+   273→        varying vec4 vReflUv;
+   274→        varying float vWakeFoam;
+   275→
+   276→        float hash(vec2 p) {
+   277→          return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+   278→        }
+   279→        float noise(vec2 p) {
+   280→          vec2 i = floor(p), f = fract(p);
+   281→          f = f * f * (3.0 - 2.0 * f);
+   282→          return mix(mix(hash(i), hash(i + vec2(1,0)), f.x),
+   283→                     mix(hash(i + vec2(0,1)), hash(i + vec2(1,1)), f.x), f.y);
+   284→        }
+   285→
+   286→        /** Procedural sky on the reflected ray: gradient + sun glow. Blended
+   287→         *  as the FAR fallback under the real planar reflection. */
+   288→        vec3 skyReflection(vec3 rDir, vec3 sunDir, vec3 sunColor, vec3 sky, vec3 horizon) {
+   289→          float up = clamp(rDir.y, 0.0, 1.0);
+   290→          vec3 col = mix(horizon, sky, pow(up, 0.62));
+   291→          float sd = max(dot(rDir, sunDir), 0.0);
+   292→          col += sunColor * (pow(sd, 240.0) * 2.6 + pow(sd, 12.0) * 0.3);
+   293→          return col;
+   294→        }
+   295→
+   296→        void main() {
+   297→          vec3 viewDir = normalize(uCameraPos - vWorldPos);
+   298→          vec3 n = normalize(vNormal);
+   299→          // When seen from below, flip the normal so shading still works
+   300→          if (!gl_FrontFacing) n = -n;
+   301→          // Detail ripples: three drifting directional octaves (chop sin malla)
+   302→          vec2 drift = vec2(uTime * 0.32, uTime * -0.21);
+   303→          float rip = noise(vWorldPos.xz * 1.15 + drift) - 0.5;
+   304→          float rip2 = noise(vWorldPos.xz * 2.7 - drift * 1.7) - 0.5;
+   305→          float rip3 = noise(vWorldPos.xz * 5.6 + drift * 2.6) - 0.5;
+   306→          n = normalize(n + vec3(rip + rip3 * 0.55, 0.0, rip2 + rip3 * 0.4) * 0.42);
+   307→
+   308→          // --- Optical depth (Beer-Lambert): the ray crosses more water when
+   309→          // grazing, so distance darkens/blues like a real sea.
+   310→          float depth = max(0.0, -vShore);                       // water column
+   311→          float grazing = 1.0 - clamp(viewDir.y, 0.0, 1.0);      // 0 overhead → 1 grazing
+   312→          float viewLen = distance(uCameraPos, vWorldPos);
+   313→          float opticalDepth = depth * (1.0 + grazing * 1.6) + viewLen * 0.014 * grazing;
+   314→          vec3 transmit = exp(-opticalDepth * vec3(0.36, 0.15, 0.115));
+   315→
+   316→          // Water body: turquoise shore → deep blue offshore (exp transition)
+   317→          float shallowT = clamp(transmit.g, 0.0, 1.0);
+   318→          vec3 body = mix(uDeepColor, uShallowColor, shallowT);
+   319→          body *= 0.72 + 0.28 * transmit.r;   // deep water drops red → richer blue
+   320→
+   321→          // --- Schlick fresnel (F0 = 0.02 agua): reflejo fuerte al ras,
+   322→          // cuerpo azul dominante mirando desde arriba — nunca un espejo puro.
+   323→          float fres = 0.02 + 0.98 * pow(1.0 - max(dot(viewDir, n), 0.0), 5.0);
+   324→          fres = clamp(fres, 0.02, 0.85);
+   325→
+   326→          vec3 sunDir = normalize(uSunDir);
+   327→          float nightK = mix(1.0, 0.22, uNightFactor);
+   328→
+   329→          // --- Reflection: procedural sky as base…
+   330→          vec3 rDir = reflect(-viewDir, n);
+   331→          rDir.y = abs(rDir.y) * 0.96 + 0.04;
+   332→          vec3 refl = skyReflection(rDir, sunDir, uSunColor, uSkyColor, uHorizonColor) * nightK;
+   333→
+   334→          // --- Fase 12 — …overlaid by the REAL mirrored scene (you, ships,
+   335→          // dragons, castle). Rippled sampling + distance fade for a seamless
+   336→          // horizon; the RT already carries the night lighting.
+   337→          if (uReflOn > 0.5) {
+   338→            vec2 rUv = vReflUv.xy / max(0.0001, vReflUv.w);
+   339→            rUv += vec2(rip + rip3 * 0.5, rip2 + rip3 * 0.4) * 0.055;
+   340→            rUv = clamp(rUv, vec2(0.001), vec2(0.999));
+   341→            vec3 realRefl = texture2D(uReflMap, rUv).rgb;
+   342→            float nearFade = 1.0 - smoothstep(120.0, 260.0, viewLen);
+   343→            refl = mix(refl, realRefl, nearFade * 0.88);
+   344→          }
+   345→
+   346→          vec3 col = mix(body * nightK, refl, fres);
+   347→
+   348→          // Sun specular glint (not underwater)
+   349→          vec3 halfV = normalize(viewDir + sunDir);
+   350→          float upK = gl_FrontFacing ? 1.0 : 0.0;
+   351→          float spec = pow(max(dot(n, halfV), 0.0), 260.0);
+   352→          col += uSunColor * spec * 1.7 * upK;
+   353→          // Broad glitter path with sparkle noise
+   354→          float glit = pow(max(dot(n, halfV), 0.0), 24.0);
+   355→          float sparkle = noise(vWorldPos.xz * 7.0 + uTime * 1.4);
+   356→          col += uSunColor * glit * (0.12 + 0.22 * sparkle) * upK;
+   357→
+   358→          // Subsurface glow: light bleeding through the wave crests
+   359→          float crestK = max(0.0, vCrest);
+   360→          float backK = max(0.0, dot(-sunDir, viewDir)) * 0.5 + 0.5;
+   361→          col += uShallowColor * crestK * crestK * 0.55 * backK * upK;
+   362→
+   363→          // Foam — three layers:
+   364→          float fnoise = noise(vWorldPos.xz * 1.7 + uTime * 0.5) * 0.6
+   365→                       + noise(vWorldPos.xz * 4.3 - uTime * 0.7) * 0.4;
+   366→          // 1) whitecaps rompiendo en las crestas empinadas (por grupos de swell)
+   367→          float field = noise(vWorldPos.xz * 0.16 - uTime * 0.06) * 0.65 + 0.35;
+   368→          float crestFoam = smoothstep(0.42, 0.82, vCrest) * smoothstep(0.16, 0.55, vSteep);
+   369→          crestFoam *= smoothstep(0.24, 0.55, fnoise * field * 1.9);
+   370→          // 2) orilla: banda de espuma con oleaje que lava la playa por pulsos
+   371→          float shoreBand = smoothstep(-1.9, -0.15, vShore) * (1.0 - smoothstep(-0.15, 0.45, vShore));
+   372→          float wash = 0.55 + 0.45 * sin(vShore * 7.0 - uTime * 2.1 + fnoise * 2.4);
+   373→          float shoreFoam = shoreBand * wash * smoothstep(0.3, 0.72, fnoise);
+   374→          // 3) Fase 12 — estelas vivas: anillos y rastros de espuma de barcos
+   375→          float wakeFoam = vWakeFoam * smoothstep(0.18, 0.5, fnoise);
+   376→          float foam = clamp(crestFoam * 1.5 + shoreFoam * 1.25 + wakeFoam, 0.0, 1.0);
+   377→          // bordes de espuma deshilachados
+   378→          float foamEdge = smoothstep(0.25, 0.5, foam) * (0.75 + 0.25 * fnoise);
+   379→          col = mix(col, uFoamColor * nightK, foamEdge * 0.9);
+   380→
+   381→          // Underside (seen while swimming): darker, murkier
+   382→          if (!gl_FrontFacing) {
+   383→            col = mix(col, col * vec3(0.35, 0.5, 0.55), 0.75);
+   384→          }
+   385→
+   386→          // alpha follows absorption: deep sea reads opaque,
+   387→          // the shore stays transparent so the sand shows through
+   388→          float alpha = mix(0.92, 0.62, shallowT);
+   389→          alpha = mix(alpha, 0.95, foam);
+   390→          gl_FragColor = vec4(col, alpha);
+   391→        }
+   392→      `,
+   393→    });
+   394→
+   395→    const size = 1900;
+   396→    // 384×384: suficiente muestreo para la ola corta de 13.5 m (≈3 quads/ola)
+   397→    const geo = new THREE.PlaneGeometry(size, size, 384, 384);
+   398→    geo.rotateX(-Math.PI / 2);
+   399→    this.mesh = new THREE.Mesh(geo, this.material);
+   400→    this.mesh.renderOrder = 5;
+   401→    this.mesh.matrixAutoUpdate = true;
+   402→  }
+   403→
+   404→  update(dt: number, camera: THREE.Camera): void {
+   405→    this.time += dt;
+   406→    this.material.uniforms.uTime.value = this.time;
+   407→    // Follow the camera on XZ — waves are world-anchored so motion is invisible.
+   408→    this.mesh.position.x = camera.position.x;
+   409→    this.mesh.position.z = camera.position.z;
+   410→    this.material.uniforms.uCameraPos.value.copy(camera.position);
+   411→    // the CPU mirror uses the same motion center so distant ships
+   412→    // bob on the SAME flat sea the GPU draws (buoyancy and surface agree).
+   413→    this.motionCenter.copy(camera.position);
+   414→    this.updateWakes(dt);
+   415→  }
+   416→
+   417→  /** Fase 11 — camera anchor for the CPU-side wave fade (kept fresh by update). */
+   418→  private motionCenter = new THREE.Vector3(0, 0, 0);
+   419→
+   420→  // ---------------------------------------------------------------- wakes
+   421→
+   422→  /** Push an expanding wave ring + foam (boats, splashes, swimming strokes). */
+   423→  addWake(x: number, z: number, strength: number, maxR = 16, speed = 3.4): void {
+   424→    const s = Math.min(1, Math.max(0.06, strength));
+   425→    // reuse the slot with the least remaining life, or a free one
+   426→    let slot: Wake | undefined = this.wakes.find((w) => w.s <= 0.01);
+   427→    if (!slot) {
+   428→      let oldest = Infinity;
+   429→      for (const w of this.wakes) {
+   430→        const life = w.maxR - w.r;
+   431→        if (life < oldest) { oldest = life; slot = w; }
+   432→      }
+   433→    }
+   434→    if (!slot) return;
+   435→    slot.x = x; slot.z = z; slot.r = 0.6; slot.s = s; slot.v = speed; slot.maxR = maxR;
+   436→    // pack immediately so the very next draw already shows the ring
+   437→    const idx = this.wakes.indexOf(slot);
+   438→    if (idx >= 0) this.wakeArr[idx].set(slot.x, slot.z, slot.r, slot.s);
+   439→  }
+   440→
+   441→  private updateWakes(dt: number): void {
+   442→    let dirty = false;
+   443→    for (let i = 0; i < this.wakes.length; i++) {
+   444→      const w = this.wakes[i];
+   445→      if (w && w.s > 0.01) {
+   446→        w.r += w.v * dt;
+   447→        w.s *= Math.max(0, 1 - dt * 0.55);
+   448→        if (w.r >= w.maxR) w.s = 0;
+   449→        dirty = true;
+   450→      }
+   451→    }
+   452→    // pack the uniform array (nearest first for the shader's early-outs)
+   453→    if (dirty || this.wakePackDirty) {
+   454→      this.wakePackDirty = false;
+   455→      const arr = this.wakeArr;
+   456→      for (let i = 0; i < WAKE_SLOTS; i++) {
+   457→        const w = this.wakes[i];
+   458→        if (w && w.s > 0.01) arr[i].set(w.x, w.z, w.r, w.s);
+   459→        else arr[i].set(0, 0, 0, 0);
+   460→      }
+   461→    }
+   462→  }
+   463→  private wakePackDirty = false;
+   464→
+   465→  // ------------------------------------------------------------ reflection
+   466→
+   467→  /** Create/destroy the reflection render target (quality change).
+   468→   *  Fase 13 — recreates the target when the requested size changes
+   469→   *  (baja = 384², alta = 512²). */
+   470→  setReflection(on: boolean, size = 512): void {
+   471→    this.reflOn = on;
+   472→    if (on && (!this.reflRT || this.reflRTSize !== size)) {
+   473→      this.reflRT?.dispose();
+   474→      this.reflRT = new THREE.WebGLRenderTarget(size, size, {
+   475→        minFilter: THREE.LinearFilter,
+   476→        magFilter: THREE.LinearFilter,
+   477→      });
+   478→      this.reflRT.texture.colorSpace = THREE.SRGBColorSpace;
+   479→      this.reflRT.texture.generateMipmaps = false;
+   480→      this.reflRTSize = size;
+   481→      this.material.uniforms.uReflMap.value = this.reflRT.texture;
+   482→      this.material.uniforms.uReflOn.value = 1;
+   483→    } else if (!on && this.reflRT) {
+   484→      this.reflRT.dispose();
+   485→      this.reflRT = null;
+   486→      this.reflRTSize = 0;
+   487→      this.material.uniforms.uReflMap.value = null;
+   488→      this.material.uniforms.uReflOn.value = 0;
+   489→    }
+   490→  }
+   491→  private reflRTSize = 0;
+   492→  /** Fase 13 — reflection update rate: alta = cada 2º frame,
+   493→   *  baja = cada 3º (menos escenas re-renderizadas por segundo). */
+   494→  private reflRate = 2;
+   495→
+   496→  /**
+   497→   * Fase 12 — REAL planar reflection: render the scene from a camera mirrored
+   498→   * across the sea plane (y=0) into a small render target, with an oblique
+   499→   * near-plane so nothing below the water leaks in. Called every OTHER frame
+   500→   * (30 fps reflections) and only while the camera is near/above the sea.
+   501→   */
+   502→  renderReflection(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.PerspectiveCamera): void {
+   503→    if (!this.reflRT || !this.reflOn) return;
+   504→    this.reflFrame++;
+   505→    const camY = camera.position.y;
+   506→    // Skip while underwater / high in the mountains — cheap and invisible.
+   507→    let vis = 1;
+   508→    if (camY < 0.35 || camY > 46) vis = 0;
+   509→    else if (camY > 30) vis = 1 - (camY - 30) / 16;
+   510→    this.reflVisibleK += (vis - this.reflVisibleK) * 0.2;
+   511→    this.material.uniforms.uReflOn.value = this.reflVisibleK > 0.15 ? 1 : 0;
+   512→    if (vis <= 0 || this.reflFrame % this.reflRate !== 0) return; // tiered rate
+   513→
+   514→    // --- mirror the camera across the sea plane (normal +Y through origin)
+   515→    this.reflPos.set(camera.position.x, -camera.position.y, camera.position.z);
+   516→    camera.getWorldDirection(this.lookTarget);
+   517→    this.lookTarget.add(camera.position);          // look-at point in world
+   518→    this.reflLook.set(this.lookTarget.x, -this.lookTarget.y, this.lookTarget.z);
+   519→    this.reflUp.set(0, 1, 0);
+   520→    // mirror the up vector: reflect across the XZ plane → negate Y
+   521→    this.reflUp.copy(camera.up).applyQuaternion(camera.quaternion);
+   522→    this.reflUp.y = -this.reflUp.y;
+   523→
+   524→    const rc = this.reflCam;
+   525→    rc.position.copy(this.reflPos);
+   526→    rc.up.copy(this.reflUp);
+   527→    rc.lookAt(this.reflLook);
+   528→    rc.near = camera.near;
+   529→    rc.far = Math.min(camera.far, 900);
+   530→    rc.fov = camera.fov;
+   531→    rc.aspect = camera.aspect;
+   532→    rc.updateProjectionMatrix();
+   533→    rc.updateMatrixWorld();
+   534→
+   535→    // --- oblique near plane: clip everything below y=0 in the mirrored view
+   536→    this.clipPlane.set(new THREE.Vector3(0, 1, 0), 0);
+   537→    this.clipPlane.applyMatrix4(rc.matrixWorldInverse);
+   538→    this.clipVec.set(this.clipPlane.normal.x, this.clipPlane.normal.y, this.clipPlane.normal.z, this.clipPlane.constant);
+   539→    const pe = rc.projectionMatrix.elements;
+   540→    this.q4.x = (Math.sign(this.clipVec.x) + pe[8]) / pe[0];
+   541→    this.q4.y = (Math.sign(this.clipVec.y) + pe[9]) / pe[5];
+   542→    this.q4.z = -1.0;
+   543→    this.q4.w = (1.0 + pe[10]) / pe[14];
+   544→    this.clipVec.multiplyScalar(2.0 / this.clipVec.dot(this.q4));
+   545→    pe[2] = this.clipVec.x;
+   546→    pe[6] = this.clipVec.y;
+   547→    pe[10] = this.clipVec.z + 1.0 - 0.003; // clip bias
+   548→    pe[14] = this.clipVec.w;
+   549→
+   550→    // --- screen-space texture matrix (bias ∘ mirroredProj ∘ mirroredView ∘ model)
+   551→    this.mesh.updateMatrixWorld();
+   552→    this.texMatrix.set(
+   553→      0.5, 0, 0, 0.5,
+   554→      0, 0.5, 0, 0.5,
+   555→      0, 0, 0.5, 0.5,
+   556→      0, 0, 0, 1,
+   557→    );
+   558→    this.texMatrix.multiply(rc.projectionMatrix);
+   559→    this.texMatrix.multiply(rc.matrixWorldInverse);
+   560→    this.texMatrix.multiply(this.mesh.matrixWorld);
+   561→    (this.material.uniforms.uReflTexMat.value as THREE.Matrix4).copy(this.texMatrix);
+   562→
+   563→    // --- render the mirrored scene (the sea itself stays out of its own image)
+   564→    const prevVis = this.mesh.visible;
+   565→    this.mesh.visible = false;
+   566→    const prevRT = renderer.getRenderTarget();
+   567→    const prevXrEnabled = renderer.xr.enabled;
+   568→    renderer.xr.enabled = false;
+   569→    renderer.setRenderTarget(this.reflRT);
+   570→    renderer.clear();
+   571→    renderer.render(scene, rc);
+   572→    renderer.setRenderTarget(prevRT);
+   573→    renderer.xr.enabled = prevXrEnabled;
+   574→    this.mesh.visible = prevVis;
+   575→  }
+   576→
+   577→  /**
+   578→   * Quality ladder: rebuild the sea mesh at a new segment count and set the
+   579→   * radius around the camera within which waves actually move.
+   580→   * Fase 12 — reflQuality 1 also enables the REAL planar reflection pass.
+   581→   * (Compat: boot anterior — Fase 13 usa applyGraphicsOptions). */
+   582→  setDetail(segments: number, waveMotionRadius: number, reflQuality = 1): void {
+   583→    this.material.uniforms.uWaveMotion.value = Math.max(20, waveMotionRadius);
+   584→    this.material.uniforms.uReflQuality.value = reflQuality > 0.5 ? 1 : 0;
+   585→    this.setReflection(reflQuality > 0.5, 512);
+   586→    this.reflRate = 2;
+   587→    this.rebuildSegments(segments);
+   588→  }
+   589→
+   590→  /**
+   591→   * Fase 13 — ajustes individuales del mar:
+   592→   *  · waves: oleaje Gerstner ON/OFF (las estelas y salpicaduras siguen)
+   593→   *  · refl: 0 apagado · 1 baja (384², cada 3er frame) · 2 alta (512², cada 2º)
+   594→   */
+   595→  applyGraphicsOptions(o: { segments: number; waveRadius: number; refl: 0 | 1 | 2; waves: boolean }): void {
+   596→    this.material.uniforms.uWaveMotion.value = Math.max(20, o.waveRadius);
+   597→    this.material.uniforms.uWaveAmp.value = o.waves ? 1 : 0;
+   598→    this.material.uniforms.uReflQuality.value = o.refl > 0 ? 1 : 0;
+   599→    if (o.refl === 1) {
+   600→      this.setReflection(true, 384);
+   601→      this.reflRate = 3;
+   602→    } else if (o.refl === 2) {
+   603→      this.setReflection(true, 512);
+   604→      this.reflRate = 2;
+   605→    } else {
+   606→      this.setReflection(false);
+   607→      this.reflRate = 2;
+   608→    }
+   609→    this.rebuildSegments(o.segments);
+   610→  }
+   611→
+   612→  private rebuildSegments(segments: number): void {
+   613→    const seg = Math.max(48, Math.min(384, Math.round(segments)));
+   614→    const params = this.mesh.geometry as THREE.PlaneGeometry;
+   615→    if (params.parameters?.widthSegments === seg) return; // same detail
+   616→    const size = params.parameters?.width ?? 1900;
+   617→    const geo = new THREE.PlaneGeometry(size, size, seg, seg);
+   618→    geo.rotateX(-Math.PI / 2);
+   619→    this.mesh.geometry.dispose();
+   620→    this.mesh.geometry = geo;
+   621→  }
+   622→
+   623→  /**
+   624→   * CPU wave height at a world point — mirrors the vertex shader exactly
+   625→   * (same waves, same shallow-water damping) so ships ride the same sea
+   626→   * the player sees. Used for buoyancy and wake placement.
+   627→   */
+   628→  waveHeightAt(x: number, z: number): number {
+   629→    const shore = this.terrain.height(x, z);
+   630→    // espejo exacto del shader: profundo → ola completa, bahía/orilla → amortiguada
+   631→    let shallowK = 1 - smoothstep(-20, -3.5, shore);
+   632→    shallowK = Math.min(1, Math.max(0.12, shallowK));
+   633→    // same distance fade as the shader: outside the motion radius the sea is
+   634→    // flat on BOTH sides of the GPU/CPU mirror.
+   635→    const r = this.material.uniforms.uWaveMotion.value as number;
+   636→    const d = Math.hypot(x - this.motionCenter.x, z - this.motionCenter.z);
+   637→    const motionK = 1 - smoothstep(r * 0.55, r, d);
+   638→    if (motionK < 0.004) return 0;
+   639→    // Fase 13 — el interruptor de oleaje también se refleja aquí (espejo CPU)
+   640→    const amp = this.material.uniforms.uWaveAmp.value as number;
+   641→    if (amp < 0.004) return 0;
+   642→    const set = swellSet(this.time) * motionK * amp;
+   643→    let h = 0;
+   644→    for (let i = 0; i < 3; i++) {
+   645→      const k = (Math.PI * 2) / WAVES.len[i];
+   646→      const f = k * (WAVES.dirs[i][0] * x + WAVES.dirs[i][1] * z) - this.time * WAVES.speed[i];
+   647→      h += WAVES.amp[i] * shallowK * set * Math.sin(f);
+   648→    }
+   649→    return h;
+   650→  }
+   651→
+   652→  /** Called by the sky system every frame. */
+   653→  setSky(sunDir: THREE.Vector3, sunColor: THREE.Color, skyColor: THREE.Color, horizon: THREE.Color, nightFactor: number): void {
+   654→    this.material.uniforms.uSunDir.value.copy(sunDir);
+   655→    this.material.uniforms.uSunColor.value.copy(sunColor);
+   656→    this.material.uniforms.uSkyColor.value.copy(skyColor);
+   657→    this.material.uniforms.uHorizonColor.value.copy(horizon);
+   658→    this.material.uniforms.uNightFactor.value = nightFactor;
+   659→  }
+   660→
+   661→  dispose(): void {
+   662→    this.mesh.geometry.dispose();
+   663→    (this.material.uniforms.uHeightMap.value as THREE.Texture).dispose();
+   664→    this.reflRT?.dispose();
+   665→    this.material.dispose();
+   666→  }
+   667→}
+   668→

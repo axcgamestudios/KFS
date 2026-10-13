@@ -12,6 +12,8 @@ export interface NPCDef {
   dialogueId: string;
   /** Optional flavour used by the villager visual (smith, merchant…). */
   role?: string;
+  /** Fase 16 — visual body scale (dwarf smiths are short and wide). */
+  scale?: [number, number, number];
   /** Day schedule: positions by time. */
   home: THREE.Vector3;
   work: THREE.Vector3;
@@ -149,6 +151,8 @@ export class NPC {
     // GLB template is available; the procedural VillagerModel stays as a
     // graceful fallback.
     this.model = visual ?? new VillagerModel(palette, def.paletteIndex * 13.7 + def.name.length, def.role);
+    // Fase 16 — dwarf smiths: short & wide (scale BEFORE adding to group)
+    if (def.scale) this.model.root.scale.set(def.scale[0], def.scale[1], def.scale[2]);
     this.group.add(this.model.root);
     this.group.position.copy(def.work);
     scene.add(this.group);

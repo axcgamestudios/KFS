@@ -1,35 +1,41 @@
 'use client';
 
 import { useGameStore } from '@/store/gameStore';
-import { Embers, EpicTitle, SeaWaves } from './menuFx';
+import { Embers, SeaWaves } from './menuFx';
 import { ASSET_BASE } from '@/game/core/Graphics';
 
 const TIPS = [
-  'Los pétalos de marfil florecen donde el agua canta: cascadas y ruinas.',
-  'Las mejores espadas no se compran: se heredan… y se templan en la forja de Bram.',
-  'Maren no regala nada… pero premia la paciencia.',
-  'Las runas del Círculo de las Vigilias brillan cuando cae la noche.',
-  'Los pastores juran que una sombra alada cruza las Garrahielo al atardecer.',
-  'Pulsa F al anochecer: tu farol ilumina más que la luna.',
-  'Un barco tocado echa humo: acércate y abórdalo antes de que se hunda.',
-  'El viento decide la velocidad: mira la rosa de los vientos del timón.',
-  'Las bordadas de babor y estribor recargan por separado.',
-  'Los cofres de las islas guardan más oro que todas las tabernas juntas.',
-  'Cuando un dragón echa la cabeza hacia atrás, su fuego ya está cargando: corre.',
-  'El hacha golpea despacio pero tambalea a las bestias: mantén pulsado el clic.',
-  'La lanza mantiene la distancia; el arco la elimina. Cambia de arma con 1–4.',
-  'Con un escudo, el bloqueo derecho detiene hasta el aliento de un dragón.',
-  'C esquivar no es huir: los rollos esquivan garras, colas y bocanadas de fuego.',
-  '¡Doble salto! Un segundo impulso en el aire hace una marometa completa.',
-  'Los caballeros rojos asaltan los caminos: sus campamentos esconden buen oro.',
-  'Los dragones pequeños guardan escamas… y las escamas guardan secretos.',
+  'Ivory petals bloom where the water sings: waterfalls and ruins.',
+  'The best swords are never bought: they are inherited… and tempered in Bram\'s forge.',
+  'Maren gives nothing away for free… but she rewards patience.',
+  'The runes of the Circle of Vigils glow when night falls.',
+  'The shepherds swear a winged shadow crosses the Iceclaw peaks at dusk.',
+  'Press L at nightfall: your lantern burns brighter than the moon.',
+  'A smoking ship is a dying ship: get close and board her before she sinks.',
+  'The wind decides your speed: watch the rose on the helm.',
+  'Port and starboard broadsides recharge separately.',
+  'The chests of the islands hold more gold than every tavern combined.',
+  'When a dragon rears its head back, its fire is already charging: run.',
+  'The axe swings slow but staggers beasts: hold the click.',
+  'The spear keeps the distance; the bow erases it. Swap weapons with 1-4.',
+  'Hold LMB on the ground to AIR LAUNCH a bandit — then juggle him with clicks.',
+  'F fires the hook dash; press C right at impact to vault over his shoulders.',
+  'A white glow warns of a quick strike; the RED flash is your window — C dodges it in slow motion.',
+  'YELLOW means a heavy blow is coming: Q at the instant of impact parries it and breaks his guard.',
+  'BLUE means musket fire: it cannot be blocked — roll out of the line.',
+  'In the air, SPACE + click slams the ground and flattens everyone nearby.',
+  'The SEA FURY bar fills as you fight: R drinks a tonic, V unleashes the finisher.',
+  'Red knights haunt the roads: their camps hide good gold.',
+  'Small dragons guard scales… and the scales guard secrets.',
 ];
 
 /**
  * Fase 10 — cinematic loading screen: the studio key art breathing under a
- * slow ken-burns zoom, god-rays, drifting mist, the epic letter reveal, a
- * rune-ring progress dial and the tips carousel. (The old "FASE X · vX"
- * build label is gone by request.)
+ * slow ken-burns zoom, god-rays, drifting mist, the forged progress dial and
+ * the tips carousel. (The old "FASE X · vX" build label is gone by request.)
+ *
+ * Fase 17 — fully English, and the chapter line now reads
+ * CHAPTER 1 — A BRAND NEW BEGINNING (the game's official title beat).
  */
 export default function LoadingScreen() {
   const progress = useGameStore((s) => s.loadProgress);
@@ -83,27 +89,13 @@ export default function LoadingScreen() {
 
       <div className="relative z-10 flex w-full max-w-xl flex-col items-center px-8">
         <p className="kotfs-rise mb-2 text-[0.65rem] tracking-[0.55em] text-[color:var(--kotfs-gold)] opacity-80" style={{ ['--rise-delay' as string]: '0.1s' }}>
-          AXCGAMES STUDIOS PRESENTA
+          AXCGAMES STUDIOS PRESENTS
         </p>
 
-        {/* Epic letter-by-letter title */}
-        <h1 className="kotfs-title relative mb-1 text-center text-4xl leading-tight text-[color:var(--kotfs-parchment)] md:text-5xl">
-          <EpicTitle text="KINGDOMS OF THE" delay={0.35} />
-          <br />
-          <EpicTitle
-            text="FORGOTTEN SEAS"
-            delay={1.15}
-            letterClassName="kotfs-letter-shine"
-          />
-          {/* Breathing glow behind the second line */}
-          <span
-            className="kotfs-title-glow pointer-events-none absolute left-1/2 top-[62%] -z-10 h-16 w-[120%] -translate-x-1/2 -translate-y-1/2 rounded-full"
-            style={{ background: 'radial-gradient(ellipse, rgba(201,162,39,0.35), transparent 70%)' }}
-          />
-        </h1>
-
-        <p className="kotfs-rise mb-7 text-xs italic tracking-[0.3em] text-[color:var(--kotfs-parchment-dim)]" style={{ ['--rise-delay' as string]: '2s' }}>
-          CAPÍTULO III — EL RUMOR DE LAS ALAS
+        {/* Fase 17 — the official title beat: CHAPTER 1 — A BRAND NEW
+            BEGINNING (the epic letter-by-letter title lives in the key art). */}
+        <p className="kotfs-rise mb-7 mt-4 text-xs italic tracking-[0.3em] text-[color:var(--kotfs-parchment-dim)]" style={{ ['--rise-delay' as string]: '1.1s' }}>
+          CHAPTER 1 — A BRAND NEW BEGINNING
         </p>
 
         {/* Rune-ring progress dial */}
@@ -135,7 +127,7 @@ export default function LoadingScreen() {
               <span className="text-[0.6rem] opacity-70">%</span>
             </span>
             <span className="text-[0.5rem] tracking-[0.3em] text-[color:var(--kotfs-parchment-dim)] opacity-70">
-              CARGANDO
+              LOADING
             </span>
           </div>
           {/* Ring pulse on progress */}
@@ -147,7 +139,7 @@ export default function LoadingScreen() {
           <div className="mb-2 flex items-baseline justify-between">
             <span className="text-sm italic text-[color:var(--kotfs-parchment-dim)]">{label}</span>
             <span className="kotfs-title text-[0.7rem] tracking-widest text-[color:var(--kotfs-gold)]">
-              {done ? '¡ZARPA!' : 'IZANDO VELAS…'}
+              {done ? 'SET SAIL!' : 'HOISTING SAILS…'}
             </span>
           </div>
           <div className="kotfs-bar relative" style={{ height: 10 }}>
@@ -169,7 +161,7 @@ export default function LoadingScreen() {
           </div>
           <p className="mt-4 text-center text-sm italic text-[color:var(--kotfs-parchment-dim)]" key={tip}
             style={{ animation: 'kotfs-fade-in 0.7s ease' }}>
-            «{tip}»
+            “{tip}”
           </p>
         </div>
       </div>

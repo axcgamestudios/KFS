@@ -1,0 +1,1420 @@
+     1→import * as THREE from 'three';
+     2→import { Ship, type CannonShot, type ShipKind } from './Ship';
+     3→import { CharacterModel, type CharacterPalette } from '../entities/CharacterModel';
+     4→import type { TerrainHeight } from '../world/TerrainHeight';
+     5→import type { WaterSystem } from '../world/WaterSystem';
+     6→import type { ColliderRegistry } from '../systems/ColliderRegistry';
+     7→import type { GameState } from '../systems/GameState';
+     8→import { WIND } from '../world/WorldConfig';
+     9→import { clamp, damp, dampAngle } from '../core/MathUtils';
+    10→import { getFlameFX } from '../world/FlameFX';
+    11→
+    12→/** HUD snapshot while sailing (consumed by the React layer). */
+    13→export interface SailingHud {
+    14→  hull: number;
+    15→  hullMax: number;
+    16→  knots: number;
+    17→  sailState: 0 | 1 | 2;
+    18→  windRel: number;        // wind direction relative to bow (radians, 0 = wind ahead)
+    19→  cdPort: number;         // 0..1 (1 = ready)
+    20→  cdStar: number;
+    21→  anchored: boolean;
+    22→  shipName: string;
+    23→  enemy: { name: string; hullFrac: number; dist: number } | null;
+    24→  boarding: boolean;
+    25→}
+    26→
+    27→export interface NavalCallbacks {
+    28→  notify: (kind: 'info' | 'quest' | 'item', title: string, body?: string) => void;
+    29→  sound: (kind: 'cannon' | 'hit_hull' | 'splash' | 'anchor' | 'sail' | 'grapple' | 'creak' | 'sink') => void;
+    30→  music: (intensity: number) => void;
+    31→  setFlag: (flag: string) => void;
+    32→  lore: (title: string, paragraphs: string[]) => void;
+    33→  closeDialogue: () => void;
+    34→  /** Fase 9 — returns the health actually lost so AI can react to blocks/parries. */
+    35→  playerDamage: (amount: number, source: string) => number;
+    36→  /** Fase 9 — true right after the player parries (attackers stagger). */
+    37→  wasParried: () => boolean;
+    38→  /** Fase 9 — cinematic finisher started: play the hero's execution blow. */
+    39→  onFinisher?: (x: number, y: number, z: number) => void;
+    40→  returnPlayerToShip: (ship: Ship) => void;
+    41→}
+    42→
+    43→/** One boarding pirate (walks the enemy deck in ship-local coordinates). */
+    44→class BoardingCrew {
+    45→  readonly model: CharacterModel;
+    46→  readonly group = new THREE.Group();
+    47→  hp: number;
+    48→  readonly maxHp: number;
+    49→  readonly isCaptain: boolean;
+    50→  readonly name: string;
+    51→  lx: number;           // ship-local X
+    52→  lz: number;           // ship-local Z
+    53→  yaw = 0;
+    54→  attackT = 0;
+    55→  attackCd = 0;
+    56→  dead = false;
+    57→  deathT = 0;
+    58→  /** Fase 9 — stagger timer: > 0 means reeling (no move, no attacks). */
+    59→  hurtT = 0;
+    60→  /** Fase 9 — approach bearing around the player (radians, ship-local). */
+    61→  ringAngle = 0;
+    62→
+    63→  constructor(captain: boolean, lx: number, lz: number, palette: CharacterPalette) {
+    64→    this.isCaptain = captain;
+    65→    this.name = captain ? 'Capitana Morwen' : 'Corsario del Cuervo';
+    66→    this.hp = captain ? 110 : 46;
+    67→    this.maxHp = this.hp;
+    68→    this.lx = lx;
+    69→    this.lz = lz;
+    70→    this.model = new CharacterModel(palette);
+    71→    this.model.setEquippedState(true);
+    72→    this.group.add(this.model.root);
+    73→  }
+    74→
+    75→  updateAnim(dt: number): void {
+    76→    if (this.dead) {
+    77→      this.deathT += dt;
+    78→      const k = Math.min(1, this.deathT / 0.7);
+    79→      this.group.rotation.x = -k * Math.PI / 2;
+    80→      this.group.position.y -= dt * 0.25 * Math.min(1, this.deathT);
+    81→      if (this.deathT > 4) this.group.visible = false;
+    82→      return;
+    83→    }
+    84→    this.model.update({
+    85→      dt,
+    86→      speed: this.moving ? (this.isCaptain ? 1.5 : 1.8) : 0,
+    87→      moving: this.moving,
+    88→      grounded: true,
+    89→      swimming: false,
+    90→      attackT: this.attackT,
+    91→    });
+    92→  }
+    93→
+    94→  moving = false;
+    95→
+    96→  get hpFrac(): number {
+    97→    return this.hp / this.maxHp;
+    98→  }
+    99→}
+   100→
+   101→interface EnemyBrain {
+   102→  ship: Ship;
+   103→  mode: 'patrol' | 'chase' | 'broadside' | 'grappled';
+   104→  waypoints: Array<{ x: number; z: number }>;
+   105→  wpIndex: number;
+   106→  fireCd: number;
+   107→  aggroNotified: boolean;
+   108→  /** Quest ships cannot be sunk outright — they must be boarded. */
+   109→  quest: boolean;
+   110→  /** Already boarded once (no repeat boarding waves). */
+   111→  questBoarded?: boolean;
+   112→  respawnAt: { x: number; z: number } | null;
+   113→  respawnTimer: number;
+   114→}
+   115→
+   116→/** Simple pooled sprite burst (splashes, flashes, smoke). */
+   117→class SpritePool {
+   118→  private sprites: THREE.Sprite[] = [];
+   119→  private active: Array<{ sp: THREE.Sprite; t: number; dur: number; grow: number; vel?: THREE.Vector3 }> = [];
+   120→
+   121→  constructor(
+   122→    scene: THREE.Scene,
+   123→    count: number,
+   124→    color: string,
+   125→    private additive = false,
+   126→  ) {
+   127→    const canvas = document.createElement('canvas');
+   128→    canvas.width = canvas.height = 64;
+   129→    const ctx = canvas.getContext('2d')!;
+   130→    const grad = ctx.createRadialGradient(32, 32, 2, 32, 32, 30);
+   131→    grad.addColorStop(0, color);
+   132→    grad.addColorStop(1, 'rgba(0,0,0,0)');
+   133→    ctx.fillStyle = grad;
+   134→    ctx.fillRect(0, 0, 64, 64);
+   135→    const tex = new THREE.CanvasTexture(canvas);
+   136→    for (let i = 0; i < count; i++) {
+   137→      const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+   138→        map: tex,
+   139→        transparent: true,
+   140→        depthWrite: false,
+   141→        opacity: 0,
+   142→        blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
+   143→      }));
+   144→      sp.visible = false;
+   145→      scene.add(sp);
+   146→      this.sprites.push(sp);
+   147→    }
+   148→  }
+   149→
+   150→  spawn(pos: THREE.Vector3, scale: number, dur: number, grow = 1.6, vel?: THREE.Vector3): void {
+   151→    const sp = this.sprites.find((s) => !s.visible);
+   152→    if (!sp) return;
+   153→    sp.position.copy(pos);
+   154→    sp.scale.setScalar(scale);
+   155→    sp.material.opacity = 0.9;
+   156→    sp.visible = true;
+   157→    this.active.push({ sp, t: 0, dur, grow, vel: vel?.clone() });
+   158→  }
+   159→
+   160→  update(dt: number): void {
+   161→    for (let i = this.active.length - 1; i >= 0; i--) {
+   162→      const a = this.active[i];
+   163→      a.t += dt;
+   164→      const k = a.t / a.dur;
+   165→      if (k >= 1) {
+   166→        a.sp.visible = false;
+   167→        this.active.splice(i, 1);
+   168→        continue;
+   169→      }
+   170→      a.sp.material.opacity = 0.9 * (1 - k);
+   171→      a.sp.scale.multiplyScalar(1 + a.grow * dt);
+   172→      if (a.vel) {
+   173→        a.sp.position.addScaledVector(a.vel, dt);
+   174→        a.vel.y += dt * 0.4;
+   175→      }
+   176→    }
+   177→  }
+   178→}
+   179→
+   180→interface Cannonball {
+   181→  mesh: THREE.Mesh;
+   182→  vel: THREE.Vector3;
+   183→  life: number;
+   184→  fromPlayer: boolean;
+   185→  /** Previous-frame position for swept dragon collision. */
+   186→  prev: THREE.Vector3;
+   187→}
+   188→
+   189→/** Floating loot barrel left behind by a sunken pirate. */
+   190→interface LootBarrel {
+   191→  mesh: THREE.Mesh;
+   192→  pos: THREE.Vector3;
+   193→  claimed: boolean;
+   194→}
+   195→
+   196→/**
+   197→ * Fase 2 naval layer: the player's caravel, pirate fleets with patrol/chase/
+   198→ * broadside AI, cannonball physics, boarding combat and floating loot.
+   199→ */
+   200→export class NavalSystem {
+   201→  playerShip: Ship | null = null;
+   202→  playerSailing = false;
+   203→  /** Fase 11 — the ship currently at the helm. Defaults to the Colibrí, but
+   204→   *  ANY anchored ship (admin spawns included) can be taken to sea. */
+   205→  private helmShip: Ship | null = null;
+   206→  enemies: EnemyBrain[] = [];
+   207→  boarding: {
+   208→    brain: EnemyBrain;
+   209→    crew: BoardingCrew[];
+   210→    done: boolean;
+   211→    endTimer: number;
+   212→    /** Fase 9 — cinematic finisher in progress (seconds elapsed). */
+   213→    finisherT: number;
+   214→    /** Fase 9 — a finisher already played this boarding (no repeats). */
+   215→    finisherDone: boolean;
+   216→  } | null = null;
+   217→  private sinkRespawn: { timer: number } | null = null;
+   218→
+   219→  /** Fase 7 — optional GLB hull provider (the repository's pirate_ship.glb).
+   220→   *  When set, every spawned ship wears the real model (caravels get warm
+   221→   *  cream sails, pirates keep the black ones). */
+   222→  shipModelLoader?: (kind: ShipKind) => Promise<THREE.Object3D | null>;
+   223→
+   224→  /** Fase 3 hook: cannonballs can strike flying dragons (sea wyvern fight).
+   225→   *  Return an object whose damage(amount) applies the hit, or null. */
+   226→  dragonHitTest: ((pos: THREE.Vector3, prevPos?: THREE.Vector3) => { damage: (amount: number) => void } | null) | null = null;
+   227→
+   228→  private balls: Cannonball[] = [];
+   229→  private ballPool: THREE.Mesh[] = [];
+   230→  private splashes: SpritePool;
+   231→  private smoke: SpritePool;
+   232→  private flashes: SpritePool;
+   233→  private barrels: LootBarrel[] = [];
+   234→  private t = 0;
+   235→  private windBase = 2.4;
+   236→  /** Fase 9 — the game's collision world (solid hulls). */
+   237→  private colliders: ColliderRegistry | null = null;
+   238→  /** Fase 9 — admin/decorative ships (kept for collider sync). */
+   239→  extraShips: Ship[] = [];
+   240→
+   241→  constructor(
+   242→    private scene: THREE.Scene,
+   243→    private terrain: TerrainHeight,
+   244→    private water: WaterSystem,
+   245→    private state: GameState,
+   246→    private cb: NavalCallbacks,
+   247→  ) {
+   248→    this.splashes = new SpritePool(scene, 40, 'rgba(230,242,238,0.95)');
+   249→    getFlameFX(scene); // Fase 7 — cannon fire wears real flames
+   250→    this.smoke = new SpritePool(scene, 48, 'rgba(70,66,62,0.8)');
+   251→    this.flashes = new SpritePool(scene, 24, 'rgba(255,170,60,1)', true);
+   252→    const ballGeo = new THREE.SphereGeometry(0.15, 8, 6);
+   253→    const ballMat = new THREE.MeshStandardMaterial({ color: 0x1e1e22, roughness: 0.5, metalness: 0.6 });
+   254→    for (let i = 0; i < 26; i++) {
+   255→      const m = new THREE.Mesh(ballGeo, ballMat);
+   256→      m.visible = false;
+   257→      m.castShadow = false;
+   258→      scene.add(m);
+   259→      this.ballPool.push(m);
+   260→    }
+   261→  }
+   262→
+   263→  // ------------------------------------------------------------- spawning
+   264→
+   265→  /** Fase 9 — bind the game collision world; every hull becomes solid. */
+   266→  bindColliders(registry: ColliderRegistry): void {
+   267→    this.colliders = registry;
+   268→    this.playerShip?.bindColliderRegistry(registry);
+   269→    for (const brain of this.enemies) brain.ship.bindColliderRegistry(registry);
+   270→    for (const s of this.extraShips) s.bindColliderRegistry(registry);
+   271→  }
+   272→
+   273→  /** Launch the repaired Colibrí de Mar near the home dock. */
+   274→  spawnPlayerShip(x: number, z: number, heading = Math.PI): Ship {
+   275→    if (this.playerShip) return this.playerShip;
+   276→    const ship = new Ship({
+   277→      id: 'colibri', name: 'Colibrí de Mar', kind: 'caravel', isPlayer: true,
+   278→      x, z, heading,
+   279→    });
+   280→    ship.anchored = true;
+   281→    ship.frozen = false;
+   282→    ship.onCreak = () => this.cb.sound('creak');
+   283→    this.scene.add(ship.group);
+   284→    if (this.colliders) ship.bindColliderRegistry(this.colliders);
+   285→    this.playerShip = ship;
+   286→    this.dressShip(ship);
+   287→    this.applyPerks();
+   288→    return ship;
+   289→  }
+   290→
+   291→  /** Fase 7 — attach the repository GLB hull to a ship when available. */
+   292→  private dressShip(ship: Ship): void {
+   293→    if (!this.shipModelLoader) return;
+   294→    this.shipModelLoader(ship.kind).then((model) => {
+   295→      if (!model || ship.sunk) return;
+   296→      // the player's caravel gets warm cream canvas; pirates keep black sails
+   297→      ship.attachGlb(model, ship.kind === 'caravel' ? { sailTint: 0xd8c49a } : {});
+   298→    }).catch(() => { /* procedural hull stays */ });
+   299→  }
+   300→
+   301→  /**
+   302→   * Fase 8 — admin panel: drop a decorative anchored ship near a point.
+   303→   * It rides the waves (buoyancy on) but carries no AI — it will not chase
+   304→   * or fire at the player. Returns the spawn position.
+   305→   */
+   306→  spawnAdminShip(x: number, z: number): THREE.Vector3 {
+   307→    // find the nearest deep-water spot (ring scan)
+   308→    let bestX = x, bestZ = z, bestD = Infinity;
+   309→    for (let r = 6; r <= 90; r += 6) {
+   310→      for (let a = 0; a < 12; a++) {
+   311→        const ang = (a / 12) * Math.PI * 2;
+   312→        const sx = x + Math.cos(ang) * r;
+   313→        const sz = z + Math.sin(ang) * r;
+   314→        if (this.terrain.height(sx, sz) < -2.2) {
+   315→          const d = Math.hypot(sx - x, sz - z);
+   316→          if (d < bestD) { bestD = d; bestX = sx; bestZ = sz; }
+   317→        }
+   318→      }
+   319→      if (bestD < Infinity) break;
+   320→    }
+   321→    const ship = new Ship({
+   322→      id: `admin_${Date.now() % 100000}`,
+   323→      name: 'Navío Errante', kind: 'pirate', isPlayer: false,
+   324→      x: bestX, z: bestZ, heading: Math.random() * Math.PI * 2,
+   325→    });
+   326→    ship.anchored = true;
+   327→    this.scene.add(ship.group);
+   328→    if (this.colliders) ship.bindColliderRegistry(this.colliders);
+   329→    this.extraShips.push(ship);
+   330→    this.dressShip(ship);
+   331→    return new THREE.Vector3(bestX, 0, bestZ);
+   332→  }
+   333→
+   334→  spawnEnemies(): void {
+   335→    // Morwen's brig — anchored in the cove of the Crow Isle (quest ship)
+   336→    const gaviota = new Ship({
+   337→      id: 'gaviota', name: 'Gaviota Sangrienta', kind: 'pirate', isPlayer: false,
+   338→      x: -425, z: -308, heading: 2.2, hullHp: 120, cannonCd: 6.5,
+   339→    });
+   340→    this.scene.add(gaviota.group);
+   341→    if (this.colliders) gaviota.bindColliderRegistry(this.colliders);
+   342→    this.dressShip(gaviota);
+   343→    this.enemies.push({
+   344→      ship: gaviota,
+   345→      mode: 'patrol',
+   346→      waypoints: [
+   347→        { x: -425, z: -308 }, { x: -560, z: -250 }, { x: -600, z: -620 }, { x: -350, z: -500 },
+   348→      ],
+   349→      wpIndex: 0,
+   350→      fireCd: 3,
+   351→      aggroNotified: false,
+   352→      quest: true,
+   353→      respawnAt: null,
+   354→      respawnTimer: 0,
+   355→    });
+   356→
+   357→    // A roaming raider between the Mist Isles and Aldmor's south shore
+   358→    const zharpa = new Ship({
+   359→      id: 'zharpa', name: 'Zarpa de Sal', kind: 'pirate', isPlayer: false,
+   360→      x: 110, z: 430, heading: 0.4, hullHp: 100, cannonCd: 7,
+   361→    });
+   362→    this.scene.add(zharpa.group);
+   363→    if (this.colliders) zharpa.bindColliderRegistry(this.colliders);
+   364→    this.dressShip(zharpa);
+   365→    this.enemies.push({
+   366→      ship: zharpa,
+   367→      mode: 'patrol',
+   368→      waypoints: [
+   369→        { x: 110, z: 430 }, { x: -60, z: 480 }, { x: 60, z: 540 },
+   370→      ],
+   371→      wpIndex: 0,
+   372→      fireCd: 4,
+   373→      aggroNotified: false,
+   374→      quest: false,
+   375→      respawnAt: { x: 110, z: 430 },
+   376→      respawnTimer: 0,
+   377→    });
+   378→  }
+   379→
+   380→  /** Real effects for learned navigation skills. */
+   381→  applyPerks(): void {
+   382→    const ship = this.playerShip;
+   383→    if (!ship) return;
+   384→    ship.perks.speedMult = this.state.learnedSkills.has('nav_marino') ? 1.12 : 1;
+   385→    ship.perks.windEase = this.state.learnedSkills.has('nav_viento') ? 2.2 : 1;
+   386→    ship.perks.cannonCdMult = this.state.learnedSkills.has('nav_bordo') ? 1.35 : 1;
+   387→  }
+   388→
+   389→  // ---------------------------------------------------------- player helm
+   390→
+   391→  /** Fase 11 — the ship actually steered right now (never a sinking one). */
+   392→  get activeShip(): Ship | null {
+   393→    if (this.helmShip && !this.helmShip.sunk && this.helmShip.sinking === 0) return this.helmShip;
+   394→    if (this.playerShip && !this.playerShip.sunk && this.playerShip.sinking === 0) return this.playerShip;
+   395→    return this.helmShip;
+   396→  }
+   397→
+   398→  /** Fase 11 — nearest sailable ship (the Colibrí always; admin ships only
+   399→   *  while at anchor). Enemy AI ships are NEVER candidates. */
+   400→  helmCandidate(playerWorld: THREE.Vector3): Ship | null {
+   401→    let best: Ship | null = null;
+   402→    let bestD = Infinity;
+   403→    const consider = (s: Ship, isPlayer: boolean) => {
+   404→      if (s.sunk || s.sinking > 0) return;
+   405→      const d = Math.hypot(s.pos.x - playerWorld.x, s.pos.z - playerWorld.z);
+   406→      if (d < 13 && d < bestD && (isPlayer || s.anchored)) {
+   407→        best = s;
+   408→        bestD = d;
+   409→      }
+   410→    };
+   411→    if (this.playerShip) consider(this.playerShip, true);
+   412→    for (const s of this.extraShips) consider(s, false);
+   413→    return best;
+   414→  }
+   415→
+   416→  /** Fase 11 — take the wheel of a specific ship (any anchored vessel). */
+   417→  takeHelmAt(ship: Ship): void {
+   418→    if (ship.sunk || ship.sinking > 0) return;
+   419→    this.helmShip = ship;
+   420→    this.playerSailing = true;
+   421→    ship.anchored = false;
+   422→    ship.frozen = false;
+   423→    ship.rudderInput = 0;
+   424→  }
+   425→
+   426→  /** Fase 11 — drop the wheel in place (the ship stays where she is). */
+   427→  leaveHelm(): void {
+   428→    this.playerSailing = false;
+   429→    if (this.helmShip) {
+   430→      this.helmShip.rudderInput = 0;
+   431→      this.helmShip.anchored = true;
+   432→      this.helmShip.sailState = 0;
+   433→    }
+   434→    this.helmShip = null;
+   435→  }
+   436→
+   437→  /** Fase 11 — hand the helm back mid-voyage (post-ending "Colibrí sails"
+   438→   *  handoff: control resumes at the wheel, sails already set). */
+   439→  resumeHelm(ship: Ship): void {
+   440→    if (ship.sunk || ship.sinking > 0) return;
+   441→    this.helmShip = ship;
+   442→    this.playerSailing = true;
+   443→    ship.anchored = false;
+   444→    ship.frozen = false;
+   445→    this.applyPerks();
+   446→  }
+   447→
+   448→  setSailState(s: 0 | 1 | 2): void {
+   449→    const ship = this.activeShip ?? this.playerShip;
+   450→    if (!ship || ship.sailState === s) return;
+   451→    ship.sailState = s;
+   452→    if (s > 0) ship.anchored = false;
+   453→    this.cb.sound('sail');
+   454→  }
+   455→
+   456→  toggleAnchor(): void {
+   457→    const ship = this.activeShip ?? this.playerShip;
+   458→    if (!ship) return;
+   459→    ship.anchored = !ship.anchored;
+   460→    if (ship.anchored) {
+   461→      ship.sailState = 0;
+   462→      ship.rudderInput = 0;
+   463→    }
+   464→    this.cb.sound('anchor');
+   465→    this.cb.notify('info', ship.anchored ? 'Ancla fondeada' : 'Ancla izada',
+   466→      ship.anchored ? `${ship.name} se detiene. Puedes desembarcar si hay costa cerca.` : 'Listos para navegar.');
+   467→  }
+   468→
+   469→  firePlayer(side: 'port' | 'starboard'): void {
+   470→    const ship = this.activeShip ?? this.playerShip;
+   471→    if (!ship || !this.playerSailing || this.boarding) return;
+   472→    const shots = ship.fire(side);
+   473→    if (!shots) {
+   474→      if (this.t - this.lastDenyT > 1.2) {
+   475→        this.lastDenyT = this.t;
+   476→        this.cb.notify('info', 'Cañones recargando…', 'La bordada aún no está lista.');
+   477→      }
+   478→      return;
+   479→    }
+   480→    this.executeBroadside(ship, shots, true);
+   481→  }
+   482→
+   483→  private lastDenyT = -10;
+   484→
+   485→  private executeBroadside(ship: Ship, shots: CannonShot[], fromPlayer: boolean): void {
+   486→    for (let i = 0; i < shots.length; i++) {
+   487→      const shot = shots[i];
+   488→      const spread = fromPlayer ? 0.035 : 0.085;
+   489→      const dir = shot.dir.clone();
+   490→      dir.x += (Math.random() - 0.5) * spread * 2;
+   491→      dir.z += (Math.random() - 0.5) * spread * 2;
+   492→      dir.y += 0.05 + Math.random() * 0.05;
+   493→      dir.normalize();
+   494→      const speed = 32 + Math.random() * 3;
+   495→      this.spawnBall(shot.from, dir.multiplyScalar(speed), fromPlayer);
+   496→      // Muzzle flash + gun smoke (Fase 7: real flame burst at the muzzle)
+   497→      getFlameFX().burst(shot.from, 0.9, 3, 0.75);
+   498→      this.flashes.spawn(shot.from, 1.2, 0.14, 3);
+   499→      this.smoke.spawn(shot.from.clone().add(new THREE.Vector3(0, 0.4, 0)), 1.8, 1.6, 1.4,
+   500→        new THREE.Vector3(dir.x * 2, 0.6, dir.z * 2));
+   501→      if (i === 0) this.cb.sound('cannon');
+   502→    }
+   503→  }
+   504→
+   505→  private spawnBall(from: THREE.Vector3, vel: THREE.Vector3, fromPlayer: boolean): void {
+   506→    const mesh = this.ballPool.find((m) => !m.visible);
+   507→    if (!mesh) return;
+   508→    mesh.position.copy(from);
+   509→    mesh.visible = true;
+   510→    this.balls.push({ mesh, vel: vel.clone(), life: 0, fromPlayer, prev: from.clone() });
+   511→  }
+   512→
+   513→  // ------------------------------------------------------------- boarding
+   514→
+   515→  get boardingActive(): boolean {
+   516→    return this.boarding !== null;
+   517→  }
+   518→
+   519→  canBoard(): EnemyBrain | null {
+   520→    if (this.boarding || !this.playerShip) return null;
+   521→    for (const brain of this.enemies) {
+   522→      if (brain.questBoarded) continue;
+   523→      if (brain.ship.crippled && !brain.ship.sunk && brain.ship.sinking === 0) {
+   524→        const d = Math.hypot(brain.ship.pos.x - this.playerShip.pos.x, brain.ship.pos.z - this.playerShip.pos.z);
+   525→        if (d < 17) return brain;
+   526→      }
+   527→    }
+   528→    return null;
+   529→  }
+   530→
+   531→  startBoarding(brain: EnemyBrain): void {
+   532→    if (this.boarding || !this.playerShip) return;
+   533→    const enemy = brain.ship;
+   534→    // Grapple: both ships freeze, sails down
+   535→    enemy.grappled = true;
+   536→    enemy.frozen = true;
+   537→    enemy.sailState = 0;
+   538→    enemy.rudderInput = 0;
+   539→    this.playerShip.grappled = true;
+   540→    this.playerShip.frozen = true;
+   541→    this.playerShip.sailState = 0;
+   542→    this.playerShip.rudderInput = 0;
+   543→    brain.mode = 'grappled';
+   544→    brain.questBoarded = true;
+   545→
+   546→    // Crew: the quest ship gets Morwen + two corsairs; raiders get three corsairs
+   547→    const corsairPalette: CharacterPalette = {
+   548→      skin: 0xb08a64, hair: 0x1c1410, tunic: 0x3a2a30, sleeves: 0x57424a, pants: 0x2c2428, boots: 0x1e1812,
+   549→    };
+   550→    const morwenPalette: CharacterPalette = {
+   551→      skin: 0xc9a17a, hair: 0x2a1e2a, tunic: 0x5a1f28, sleeves: 0x7a3a3a, pants: 0x2c2024, boots: 0x1e1616, cape: 0x1c1c22,
+   552→    };
+   553→    const crew: BoardingCrew[] = brain.quest
+   554→      ? [
+   555→        new BoardingCrew(true, 0, -2.2, morwenPalette),
+   556→        new BoardingCrew(false, -1.0, 1.8, corsairPalette),
+   557→        new BoardingCrew(false, 1.05, 3.6, { ...corsairPalette, tunic: 0x30404a }),
+   558→      ]
+   559→      : [
+   560→        new BoardingCrew(false, -0.9, -1.6, corsairPalette),
+   561→        new BoardingCrew(false, 1.0, 2.2, { ...corsairPalette, tunic: 0x30404a }),
+   562→        new BoardingCrew(false, 0, 4.4, corsairPalette),
+   563→      ];
+   564→    // Fase 9 — surround bearings: each pirate owns a slice of the ring
+   565→    // around the player instead of stacking into a conga line.
+   566→    crew.forEach((c, i) => {
+   567→      c.ringAngle = (i / crew.length) * Math.PI * 2 + Math.PI / 7;
+   568→    });
+   569→    for (const c of crew) this.scene.add(c.group);
+   570→
+   571→    this.boarding = { brain, crew, done: false, endTimer: 0, finisherT: 0, finisherDone: false };
+   572→    // The player leaves the wheel and jumps onto the enemy deck
+   573→    this.playerSailing = false;
+   574→    this.cb.sound('grapple');
+   575→    this.cb.music(0.95);
+   576→    if (brain.quest) {
+   577→      this.cb.lore('¡Abordaje!', [
+   578→        'Ganchos de abordaje muerden el casco de la Gaviota Sangrienta. Las dos naves quedan amarradas, mecidas por la misma ola.',
+   579→        'En la cubierta, entre barriles y jaulas de cuervo, la Capitana Morwen desenvaina su sable. «El Guardián cría cachorros… Ven a buscar tu sello, cachorro.»',
+   580→      ]);
+   581→    } else {
+   582→      this.cb.lore('¡Abordaje!', [
+   583→        'Los ganchos vuelan y las cubiertas casi se tocan. La tripulación del cuervo carga con cuchillos entre los dientes.',
+   584→        'Derrota a los corsarios y sácale el botín a ese casco podrido.',
+   585→      ]);
+   586→    }
+   587→    this.onBoardingStarted?.(enemy);
+   588→  }
+   589→
+   590→  /** Called by CombatSystem when a melee swing lands. Returns true if hit.
+   591→   *  Fase 3: weapon reach/arc are honored (spear pikes across the deck). */
+   592→  crewHitCheck(
+   593→    playerWorld: THREE.Vector3, playerYaw: number, damage: number,
+   594→    reach = 2.35, arc = Math.PI * 0.85,
+   595→  ): boolean {
+   596→    if (!this.boarding) return false;
+   597→    const enemy = this.boarding.brain.ship;
+   598→    let hitAny = false;
+   599→    for (const c of this.boarding.crew) {
+   600→      if (c.dead) continue;
+   601→      const cw = enemy.toWorld(c.lx, 0, c.lz);
+   602→      const dx = cw.x - playerWorld.x;
+   603→      const dz = cw.z - playerWorld.z;
+   604→      const dist = Math.hypot(dx, dz);
+   605→      if (dist < reach) {
+   606→        const facing = Math.sin(playerYaw) * dx + Math.cos(playerYaw) * dz;
+   607→        // Facing within the weapon's half-arc (side distance test)
+   608→        const side = Math.abs(dx * Math.cos(playerYaw) - dz * Math.sin(playerYaw));
+   609→        if (facing > -0.25 && side < Math.tan(arc / 2) * Math.max(0.8, facing) + 0.5) {
+   610→          c.hp -= damage;
+   611→          hitAny = true;
+   612→          this.cb.sound('hit_hull');
+   613→          this.flashes.spawn(cw.clone().setY(cw.y + 1.2), 0.5, 0.1, 2);
+   614→          // Fase 9 — hit reaction: reel back along the blow direction
+   615→          // (the captain has poise; the corsairs get bullied)
+   616→          if (c.hp > 0) {
+   617→            c.hurtT = Math.max(c.hurtT, c.isCaptain ? 0.28 : 0.5);
+   618→            const klen = Math.hypot(dx, dz) || 1;
+   619→            const push = c.isCaptain ? 0.35 : 0.8;
+   620→            const nlx = c.lx + (dx / klen) * push;
+   621→            const nlz = c.lz + (dz / klen) * push;
+   622→            const b = enemy.deckBounds;
+   623→            c.lx = clamp(nlx, b.minX + 0.2, b.maxX - 0.2);
+   624→            c.lz = clamp(nlz, b.minZ + 0.6, b.maxZ - 0.4);
+   625→          }
+   626→          if (c.hp <= 0) {
+   627→            c.dead = true;
+   628→            c.moving = false;
+   629→            if (c.isCaptain) {
+   630→              this.cb.notify('quest', '¡Morwen ha caído!', 'El Cuervo de Tres Cabezas ha perdido a su capitana.');
+   631→            }
+   632→          }
+   633→          break;
+   634→        }
+   635→      }
+   636→    }
+   637→    return hitAny;
+   638→  }
+   639→
+   640→  // ---------------------------------------------- Fase 9: cinematic finisher
+   641→
+   642→  /**
+   643→   * PDF §5 — a weakened IMPORTANT enemy (the boarding captain below 30% HP)
+   644→   * exposes the REMATE. Returns her position when the execution is armed.
+   645→   */
+   646→  finisherTarget(): { name: string; x: number; y: number; z: number } | null {
+   647→    if (!this.boarding || this.boarding.done || this.boarding.finisherDone) return null;
+   648→    if (this.boarding.finisherT > 0) return null;
+   649→    for (const c of this.boarding.crew) {
+   650→      if (c.dead || !c.isCaptain) continue;
+   651→      if (c.hpFrac > 0.3) continue;
+   652→      const w = this.boarding.brain.ship.toWorld(c.lx, 1.2, c.lz);
+   653→      return { name: c.name, x: w.x, y: w.y, z: w.z };
+   654→    }
+   655→    return null;
+   656→  }
+   657→
+   658→  /** Execute the remate: the hero's heavy blow lands as the captain reels. */
+   659→  executeFinisher(): boolean {
+   660→    const target = this.finisherTarget();
+   661→    if (!target) return false;
+   662→    const boarding = this.boarding!;
+   663→    boarding.finisherT = 0.001;
+   664→    boarding.finisherDone = true;
+   665→    // She freezes mid-reel for the killing blow
+   666→    for (const c of boarding.crew) {
+   667→      if (c.isCaptain && !c.dead) c.hurtT = 1.2;
+   668→    }
+   669→    // The hero swings (Game plays the animation + camera work)
+   670→    this.cb.onFinisher?.(target.x, target.y, target.z);
+   671→    return true;
+   672→  }
+   673→
+   674→  private updateFinisher(dt: number): void {
+   675→    const b = this.boarding;
+   676→    if (!b || b.finisherT <= 0) return;
+   677→    b.finisherT += dt;
+   678→    // 0.55 s of wind-up, then the blow lands
+   679→    if (b.finisherT >= 0.55) {
+   680→      b.finisherT = 0;
+   681→      for (const c of b.crew) {
+   682→        if (c.isCaptain && !c.dead) {
+   683→          c.hp = 0;
+   684→          c.dead = true;
+   685→          c.moving = false;
+   686→          const w = b.brain.ship.toWorld(c.lx, 1.1, c.lz);
+   687→          this.flashes.spawn(w.clone().setY(w.y + 0.4), 1.6, 0.16, 3);
+   688→          this.cb.sound('hit_hull');
+   689→          this.cb.notify('quest', '¡REMATE!', `${c.name} cae bajo el golpe del Guardián. La cubierta queda en silencio.`);
+   690→          this.cb.music(0.5);
+   691→        }
+   692→      }
+   693→    }
+   694→  }
+   695→
+   696→  /** Boarding resolves when every crewman is down. */
+   697→  private finishBoardingSuccess(): void {
+   698→    if (!this.boarding) return;
+   699→    const brain = this.boarding.brain;
+   700→    // Loot the hold
+   701→    this.state.addItem('sello', 1);
+   702→    this.state.addItem('coin', 90);
+   703→    this.state.addItem('madera', 2);
+   704→    this.state.giveXp(120);
+   705→    this.state.setFlag('morwen_defeated');
+   706→    this.cb.notify('quest', '¡La Gaviota Sangrienta es tuya!',
+   707→      'Sello de la Orden, 90 monedas y madera de primera añadidos al inventario.');
+   708→    this.cb.music(0.8);
+   709→    // The pirate brig is scuttled by her own boiling powder store
+   710→    brain.ship.grappled = false;
+   711→    brain.ship.frozen = false;
+   712→    brain.ship.applyDamage(brain.ship.hullHp + 1);
+   713→    // Player jumps back aboard the Colibrí
+   714→    this.cb.returnPlayerToShip(this.playerShip!);
+   715→    for (const c of this.boarding.crew) c.group.parent?.remove(c.group);
+   716→    this.playerShip!.grappled = false;
+   717→    this.playerShip!.frozen = false;
+   718→    this.boarding = null;
+   719→  }
+   720→
+   721→  /** Player died mid-boarding — clean up without rewards. */
+   722→  abortBoarding(): void {
+   723→    if (!this.boarding) return;
+   724→    const brain = this.boarding.brain;
+   725→    brain.ship.grappled = false;
+   726→    brain.ship.frozen = false;
+   727→    if (this.playerShip) {
+   728→      this.playerShip.grappled = false;
+   729→      this.playerShip.frozen = false;
+   730→    }
+   731→    for (const c of this.boarding.crew) c.group.parent?.remove(c.group);
+   732→    this.boarding = null;
+   733→    this.cb.music(0.4);
+   734→    // The boarding narration must not linger over normal play (it would eat
+   735→    // every control: movement, rudder, sails and attacks)
+   736→    this.cb.closeDialogue();
+   737→  }
+   738→
+   739→  /** Full reset (new game / loading a pre-naval save). */
+   740→  resetAll(): void {
+   741→    this.abortBoarding();
+   742→    this.sinkRespawn = null;
+   743→    if (this.playerShip) {
+   744→      this.playerShip.dispose();
+   745→      this.playerShip = null;
+   746→    }
+   747→    this.playerSailing = false;
+   748→    for (const b of this.balls) b.mesh.visible = false;
+   749→    this.balls.length = 0;
+   750→    for (const barrel of this.barrels) {
+   751→      barrel.mesh.parent?.remove(barrel.mesh);
+   752→      barrel.mesh.geometry.dispose();
+   753→    }
+   754→    this.barrels.length = 0;
+   755→    for (const brain of this.enemies) {
+   756→      const ship = brain.ship;
+   757→      const spawn = brain.waypoints[0];
+   758→      ship.pos.set(spawn.x, 0, spawn.z);
+   759→      ship.heading = 0.5;
+   760→      ship.speed = 0;
+   761→      ship.hullHp = ship.maxHullHp;
+   762→      ship.sinking = 0;
+   763→      ship.sunk = false;
+   764→      ship.removable = false;
+   765→      ship.grappled = false;
+   766→      ship.frozen = false;
+   767→      ship.group.visible = true;
+   768→      ship.hull.rotation.set(0, 0, 0);
+   769→      ship.group.position.y = 0.12;
+   770→      ship.cdPort = 0;
+   771→      ship.cdStar = 0;
+   772→      brain.mode = 'patrol';
+   773→      brain.wpIndex = 0;
+   774→      brain.aggroNotified = false;
+   775→      brain.questBoarded = false;
+   776→      brain.respawnTimer = 0;
+   777→      (brain as EnemyBrain & { looted?: boolean }).looted = false;
+   778→    }
+   779→  }
+   780→
+   781→  // ------------------------------------------------------------- prompts
+   782→
+   783→  /** Contextual naval interaction for the player (used by Game). */
+   784→  currentPrompt(playerWorld: THREE.Vector3): { prompt: string; run: () => void } | null {
+   785→    const ship = this.playerShip;
+   786→    if (!ship || this.boarding) return null; // mid-boarding: hands are full
+   787→
+   788→    if (!this.playerSailing) {
+   789→      // Fase 11 — ANY anchored ship in reach offers her wheel: the Colibrí
+   790→      // always, admin ships while at anchor
+   791→      const cand = this.helmCandidate(playerWorld);
+   792→      if (cand) {
+   793→        return {
+   794→          prompt: `Zarpar a bordo del ${cand.name}`,
+   795→          run: () => this.cb.returnPlayerToShip(cand),
+   796→        };
+   797→      }
+   798→      return null;
+   799→    }
+   800→
+   801→    // Sailing: boarding has priority
+   802→    const boardable = this.canBoard();
+   803→    if (boardable) {
+   804→      return {
+   805→        prompt: `Abordar la ${boardable.ship.name}`,
+   806→        run: () => this.startBoarding(boardable),
+   807→      };
+   808→    }
+   809→
+   810→    // Disembark when (almost) stopped
+   811→    const active = this.activeShip ?? ship;
+   812→    if (Math.abs(active.speed) < 0.8) {
+   813→      const spot = this.findLandingSpot(active);
+   814→      if (spot) {
+   815→        return {
+   816→          prompt: 'Desembarcar en tierra firme',
+   817→          run: () => this.disembark(spot),
+   818→        };
+   819→      }
+   820→    }
+   821→
+   822→    // Loot barrels
+   823→    for (const barrel of this.barrels) {
+   824→      if (barrel.claimed) continue;
+   825→      const d = Math.hypot(barrel.pos.x - playerWorld.x, barrel.pos.z - playerWorld.z);
+   826→      if (d < 9) {
+   827→        return {
+   828→          prompt: 'Recuperar el botín flotante',
+   829→          run: () => {
+   830→            barrel.claimed = true;
+   831→            barrel.mesh.visible = false;
+   832→            const coins = 25 + Math.floor(Math.random() * 30);
+   833→            this.state.addItem('coin', coins);
+   834→            if (Math.random() < 0.5) this.state.addItem('madera', 1);
+   835→            this.state.giveXp(20);
+   836→            this.cb.sound('hit_hull');
+   837→            this.cb.notify('item', 'Botín recuperado', `${coins} monedas de oro del casco hundido.`);
+   838→          },
+   839→        };
+   840→      }
+   841→    }
+   842→
+   843→    return null;
+   844→  }
+   845→
+   846→  /** Nearest walkable shore around the ship (16 directions sample). */
+   847→  private findLandingSpot(ship: Ship): { x: number; z: number } | null {
+   848→    for (let r = 10; r <= 42; r += 8) {
+   849→      for (let i = 0; i < 16; i++) {
+   850→        const a = (i / 16) * Math.PI * 2;
+   851→        const x = ship.pos.x + Math.cos(a) * r;
+   852→        const z = ship.pos.z + Math.sin(a) * r;
+   853→        const h = this.terrain.height(x, z);
+   854→        if (h > 1.2 && h < 14) {
+   855→          return { x, z };
+   856→        }
+   857→      }
+   858→    }
+   859→    return null;
+   860→  }
+   861→
+   862→  private disembark(spot: { x: number; z: number }): void {
+   863→    const ship = this.activeShip ?? this.playerShip!;
+   864→    this.playerSailing = false;
+   865→    ship.anchored = true;
+   866→    ship.frozen = false;
+   867→    ship.sailState = 0;
+   868→    this.helmShip = null;
+   869→    this.onDisembark?.(spot);
+   870→    this.cb.notify('info', 'Has desembarcado', `${ship.name} queda fondeado aquí. Vuélvete a acercar a su costado para zarpar de nuevo.`);
+   871→  }
+   872→
+   873→  onDisembark?: (spot: { x: number; z: number }) => void;
+   874→  /** Fired when a boarding begins so Game can move the player onto the deck. */
+   875→  onBoardingStarted?: (enemy: Ship) => void;
+   876→
+   877→  get boardingShip(): Ship | null {
+   878→    return this.boarding ? this.boarding.brain.ship : null;
+   879→  }
+   880→
+   881→  /** Game calls this when the player takes the helm (from prompt or return). */
+   882→  playerBoardsHelm(): void {
+   883→    if (!this.playerShip) return;
+   884→    this.playerSailing = true;
+   885→    this.playerShip.anchored = false;
+   886→    this.playerShip.frozen = false;
+   887→  }
+   888→
+   889→  // -------------------------------------------------------------- update
+   890→
+   891→  update(dt: number, playerWorld: THREE.Vector3): SailingHud | null {
+   892→    this.t += dt;
+   893→
+   894→    // --- Wind: slow precession, gentle wander ---
+   895→    this.windBase += dt * 0.0045;
+   896→    WIND.dir = this.windBase + Math.sin(this.t * 0.011) * 0.7;
+   897→
+   898→    const ship = this.playerShip;
+   899→
+   900→    // --- Player ship sinking → respawn sequence ---
+   901→    if (ship && ship.sinking > 0 && !this.sinkRespawn) {
+   902→      this.sinkRespawn = { timer: 3.2 };
+   903→      this.cb.sound('sink');
+   904→      this.cb.notify('quest', '¡El Colibrí de Mar se hunde!',
+   905→        'Las olas te devuelven a la costa. Bram prometerá revisar el casco… por un precio.');
+   906→      this.cb.music(0.9);
+   907→    }
+   908→    if (this.sinkRespawn) {
+   909→      this.sinkRespawn.timer -= dt;
+   910→      if (this.sinkRespawn.timer <= 0 && ship) {
+   911→        this.sinkRespawn = null;
+   912→        this.playerSailing = false;
+   913→        ship.sinking = 0;
+   914→        ship.sunk = false;
+   915→        ship.group.visible = true;
+   916→        ship.hullHp = Math.round(ship.maxHullHp * 0.55);
+   917→        ship.speed = 0;
+   918→        const dock = this.dockSpawn;
+   919→        ship.pos.set(dock.x, 0, dock.z);
+   920→        ship.heading = dock.heading;
+   921→        ship.anchored = true;
+   922→        ship.hull.rotation.set(0, 0, 0);
+   923→        ship.group.position.y = 0.12;
+   924→        this.onShipRespawned?.();
+   925→      }
+   926→    }
+   927→
+   928→    // --- Ships physics ---
+   929→    ship?.update(dt, this.water, this.terrain, WIND.dir);
+   930→
+   931→    for (const brain of this.enemies) {
+   932→      this.updateEnemyAI(dt, brain, playerWorld);
+   933→      brain.ship.update(dt, this.water, this.terrain, WIND.dir);
+   934→      // Fase 4 — enemy ships starting to sink count as pirate kills
+   935→      // (the elite hunter of q11 + the general bounty flag)
+   936→      if (brain.ship.sinking > 0 && !(brain as EnemyBrain & { sinkNotified?: boolean }).sinkNotified) {
+   937→        (brain as EnemyBrain & { sinkNotified?: boolean }).sinkNotified = true;
+   938→        if (this.state.hasFlag('ship_repaired')) {
+   939→          this.cb.setFlag('elite_hunter_sunk');
+   940→          this.cb.setFlag('pirate_sunk_any');
+   941→        }
+   942→      }
+   943→    }
+   944→
+   945→    // --- Cannonballs ---
+   946→    this.updateBalls(dt);
+   947→
+   948→    // --- Fase 9 — solid hulls: refresh the collision AABBs of every ship
+   949→    //     near the player (far ships free their cells; sunk ships clear) ---
+   950→    ship?.syncColliders(playerWorld.x, playerWorld.z);
+   951→    for (const brain of this.enemies) {
+   952→      brain.ship.syncColliders(playerWorld.x, playerWorld.z);
+   953→    }
+   954→    // Fase 11 — admin/decorative ships LIVE: real buoyancy, sails and helm
+   955→    // (they used to be static buoys — now they can actually be sailed).
+   956→    // Far ones (>300 m) skip physics but keep their colliders in sync.
+   957→    for (const s of this.extraShips) {
+   958→      if (Math.hypot(s.pos.x - playerWorld.x, s.pos.z - playerWorld.z) < 300) {
+   959→        s.update(dt, this.water, this.terrain, WIND.dir);
+   960→      }
+   961→      s.syncColliders(playerWorld.x, playerWorld.z);
+   962→    }
+   963→
+   964→    // --- Effects ---
+   965→    this.splashes.update(dt);
+   966→    this.smoke.update(dt);
+   967→    this.flashes.update(dt);
+   968→
+   969→    // --- Loot barrels bob ---
+   970→    for (const barrel of this.barrels) {
+   971→      if (barrel.claimed) continue;
+   972→      barrel.mesh.position.y = this.water.waveHeightAt(barrel.pos.x, barrel.pos.z) + 0.1;
+   973→      barrel.mesh.rotation.x = Math.sin(this.t * 1.3 + barrel.pos.x) * 0.18;
+   974→      barrel.mesh.rotation.z = Math.cos(this.t * 1.1 + barrel.pos.z) * 0.14;
+   975→    }
+   976→
+   977→    // --- Boarding crew combat ---
+   978→    if (this.boarding) this.updateBoarding(dt, playerWorld);
+   979→
+   980→    // --- HUD ---
+   981→    if (ship && (this.playerSailing || this.playerNearShip(playerWorld))) {
+   982→      let enemyHud: SailingHud['enemy'] = null;
+   983→      let bestD = Infinity;
+   984→      for (const brain of this.enemies) {
+   985→        if (brain.ship.sunk || brain.ship.sinking > 0) continue;
+   986→        const d = Math.hypot(brain.ship.pos.x - ship.pos.x, brain.ship.pos.z - ship.pos.z);
+   987→        if (d < bestD) {
+   988→          bestD = d;
+   989→          if (d < 240) {
+   990→            enemyHud = {
+   991→              name: brain.ship.name,
+   992→              hullFrac: brain.ship.hullHp / brain.ship.maxHullHp,
+   993→              dist: d,
+   994→            };
+   995→          }
+   996→        }
+   997→      }
+   998→      const rel = Math.atan2(Math.sin(WIND.dir - ship.heading), Math.cos(WIND.dir - ship.heading));
+   999→      return {
+  1000→        hull: ship.hullHp,
+  1001→        hullMax: ship.maxHullHp,
+  1002→        knots: Math.abs(ship.speed) * 1.944,
+  1003→        sailState: ship.sailState,
+  1004→        windRel: rel,
+  1005→        cdPort: clamp(1 - ship.cdPort / ship.cannonCd, 0, 1),
+  1006→        cdStar: clamp(1 - ship.cdStar / ship.cannonCd, 0, 1),
+  1007→        anchored: ship.anchored,
+  1008→        shipName: ship.name,
+  1009→        enemy: enemyHud,
+  1010→        boarding: this.boarding !== null,
+  1011→      };
+  1012→    }
+  1013→    return null;
+  1014→  }
+  1015→
+  1016→  private playerNearShip(playerWorld: THREE.Vector3): boolean {
+  1017→    const ship = this.playerShip;
+  1018→    if (!ship) return false;
+  1019→    return Math.hypot(ship.pos.x - playerWorld.x, ship.pos.z - playerWorld.z) < 60;
+  1020→  }
+  1021→
+  1022→  dockSpawn = { x: 30, z: 262, heading: Math.PI };
+  1023→  onShipRespawned?: () => void;
+  1024→
+  1025→  // ------------------------------------------------------------- enemy AI
+  1026→
+  1027→  private updateEnemyAI(dt: number, brain: EnemyBrain, playerWorld: THREE.Vector3): void {
+  1028→    const enemy = brain.ship;
+  1029→    if (enemy.sunk) {
+  1030→      // Respawn roaming raiders after a long while
+  1031→      if (brain.respawnAt) {
+  1032→        brain.respawnTimer += dt;
+  1033→        if (brain.respawnTimer > 600) {
+  1034→          brain.respawnTimer = 0;
+  1035→          enemy.sunk = false;
+  1036→          enemy.sinking = 0;
+  1037→          enemy.removable = false;
+  1038→          enemy.hullHp = enemy.maxHullHp;
+  1039→          enemy.group.visible = true;
+  1040→          enemy.hull.rotation.set(0, 0, 0);
+  1041→          enemy.group.position.y = 0.12;
+  1042→          enemy.pos.set(brain.respawnAt.x, 0, brain.respawnAt.z);
+  1043→          enemy.speed = 0;
+  1044→          brain.mode = 'patrol';
+  1045→          brain.wpIndex = 0;
+  1046→        }
+  1047→      }
+  1048→      return;
+  1049→    }
+  1050→
+  1051→    // Drop floating loot once a non-quest ship finishes sinking
+  1052→    if (enemy.sinking > 0 && !brain.quest && !(brain as EnemyBrain & { looted?: boolean }).looted) {
+  1053→      (brain as EnemyBrain & { looted?: boolean }).looted = true;
+  1054→      this.spawnLootBarrel(enemy.pos.x, enemy.pos.z);
+  1055→    }
+  1056→
+  1057→    const ship = this.playerShip;
+  1058→    const playerAboard = !!ship && (this.playerSailing || Math.hypot(ship.pos.x - playerWorld.x, ship.pos.z - playerWorld.z) < 40);
+  1059→    const distToPlayer = ship
+  1060→      ? Math.hypot(enemy.pos.x - ship.pos.x, enemy.pos.z - ship.pos.z)
+  1061→      : Math.hypot(enemy.pos.x - playerWorld.x, enemy.pos.z - playerWorld.z);
+  1062→
+  1063→    if (brain.mode === 'grappled') {
+  1064→      enemy.rudderInput = 0;
+  1065→      return;
+  1066→    }
+  1067→
+  1068→    // --- State transitions ---
+  1069→    if (enemy.sinking > 0) {
+  1070→      enemy.sailState = 0;
+  1071→      enemy.rudderInput = 0;
+  1072→      return;
+  1073→    }
+  1074→    // A crippled hull is dead in the water: sails down, smoke pouring,
+  1075→    // drifting — ready to be boarded.
+  1076→    if (enemy.crippled) {
+  1077→      enemy.sailState = 0;
+  1078→      enemy.rudderInput = 0;
+  1079→      enemy.speed = damp(enemy.speed, 0, 1.5, dt);
+  1080→      return;
+  1081→    }
+  1082→    if (playerAboard && distToPlayer < 300 && brain.mode === 'patrol') {
+  1083→      brain.mode = 'chase';
+  1084→      if (!brain.aggroNotified) {
+  1085→        brain.aggroNotified = true;
+  1086→        this.cb.notify('quest', '¡Vela negra al acecho!', `${enemy.name} ha virado hacia ti. ¡A los cañones!`);
+  1087→        this.cb.music(0.75);
+  1088→      }
+  1089→    } else if (distToPlayer > 380 && brain.mode !== 'patrol') {
+  1090→      brain.mode = 'patrol';
+  1091→      brain.aggroNotified = false;
+  1092→      this.cb.music(0.25);
+  1093→    }
+  1094→
+  1095→    const steerToward = (tx: number, tz: number) => {
+  1096→      const want = Math.atan2(tx - enemy.pos.x, tz - enemy.pos.z);
+  1097→      const diff = Math.atan2(Math.sin(want - enemy.heading), Math.cos(want - enemy.heading));
+  1098→      enemy.rudderInput = clamp(diff * 2.2, -1, 1);
+  1099→    };
+  1100→
+  1101→    if (brain.mode === 'patrol') {
+  1102→      const wp = brain.waypoints[brain.wpIndex];
+  1103→      steerToward(wp.x, wp.z);
+  1104→      enemy.sailState = distToPlayer < 160 && playerAboard ? 1 : 1;
+  1105→      if (Math.hypot(wp.x - enemy.pos.x, wp.z - enemy.pos.z) < 34) {
+  1106→        brain.wpIndex = (brain.wpIndex + 1) % brain.waypoints.length;
+  1107→      }
+  1108→    } else if (brain.mode === 'chase') {
+  1109→      if (!ship) return;
+  1110→      // Intercept the player ship
+  1111→      const lead = 1.2;
+  1112→      steerToward(ship.pos.x + Math.sin(ship.heading) * ship.speed * lead,
+  1113→        ship.pos.z + Math.cos(ship.heading) * ship.speed * lead);
+  1114→      enemy.sailState = 2;
+  1115→      if (distToPlayer < 52) brain.mode = 'broadside';
+  1116→    } else if (brain.mode === 'broadside') {
+  1117→      if (!ship) return;
+  1118→      if (distToPlayer > 85) {
+  1119→        brain.mode = 'chase';
+  1120→        return;
+  1121→      }
+  1122→      // Circle the target, keeping a firing distance of ~28-45 m
+  1123→      const mid = 36;
+  1124→      const away = distToPlayer < mid - 6 ? 1 : distToPlayer > mid + 8 ? -1 : 0;
+  1125→      const ang = Math.atan2(enemy.pos.x - ship.pos.x, enemy.pos.z - ship.pos.z) + away * 0.9;
+  1126→      const orbitR = clamp(distToPlayer, 26, 48);
+  1127→      steerToward(
+  1128→        ship.pos.x + Math.sin(ang) * orbitR,
+  1129→        ship.pos.z + Math.cos(ang) * orbitR,
+  1130→      );
+  1131→      enemy.sailState = 1;
+  1132→
+  1133→      // Fire the side facing the player when roughly abeam
+  1134→      brain.fireCd -= dt;
+  1135→      if (brain.fireCd <= 0 && distToPlayer < 62) {
+  1136→        const rel = Math.atan2(ship.pos.x - enemy.pos.x, ship.pos.z - enemy.pos.z);
+  1137→        const relToHeading = Math.atan2(Math.sin(rel - enemy.heading), Math.cos(rel - enemy.heading));
+  1138→        const side: 'port' | 'starboard' = relToHeading > 0 ? 'port' : 'starboard';
+  1139→        // Only fire if the target is roughly perpendicular (abeam)
+  1140→        if (Math.abs(Math.abs(relToHeading) - Math.PI / 2) < 0.55) {
+  1141→          const shots = enemy.fire(side);
+  1142→          if (shots) {
+  1143→            brain.fireCd = enemy.cannonCd * (0.85 + Math.random() * 0.4);
+  1144→            this.executeBroadside(enemy, shots, false);
+  1145→          }
+  1146→        }
+  1147→      }
+  1148→    }
+  1149→  }
+  1150→
+  1151→  // ---------------------------------------------------------- cannonballs
+  1152→
+  1153→  private updateBalls(dt: number): void {
+  1154→    const ship = this.playerShip;
+  1155→    for (let i = this.balls.length - 1; i >= 0; i--) {
+  1156→      const ball = this.balls[i];
+  1157→      ball.life += dt;
+  1158→      ball.vel.y -= 14.5 * dt;
+  1159→      ball.mesh.position.addScaledVector(ball.vel, dt);
+  1160→
+  1161→      let dead = false;
+  1162→      const p = ball.mesh.position;
+  1163→      const ballPrev = ball.prev.clone();
+  1164→
+  1165→      // --- Ship impacts ---
+  1166→      const targets: Array<{ ship: Ship; fromPlayer: boolean }> = [];
+  1167→      if (ship && !ball.fromPlayer) targets.push({ ship, fromPlayer: false });
+  1168→      if (ball.fromPlayer) {
+  1169→        for (const brain of this.enemies) {
+  1170→          if (brain.ship.sinking > 0 || brain.ship.sunk) continue;
+  1171→          targets.push({ ship: brain.ship, fromPlayer: true });
+  1172→        }
+  1173→      }
+  1174→      for (const tgt of targets) {
+  1175→        const local = tgt.ship.toLocal(p.x, p.z);
+  1176→        if (Math.abs(local.x) < 2.7 && local.y > -9 && local.y < 9) {
+  1177→          const deckTop = tgt.ship.group.position.y + 3.6;
+  1178→          if (p.y < deckTop) {
+  1179→            const dmg = 8 + Math.random() * 6;
+  1180→            if (tgt.ship.isPlayer) {
+  1181→              tgt.ship.applyDamage(dmg);
+  1182→              this.cb.playerDamage(Math.round(dmg * 0.45), 'cannon');
+  1183→            } else if (tgt.ship.crippled && this.brainOf(tgt.ship)?.quest) {
+  1184→              // Quest ships can't be sunk from range — force the boarding
+  1185→              tgt.ship.hullHp = Math.max(tgt.ship.maxHullHp * 0.12, tgt.ship.hullHp - dmg);
+  1186→            } else {
+  1187→              tgt.ship.applyDamage(dmg);
+  1188→            }
+  1189→            this.smoke.spawn(p.clone(), 1.4, 1.1, 1.6, new THREE.Vector3(0, 1.2, 0));
+  1190→            getFlameFX().burst(p.clone(), 0.8, 3, 0.6);
+  1191→            this.flashes.spawn(p.clone(), 1.1, 0.1, 2);
+  1192→            this.cb.sound('hit_hull');
+  1193→            if (ball.fromPlayer && tgt.ship.isPlayer === false) {
+  1194→              this.cb.music(0.7);
+  1195→            }
+  1196→            dead = true;
+  1197→            break;
+  1198→          }
+  1199→        }
+  1200→      }
+  1201→
+  1202→      // --- Dragon impacts (Fase 3: the sea wyvern hunts the Colibrí) ---
+  1203→      if (!dead && this.dragonHitTest) {
+  1204→        const dragon = this.dragonHitTest(p, ballPrev);
+  1205→        if (dragon) {
+  1206→          dragon.damage(42);
+  1207→          this.flashes.spawn(p.clone(), 1.7, 0.12, 2);
+  1208→          this.smoke.spawn(p.clone(), 1.5, 1.0, 1.9, new THREE.Vector3(0, 1, 0));
+  1209→          this.cb.sound('hit_hull');
+  1210→          dead = true;
+  1211→        }
+  1212→      }
+  1213→
+  1214→      // --- Water splash ---
+  1215→      if (!dead) {
+  1216→        const wh = this.water.waveHeightAt(p.x, p.z);
+  1217→        if (p.y <= wh + 0.05) {
+  1218→          this.splashes.spawn(new THREE.Vector3(p.x, Math.max(0.2, wh + 0.2), p.z), 1.4, 0.9, 2.2);
+  1219→          this.cb.sound('splash');
+  1220→          dead = true;
+  1221→        }
+  1222→      }
+  1223→
+  1224→      if (ball.life > 7) dead = true;
+  1225→
+  1226→      if (dead) {
+  1227→        ball.mesh.visible = false;
+  1228→        this.balls.splice(i, 1);
+  1229→      } else {
+  1230→        ball.prev.copy(p);
+  1231→      }
+  1232→    }
+  1233→  }
+  1234→
+  1235→  private brainOf(ship: Ship): EnemyBrain | undefined {
+  1236→    return this.enemies.find((b) => b.ship === ship);
+  1237→  }
+  1238→
+  1239→  private spawnLootBarrel(x: number, z: number): void {
+  1240→    const geo = new THREE.CylinderGeometry(0.42, 0.36, 0.8, 9);
+  1241→    const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0x6f4d30, roughness: 0.85 }));
+  1242→    mesh.position.set(x, 0.1, z);
+  1243→    mesh.castShadow = true;
+  1244→    this.scene.add(mesh);
+  1245→    this.barrels.push({ mesh, pos: new THREE.Vector3(x, 0, z), claimed: false });
+  1246→  }
+  1247→
+  1248→  // ------------------------------------------------------------- boarding
+  1249→
+  1250→  private updateBoarding(dt: number, playerWorld: THREE.Vector3): void {
+  1251→    if (!this.boarding) return;
+  1252→    const enemy = this.boarding.brain.ship;
+  1253→    let allDead = true;
+  1254→
+  1255→    // Fase 9 — cinematic finisher timer
+  1256→    this.updateFinisher(dt);
+  1257→
+  1258→    // Fase 9 — attack token: at most ONE pirate swings at a time (the
+  1259→    // captain may always attack). No more getting melted by a blender.
+  1260→    let swinging = 0;
+  1261→    for (const c of this.boarding.crew) {
+  1262→      if (!c.dead && c.attackT > 0) swinging++;
+  1263→    }
+  1264→
+  1265→    for (const c of this.boarding.crew) {
+  1266→      if (c.dead) {
+  1267→        c.updateAnim(dt);
+  1268→        continue;
+  1269→      }
+  1270→      allDead = false;
+  1271→
+  1272→      // Where is the player on this deck?
+  1273→      const local = enemy.toLocal(playerWorld.x, playerWorld.z);
+  1274→      const dx = local.x - c.lx;
+  1275→      const dz = local.y - c.lz;
+  1276→      const dist = Math.hypot(dx, dz);
+  1277→
+  1278→      // Fase 9 — reeling from a hit or a parry: no actions while staggered
+  1279→      if (c.hurtT > 0) {
+  1280→        c.hurtT -= dt;
+  1281→        c.moving = false;
+  1282→        c.attackT = 0;
+  1283→        const face = Math.atan2(dx, dz);
+  1284→        c.yaw = dampAngle(c.yaw, face, 8, dt);
+  1285→        const world = enemy.toWorld(c.lx, enemy.deckHeightAt(c.lx, c.lz) ?? 1, c.lz);
+  1286→        c.group.position.set(world.x, world.y, world.z);
+  1287→        c.group.rotation.y = c.yaw;
+  1288→        c.updateAnim(dt);
+  1289→        continue;
+  1290→      }
+  1291→
+  1292→      const reach = c.isCaptain ? 1.55 : 1.45;
+  1293→      if (dist > reach) {
+  1294→        // Fase 9 — SURROUND: each pirate closes on its own bearing around
+  1295→        // the player (ring post 1.1 m out), so a 3v1 reads as a ring of
+  1296→        // steel instead of a queue.
+  1297→        const ringR = 1.15;
+  1298→        const tx = local.x - Math.sin(c.ringAngle) * ringR;
+  1299→        const tz = local.y - Math.cos(c.ringAngle) * ringR;
+  1300→        const sdx = tx - c.lx;
+  1301→        const sdz = tz - c.lz;
+  1302→        const sd = Math.hypot(sdx, sdz);
+  1303→        const spd = c.isCaptain ? 1.5 : 1.8;
+  1304→        if (sd > 0.08) {
+  1305→          c.lx += (sdx / sd) * spd * dt;
+  1306→          c.lz += (sdz / sd) * spd * dt;
+  1307→          c.moving = true;
+  1308→        } else {
+  1309→          // On post: hold ground (shuffling would look nervous)
+  1310→          c.moving = false;
+  1311→        }
+  1312→        // Keep aboard
+  1313→        const b = enemy.deckBounds;
+  1314→        c.lx = clamp(c.lx, b.minX + 0.2, b.maxX - 0.2);
+  1315→        c.lz = clamp(c.lz, b.minZ + 0.6, b.maxZ - 0.4);
+  1316→      } else {
+  1317→        c.moving = false;
+  1318→        // Attack cycle (Fase 9: needs the token when a mate is mid-swing)
+  1319→        const tokenFree = swinging === 0 || c.isCaptain;
+  1320→        if (c.attackT === 0) {
+  1321→          if (tokenFree) {
+  1322→            c.attackCd -= dt;
+  1323→            if (c.attackCd <= 0) {
+  1324→              c.attackT = 0.001;
+  1325→              c.attackCd = c.isCaptain ? 1.5 : 1.9;
+  1326→              swinging++;
+  1327→            }
+  1328→          }
+  1329→        } else {
+  1330→          c.attackT += dt / 0.55;
+  1331→          if (c.attackT >= 0.5 && c.attackT < 0.55) {
+  1332→            // Strike lands once mid-swing if still in range
+  1333→            if (dist < reach + 0.7) {
+  1334→              const lost = this.cb.playerDamage(c.isCaptain ? 15 : 9, 'pirate');
+  1335→              // Fase 9 — PARRIED: the perfect block staggers the attacker
+  1336→              // wide open (1.5 s) and knocks them back a full pace.
+  1337→              if (lost <= 0 && this.cb.wasParried()) {
+  1338→                c.hurtT = 1.5;
+  1339→                const klen = Math.hypot(dx, dz) || 1;
+  1340→                const b = enemy.deckBounds;
+  1341→                c.lx = clamp(c.lx - (dx / klen) * 1.3, b.minX + 0.2, b.maxX - 0.2);
+  1342→                c.lz = clamp(c.lz - (dz / klen) * 1.3, b.minZ + 0.6, b.maxZ - 0.4);
+  1343→              }
+  1344→            }
+  1345→            c.attackT = 0.56;
+  1346→          }
+  1347→          if (c.attackT >= 1) c.attackT = 0;
+  1348→        }
+  1349→      }
+  1350→
+  1351→      // Face the player
+  1352→      const face = Math.atan2(dx, dz);
+  1353→      c.yaw = dampAngle(c.yaw, face, 8, dt);
+  1354→
+  1355→      const world = enemy.toWorld(c.lx, enemy.deckHeightAt(c.lx, c.lz) ?? 1, c.lz);
+  1356→      c.group.position.set(world.x, world.y, world.z);
+  1357→      c.group.rotation.y = c.yaw;
+  1358→      c.updateAnim(dt);
+  1359→    }
+  1360→
+  1361→    if (allDead && !this.boarding.done) {
+  1362→      this.boarding.done = true;
+  1363→      this.boarding.endTimer = 1.6;
+  1364→    }
+  1365→    if (this.boarding.done) {
+  1366→      this.boarding.endTimer -= dt;
+  1367→      if (this.boarding.endTimer <= 0) {
+  1368→        this.finishBoardingSuccess();
+  1369→      }
+  1370→    }
+  1371→  }
+  1372→
+  1373→  // -------------------------------------------------------------- persist
+  1374→
+  1375→  serialize(): NavalSaveData {
+  1376→    return {
+  1377→      player: this.playerShip?.serialize() ?? null,
+  1378→      sailing: this.playerSailing,
+  1379→      enemies: this.enemies.map((b) => ({
+  1380→        ...b.ship.serialize(),
+  1381→        questBoarded: b.questBoarded ?? false,
+  1382→      })),
+  1383→    };
+  1384→  }
+  1385→
+  1386→  deserialize(data: NavalSaveData | undefined, shipLaunched: boolean): void {
+  1387→    if (shipLaunched && data?.player) {
+  1388→      const dock = this.dockSpawn;
+  1389→      const ship = this.spawnPlayerShip(data.player.x ?? dock.x, data.player.z ?? dock.z, data.player.heading ?? dock.heading);
+  1390→      ship.deserialize(data.player);
+  1391→      this.playerSailing = data.sailing && !ship.sunk;
+  1392→    }
+  1393→    this.enemies.forEach((brain, i) => {
+  1394→      const d = data?.enemies?.[i];
+  1395→      if (d) {
+  1396→        brain.ship.deserialize(d);
+  1397→        brain.questBoarded = d.questBoarded ?? false;
+  1398→        if (brain.ship.sunk && brain.respawnAt) {
+  1399→          // sunk raiders respawn on their next long cycle
+  1400→          brain.respawnTimer = 400;
+  1401→        }
+  1402→      }
+  1403→    });
+  1404→  }
+  1405→}
+  1406→
+  1407→/** Serializable naval state (mirrors the SaveData v2 layout). */
+  1408→export interface NavalSaveData {
+  1409→  player: {
+  1410→    x: number; z: number; heading: number; hullHp: number;
+  1411→    sailState: 0 | 1 | 2; anchored: boolean; sunk: boolean; sinking: number;
+  1412→  } | null;
+  1413→  sailing: boolean;
+  1414→  enemies: Array<{
+  1415→    x: number; z: number; heading: number; hullHp: number;
+  1416→    sailState: 0 | 1 | 2; anchored: boolean; sunk: boolean; sinking: number;
+  1417→    questBoarded?: boolean;
+  1418→  }>;
+  1419→}
+  1420→

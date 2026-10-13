@@ -7,6 +7,7 @@ import type { GameState } from './GameState';
 import type { VfxSystem } from './VfxSystem';
 import type { AssetSystem } from '../world/AssetSystem';
 import { gfxRuntime } from '../core/Graphics';
+import type { Input } from '../core/Input';
 
 /** Hooks the manager needs from the game (same pattern as NavalSystem). */
 export interface DragonManagerHooks {
@@ -32,7 +33,7 @@ export interface DragonManagerHooks {
 /** Encounter definitions — three bosses + two minor drakes. */
 export const DRAGON_DEFS: DragonDef[] = [
   {
-    id: 'vaelthara', name: 'Vaelthara', title: 'Guardiana de las Ruinas',
+    id: 'vaelthara', name: 'Vaelthara', title: 'Warden of the Ruins',
     boss: true, wyvern: false, canFly: true, startsAsleep: true,
     useGlbModel: true,
     colors: { body: 0x50634a, belly: 0xa89a6a, membrane: 0x7d8f6d, eye: 0xffc040, horn: 0xc9b17a },
@@ -47,7 +48,7 @@ export const DRAGON_DEFS: DragonDef[] = [
     lootGold: 80,
   },
   {
-    id: 'skarnvind', name: 'Skarnvind', title: 'Wyvern de las Brumas',
+    id: 'skarnvind', name: 'Skarnvind', title: 'Wyvern of the Mists',
     boss: true, wyvern: true, canFly: true,
     useGlbModel: true,
     colors: { body: 0x4a5560, belly: 0x9aa5b0, membrane: 0x5a6a7a, eye: 0x9fe8ff, horn: 0x2e3640 },
@@ -61,7 +62,7 @@ export const DRAGON_DEFS: DragonDef[] = [
     lootGold: 90,
   },
   {
-    id: 'ancestro', name: 'Vaelyx', title: 'Ancestro de Garrahielo',
+    id: 'ancestro', name: 'Vaelyx', title: 'Ancestor of the Iceclaw Peaks',
     boss: true, wyvern: false, canFly: true, startsAsleep: true,
     useGlbModel: true,
     colors: { body: 0x3d4a5e, belly: 0xb8c4d4, membrane: 0x6a7f9e, eye: 0x8fd8ff, horn: 0xdce8f4 },
@@ -78,7 +79,7 @@ export const DRAGON_DEFS: DragonDef[] = [
   {
     // Fase 4 — final boss: the repository's black dragon with its native
     // idle clip + procedural combat on the same skeleton.
-    id: 'kraivenn', name: 'Kraivenn', title: 'El Cuervo de Tres Cabezas',
+    id: 'kraivenn', name: 'Kraivenn', title: 'The Three-Headed Crow',
     boss: true, wyvern: true, canFly: true,
     useGlbModel: true,
     spawnFlag: 'kraivenn_awake',
@@ -94,7 +95,7 @@ export const DRAGON_DEFS: DragonDef[] = [
     lootGold: 400,
   },
   {
-    id: 'drake_stones', name: 'Drakeling de las Vigilias', boss: false,
+    id: 'drake_stones', name: 'Drakeling of the Vigils', boss: false,
     wyvern: false, canFly: false,
     useGlbModel: true,
     colors: { body: 0x6a4034, belly: 0xa8846a, membrane: 0x8a5a4a, eye: 0xffb050, horn: 0x3a2620 },
@@ -108,7 +109,7 @@ export const DRAGON_DEFS: DragonDef[] = [
     lootGold: 15,
   },
   {
-    id: 'drake_grotto', name: 'Drakeling de la Gruta', boss: false,
+    id: 'drake_grotto', name: 'Drakeling of the Grotto', boss: false,
     wyvern: true, canFly: true,
     useGlbModel: true,
     colors: { body: 0x3f5544, belly: 0x93a88a, membrane: 0x5d7a68, eye: 0xd0ffb0, horn: 0x2a352c },
@@ -143,6 +144,134 @@ export class DragonManager {
   }
   /** Skarnvind spawns only during the q8 hunt in the southern corridor. */
   seaEventState: 'unspawned' | 'active' | 'done' = 'unspawned';
+  /** Fase 15 — the dragon the hero rides right now (admin spawns only). */
+  ridingId: string | null = null;
+
+  get riddenDragon(): Dragon | null {
+    if (!this.ridingId) return null;
+    const d = this.dragons.find((x) => x.def.id === this.ridingId);
+    return d && d.ridden && d.alive ? d : null;
+  }
+
+  /** Fase 16 — read-only access to the live herd (quest markers + saves).
+   *  Includes admin spawns; the list is the internal array — treat as const. */
+  list(): readonly Dragon[] {
+    return this.dragons;
+  }
+
+  // ------------------------------------------------------ admin persistence
+
+  /**
+   * Fase 16 — the hero's own (admin-spawned) dragons, ready for the save
+   * file. They are creator-tool mounts like the Colibrí/horses and used to
+   * evaporate on every reload. Species is recovered from the generated id
+   * (`admin_{species}_{ts}`) so a fresh session can rebuild the exact breed.
+   */
+  serializeAdmins(): {
+    admins: Array<{ id?: string; species: string; x: number; y: number; z: number; yaw: number; flying: boolean; hp: number; name?: string }>;
+    riding: string | null;
+  } {
+    const admins: Array<{ id?: string; species: string; x: number; y: number; z: number; yaw: number; flying: boolean; hp: number; name?: string }> = [];
+    for (const d of this.dragons) {
+      if (!d.def.id.startsWith('admin_')) continue;
+      if (!d.alive) continue;
+      const m = /^admin_(.+)_(\d+)$/.exec(d.def.id);
+      const species = m ? m[1] : d.def.id;
+      admins.push({
+        id: d.def.id, // Fase 16 — stable across save→load→save round-trips
+        species,
+        x: Math.round(d.pos.x * 10) / 10,
+        y: Math.round(d.pos.y * 10) / 10,
+        z: Math.round(d.pos.z * 10) / 10,
+        yaw: Math.round(d.yaw * 100) / 100,
+        flying: d.flying,
+        hp: Math.round(d.hp),
+        name: d.def.name.replace(' (summoned)', ''),
+      });
+    }
+    return { admins, riding: this.ridingId };
+  }
+
+  /** Fase 16 — rebuild the saved admin dragons (docile, rideable) on load.
+   *  Riding itself is NOT auto-restored: loading never starts you mounted. */
+  restoreAdmins(
+    data: { admins?: Array<{ id?: string; species: string; x: number; y: number; z: number; yaw: number; flying: boolean; hp: number; name?: string }> } | undefined,
+  ): void {
+    if (!data?.admins) return;
+    // dismount first: a live ride would fight the rebuild
+    if (this.ridingId) this.dismountDragon();
+    for (const a of data.admins) {
+      const live = this.dragons.find(
+        (d) => d.def.id.startsWith('admin_') && Math.hypot(d.pos.x - a.x, d.pos.z - a.z) < 1.5,
+      );
+      if (live) continue; // same-session reload: keep the living twin
+      // restore with the SAVED id so a later save round-trips the same entity
+      const dragon = this.adminSpawn(a.species, a.x, a.z, a.id);
+      if (!dragon) continue;
+      dragon.flying = a.flying;
+      dragon.hp = Math.max(1, Math.min(a.hp, dragon.def.maxHp));
+      dragon.pos.set(a.x, a.y, a.z);
+      dragon.yaw = a.yaw;
+      // the saved spot wins over spawnAt's ground clamp
+      dragon.group.position.copy(dragon.pos);
+      dragon.group.rotation.y = a.yaw;
+    }
+  }
+
+  /** Fase 15 — nearest rideable (admin) dragon within reach of the player. */
+  nearestRideableDragon(playerPos: THREE.Vector3): Dragon | null {
+    let best: Dragon | null = null;
+    let bestD = Infinity;
+    for (const d of this.dragons) {
+      if (!d.rideable || d.ridden || !d.alive) continue;
+      const dist = Math.hypot(d.pos.x - playerPos.x, d.pos.z - playerPos.z);
+      const reach = d.bodyRadius + 5.5;
+      if (dist < reach && dist < bestD) {
+        best = d;
+        bestD = dist;
+      }
+    }
+    return best;
+  }
+
+  /** Fase 15 — saddle up: AI off, the hero holds the reins. */
+  mountDragon(d: Dragon): boolean {
+    if (!d.rideable || d.ridden || !d.alive || this.ridingId) return false;
+    this.ridingId = d.def.id;
+    d.enterRideMode();
+    return true;
+  }
+
+  /** Fase 15 — get off (the dragon calms down where it stands). */
+  dismountDragon(): Dragon | null {
+    const d = this.riddenDragon;
+    if (!d) return null;
+    d.exitRideMode();
+    this.ridingId = null;
+    return d;
+  }
+
+  /** Fase 15 — one frame of the ridden dragon: input → flight/walk/fire.
+   *  Runs INSTEAD of the AI update (the loop skips ridden dragons). */
+  rideUpdate(dt: number, input: Input, fireHeld: boolean, terrain: TerrainHeight): void {
+    const d = this.riddenDragon;
+    if (!d) return;
+    const fwd = (input.isDown('forward') ? 1 : 0) + (input.isDown('back') ? -1 : 0);
+    const turn = (input.isDown('left') ? 1 : 0) + (input.isDown('right') ? -1 : 0);
+    d.rideControl(
+      dt,
+      {
+        fwd,
+        turn,
+        up: input.isDown('jump'),
+        down: input.isDown('sprint'),
+        fire: fireHeld,
+      },
+      terrain,
+      this.dragonHooksFor(d),
+    );
+  }
+
   private hooks: DragonManagerHooks;
   private vfx: VfxSystem;
   private state: GameState;
@@ -241,13 +370,15 @@ export class DragonManager {
    * Fase 8 — admin panel: conjure a dragon of the chosen species right in
    * front of a point. These are EXTRA specimens (unique ids, not registered
    * in the quest tables): bosses keep their phases, drakes are minors.
+   * Fase 16 — `preferId` lets restoreAdmins() keep the SAVED id stable
+   * across sessions (save → load → save again must round-trip).
    */
-  adminSpawn(speciesId: string, x: number, z: number): Dragon | null {
+  adminSpawn(speciesId: string, x: number, z: number, preferId?: string): Dragon | null {
     const base = DRAGON_DEFS.find((d) => d.id === speciesId) ?? DRAGON_DEFS[3];
     const def: DragonDef = {
       ...base,
-      id: `admin_${speciesId}_${Date.now() % 100000}`,
-      name: `${base.name} (invocado)`,
+      id: preferId ?? `admin_${speciesId}_${Date.now() % 100000}`,
+      name: `${base.name} (summoned)`,
       home: { x, z },
       spawnFlag: undefined,
       deathFlag: `admin_kill_${Date.now()}`,
@@ -260,7 +391,10 @@ export class DragonManager {
       : undefined;
     const dragon = new Dragon(def, this.scene, (x * 31 + z * 7) | 0 || 99, loader);
     dragon.spawnAt(this.terrain, false);
-    dragon.aggro = true;
+    // Fase 15 — admin dragons arrive TAME and rideable (the panel is a
+    // creator tool: mount it, fly it, breathe fire — like your own mount).
+    dragon.rideable = true;
+    dragon.aggro = false;
     dragon.setStepHook(() => this.hooks.sound('thud'));
     this.dragons.push(dragon);
     this.byId.set(def.id, dragon);
@@ -275,8 +409,8 @@ export class DragonManager {
       if (def.introFlag && !this.state.hasFlag(def.introFlag)) {
         this.hooks.setFlag(def.introFlag);
       }
-      this.hooks.notify('quest', `${def.name.toUpperCase()} — ${def.title ?? 'Jefe'}`,
-        '¡Un jefe despierta! Bloquea con clic derecho, esquiva con C y golpea sus pausas.');
+      this.hooks.notify('quest', `${def.name.toUpperCase()} — ${def.title ?? 'Boss'}`,
+        'A boss awakens! Block with right click, dodge with C, and strike in its pauses.');
       this.hooks.music(1, true);
       this.hooks.cameraShake(0.7);
     } else {
@@ -296,10 +430,10 @@ export class DragonManager {
       this.hooks.giveXp(def.xp);
       this.hooks.notify(
         'quest',
-        def.boss ? `¡${def.name} ha caído!` : `${def.name} abatido`,
+        def.boss ? `${def.name} has fallen!` : `${def.name} slain`,
         def.boss
-          ? `Botín: ${(def.drops ?? []).map((x) => x.id).join(', ')} y ${def.lootGold} monedas. +${def.xp} XP`
-          : `Recoges escamas y flechas. +${def.xp} XP`,
+          ? `Loot: ${(def.drops ?? []).map((x) => x.id).join(', ')} and ${def.lootGold} coins. +${def.xp} XP`
+          : `You gather scales and arrows. +${def.xp} XP`,
       );
     }
     // Fase 9 — the victory cinematic plays for real bosses (not drakes,
@@ -388,10 +522,10 @@ export class DragonManager {
   }
 
   private onPhaseInternal(d: Dragon, phase: number): void {
-    this.hooks.notify('quest', `${d.def.name} — Fase ${phase}`,
+    this.hooks.notify('quest', `${d.def.name} — Phase ${phase}`,
       phase === 2
-        ? '¡La bestia cambia de táctica! Aprovecha sus pausas.'
-        : '¡El dragón entra en furia! Ataca más rápido y más fuerte.');
+        ? 'The beast changes tactics! Exploit its pauses.'
+        : 'The dragon flies into a fury! It strikes faster and harder.');
     this.hooks.cameraShake(0.5);
   }
 
@@ -487,6 +621,8 @@ export class DragonManager {
 
     // --- Per-dragon LOD updates ---
     for (const d of this.dragons) {
+      // Fase 15 — the ridden dragon is driven by rideUpdate() (Game layer)
+      if (d.ridden) continue;
       const dist = d.pos.distanceTo(playerPos);
       const isSeaTarget = d.def.id === 'skarnvind';
       const targetPos = isSeaTarget
@@ -585,8 +721,8 @@ export class DragonManager {
     if (def.introFlag && !this.state.hasFlag(def.introFlag)) {
       this.state.setFlag(def.introFlag);
     }
-    this.hooks.notify('quest', 'SKARNVIND — WYVERN DE LAS BRUMAS',
-      '¡Una vela con garras desciende sobre el Colibrí! Apunta las bordadas cuando se pare frente a la proa.');
+    this.hooks.notify('quest', 'SKARNVIND — WYVERN OF THE MISTS',
+      'A sail with claws descends upon the Sea Hummingbird! Aim your broadsides when it hovers off the bow.');
     this.hooks.music(1, true);
     this.hooks.sound('roar_big');
   }

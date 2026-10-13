@@ -1,0 +1,726 @@
+     1→import * as THREE from 'three';
+     2→import { StaticBuilder, MAT } from '../structures/Materials';
+     3→import { damp, dampAngle, clamp } from '../core/MathUtils';
+     4→import type { TerrainHeight } from '../world/TerrainHeight';
+     5→import type { WaterSystem } from '../world/WaterSystem';
+     6→import { ColliderRegistry } from '../systems/ColliderRegistry';
+     7→
+     8→export type ShipKind = 'caravel' | 'pirate';
+     9→/** 0 furled · 1 half · 2 full sail. */
+    10→export type SailState = 0 | 1 | 2;
+    11→
+    12→export interface ShipPerks {
+    13→  speedMult?: number;
+    14→  windEase?: number;
+    15→  cannonCdMult?: number;
+    16→}
+    17→
+    18→/** One broadside cannon battery descriptor. */
+    19→export interface CannonShot {
+    20→  from: THREE.Vector3;
+    21→  dir: THREE.Vector3;
+    22→  side: 'port' | 'starboard';
+    23→}
+    24→
+    25→const DECK_Y = 1.0;
+    26→const QUARTER_Y = 2.16;
+    27→
+    28→/**
+    29→ * A fully simulated sailing ship: procedural hull, animated sails, wheel,
+    30→ * rudder and cannons; Gerstner buoyancy shared with the ocean shader;
+    31→ * wind-based speed model, hull damage, smoke and sinking.
+    32→ */
+    33→export class Ship {
+    34→  readonly group = new THREE.Group();       // world transform (position = waterline center)
+    35→  readonly hull = new THREE.Group();        // pitch/roll applied here
+    36→  readonly id: string;
+    37→  readonly kind: ShipKind;
+    38→  readonly name: string;
+    39→  readonly isPlayer: boolean;
+    40→
+    41→  /** XZ position; Y is computed from buoyancy. */
+    42→  readonly pos = new THREE.Vector3();
+    43→  heading = 0;
+    44→  speed = 0;
+    45→  sailState: SailState = 0;
+    46→  rudder = 0;              // smoothed -1..1
+    47→  rudderInput = 0;         // raw input -1..1
+    48→  anchored = false;
+    49→  frozen = false;          // grappled/anchored: buoyancy frozen (walkable deck)
+    50→  hullHp: number;
+    51→  readonly maxHullHp: number;
+    52→  sinking = 0;             // 0 = afloat; grows to 1
+    53→  sunk = false;
+    54→  removable = false;       // fully sunk & faded → parent may recycle
+    55→  grappled = false;
+    56→
+    57→  /** Cannon cooldowns (seconds remaining). */
+    58→  cdPort = 0;
+    59→  cdStar = 0;
+    60→  readonly cannonCd: number;
+    61→
+    62→  perks: ShipPerks = {};
+    63→
+    64→  // Visual handles
+    65→  private sailMain!: THREE.Mesh;
+    66→  private sailFore!: THREE.Mesh;
+    67→  private flag!: THREE.Mesh;
+    68→  private wheel!: THREE.Group;
+    69→  private smoke: THREE.Sprite[] = [];
+    70→  private smokeTimer = 0;
+    71→  private sternFoam!: THREE.Mesh;
+    72→  private t = 0;
+    73→  /** Static procedural body (hidden once a GLB hull is attached). */
+    74→  private bodyG = new THREE.Group();
+    75→  /** Fase 7 — the repository's pirate_ship.glb hull, when available. */
+    76→  private glbHull: THREE.Group | null = null;
+    77→
+    78→  /** Local (deck space) muzzle offsets — [port, starboard] × 3 guns. */
+    79→  private muzzles: Array<{ x: number; y: number; z: number }> = [];
+    80→
+    81→  onCreak?: (pos: THREE.Vector3) => void;
+    82→
+    83→  constructor(opts: {
+    84→    id: string;
+    85→    name: string;
+    86→    kind: ShipKind;
+    87→    isPlayer: boolean;
+    88→    x: number; z: number;
+    89→    heading?: number;
+    90→    hullHp?: number;
+    91→    cannonCd?: number;
+    92→  }) {
+    93→    this.id = opts.id;
+    94→    this.name = opts.name;
+    95→    this.kind = opts.kind;
+    96→    this.isPlayer = opts.isPlayer;
+    97→    this.hullHp = opts.hullHp ?? (opts.kind === 'caravel' ? 140 : 110);
+    98→    this.maxHullHp = this.hullHp;
+    99→    this.cannonCd = opts.cannonCd ?? 5.2;
+   100→    this.pos.set(opts.x, 0, opts.z);
+   101→    this.heading = opts.heading ?? 0;
+   102→    this.hull.add(this.bodyG);
+   103→    this.buildModel();
+   104→    this.group.add(this.hull);
+   105→    this.syncTransform();
+   106→  }
+   107→
+   108→  // ------------------------------------------------------------- model
+   109→
+   110→  private buildModel(): void {
+   111→    const pirate = this.kind === 'pirate';
+   112→    const b = new StaticBuilder(new ColliderRegistry(), `${this.id}_visual`);
+   113→    const hullKey = pirate ? 'woodPirate' : 'woodShip';
+   114→    const sailKey = pirate ? 'sailDark' : 'sail';
+   115→    const L = 16;
+   116→    const W = 4.3;
+   117→
+   118→    // --- Hull sections (curved profile, bow at +Z) ---
+   119→    const sections = 11;
+   120→    for (let i = 0; i < sections; i++) {
+   121→      const t = i / (sections - 1); // 0 stern … 1 bow
+   122→      const along = (t - 0.5) * L;
+   123→      const widthProf = Math.sin(Math.PI * Math.min(1, 0.14 + t * 0.74)) * 0.74 + 0.26;
+   124→      const w = W * widthProf;
+   125→      const rocker = Math.pow(Math.abs(t - 0.42) * 2, 2.1) * 1.35;
+   126→      const hullH = 2.1;
+   127→      const py = DECK_Y - 1.05 + rocker * 0.55;
+   128→      b.add(new THREE.BoxGeometry(w * 0.96, hullH * 0.5, L / sections + 0.06), hullKey, 0, py - hullH * 0.25, along);
+   129→      for (const side of [-1, 1]) {
+   130→        b.add(new THREE.BoxGeometry(0.17, hullH, L / sections + 0.05), hullKey, side * (w / 2), py, along);
+   131→        b.add(new THREE.BoxGeometry(0.15, hullH * 0.52, L / sections + 0.04), 'wood',
+   132→          side * (w / 2 + 0.1), py + hullH * 0.62, along, 0, 1, 1, 1, 0, side * 0.1);
+   133→        // Gold/dark trim wale
+   134→        b.add(new THREE.BoxGeometry(0.1, 0.14, L / sections + 0.05), pirate ? 'metal' : 'gold',
+   135→          side * (w / 2 + 0.16), py + hullH * 0.1, along);
+   136→      }
+   137→    }
+   138→
+   139→    // --- Deck platforms (main, quarter, bow) ---
+   140→    b.add(new THREE.BoxGeometry(W * 0.88, 0.14, 10.6), 'woodLight', 0, DECK_Y - 0.02, 0.6);
+   141→    b.add(new THREE.BoxGeometry(W * 0.8, 1.2, 3.6), hullKey, 0, QUARTER_Y - 0.6, -L / 2 + 2.0);
+   142→    b.add(new THREE.BoxGeometry(W * 0.9, 0.14, 3.9), 'woodLight', 0, QUARTER_Y, -L / 2 + 2.0);
+   143→    b.add(new THREE.BoxGeometry(W * 0.62, 0.14, 3.0), 'woodLight', 0, DECK_Y - 0.02, L / 2 - 1.9);
+   144→    // Rear gallery windows (stern)
+   145→    b.add(new THREE.BoxGeometry(W * 0.7, 0.5, 0.12), 'glow', 0, QUARTER_Y - 0.2, -L / 2 - 0.02);
+   146→    // Hatch + crates on deck
+   147→    b.box('woodDark', 1.1, 0.32, 1.5, 0, DECK_Y + 0.2, 0.6);
+   148→    b.box('woodDark', 0.8, 0.7, 0.8, 1.2, DECK_Y + 0.42, -1.6, 0.3);
+   149→    if (pirate) {
+   150→      b.box('woodDark', 0.8, 0.7, 0.8, -1.2, DECK_Y + 0.42, -0.4, 1.1);
+   151→      // Grapple rope coil
+   152→      b.add(new THREE.TorusGeometry(0.3, 0.06, 6, 12), 'roofThatch', 0.9, DECK_Y + 0.1, 2.4, 0, 1, 1, 1, Math.PI / 2);
+   153→    }
+   154→
+   155→    // --- Railings ---
+   156→    for (const side of [-1, 1]) {
+   157→      b.add(new THREE.BoxGeometry(0.09, 0.09, 10.2), 'wood', side * (W / 2 - 0.15), DECK_Y + 0.72, 0.6);
+   158→      for (let i = 0; i < 11; i++) {
+   159→        const z = -4.6 + i * 0.95;
+   160→        b.cylinder('woodDark', 0.045, 0.045, 0.66, 5, side * (W / 2 - 0.15), DECK_Y + 0.36, z);
+   161→      }
+   162→      b.add(new THREE.BoxGeometry(0.09, 0.09, 3.4), 'wood', side * (W * 0.36), QUARTER_Y + 0.72, -L / 2 + 2.0);
+   163→    }
+   164→
+   165→    // --- Bowsprit ---
+   166→    b.add(new THREE.CylinderGeometry(0.08, 0.13, 5.2, 7), 'wood',
+   167→      0, DECK_Y + 1.45, L / 2 + 1.4, 0, 1, 1, 1, 0, Math.PI / 2 + 0.12);
+   168→
+   169→    // --- Masts (main + fore) + yards ---
+   170→    const mainZ = -0.8, foreZ = 4.6;
+   171→    for (const [mz, mh, mr] of [[mainZ, 15.5, 0.19], [foreZ, 12.0, 0.15]] as Array<[number, number, number]>) {
+   172→      b.cylinder('wood', mr, mr + 0.07, mh, 8, 0, DECK_Y - 0.4 + mh / 2, mz);
+   173→      b.add(new THREE.BoxGeometry(8.2, 0.13, 0.13), 'woodDark', 0, DECK_Y + mh - 3.4, mz);
+   174→      // Shrouds
+   175→      for (const side of [-1, 1]) {
+   176→        b.add(new THREE.BoxGeometry(0.05, mh - 2.4, 0.05), 'woodDark',
+   177→          side * 1.9, DECK_Y + (mh - 2.4) / 2, mz - 0.4, 0, 1, 1, 1, side * 0.1);
+   178→      }
+   179→    }
+   180→    // Crow nest
+   181→    b.cylinder('woodDark', 0.55, 0.55, 0.5, 8, 0, DECK_Y + 9.6, mainZ);
+   182→
+   183→    // --- Wheel + rudder ---
+   184→    const wheelG = new THREE.Group();
+   185→    const wheelMat = MAT.wood;
+   186→    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.05, 6, 16), wheelMat);
+   187→    wheelG.add(ring);
+   188→    for (let i = 0; i < 4; i++) {
+   189→      const spoke = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.86, 5), wheelMat);
+   190→      spoke.rotation.z = (i / 4) * Math.PI;
+   191→      wheelG.add(spoke);
+   192→    }
+   193→    wheelG.position.set(0, QUARTER_Y + 0.55, -L / 2 + 2.6);
+   194→    wheelG.rotation.x = Math.PI / 2 - 0.35;
+   195→    this.wheel = wheelG;
+   196→    this.hull.add(wheelG);
+   197→    // Rudder below stern
+   198→    b.add(new THREE.BoxGeometry(0.14, 2.2, 0.9), 'woodDark', 0, DECK_Y - 1.4, -L / 2 - 0.3);
+   199→
+   200→    // --- Cannons: 3 per side (port +X, starboard -X) ---
+   201→    const cannonMat = MAT.metal;
+   202→    for (const side of [1, -1]) {
+   203→      for (const z of [-3.0, -0.6, 1.8]) {
+   204→        const c = new THREE.Group();
+   205→        const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.13, 1.15, 8), cannonMat);
+   206→        barrel.rotation.z = Math.PI / 2;
+   207→        barrel.position.x = side * 0.35;
+   208→        c.add(barrel);
+   209→        const mount = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.24, 0.34), MAT.woodDark);
+   210→        c.add(mount);
+   211→        c.position.set(side * (W / 2 - 0.45), DECK_Y + 0.32, z);
+   212→        c.rotation.y = side * Math.PI / 2;
+   213→        this.hull.add(c);
+   214→        this.muzzles.push({ x: side * (W / 2 + 0.35), y: DECK_Y + 0.32, z });
+   215→      }
+   216→    }
+   217→
+   218→    // --- Lanterns (stern + bow) ---
+   219→    const lantern = (x: number, y: number, z: number) => {
+   220→      b.cylinder('metal', 0.14, 0.18, 0.36, 6, x, y, z);
+   221→      b.add(new THREE.BoxGeometry(0.2, 0.26, 0.2), 'glow', x, y, z);
+   222→    };
+   223→    lantern(0, QUARTER_Y + 0.95, -L / 2 - 0.2);
+   224→    lantern(0, DECK_Y + 0.5, L / 2 - 0.1);
+   225→
+   226→    // Merge static hull parts (into the hideable procedural body group)
+   227→    b.build(this.bodyG, { shadows: true });
+   228→
+   229→    // --- Animated sails (separate meshes) ---
+   230→    const mkSail = (y: number, z: number, w: number, h: number) => {
+   231→      const geo = new THREE.PlaneGeometry(w, h, 6, 4);
+   232→      // slight belly curve
+   233→      const pos = geo.attributes.position as THREE.BufferAttribute;
+   234→      for (let i = 0; i < pos.count; i++) {
+   235→        const u = (pos.getX(i) / w) * 2;
+   236→        pos.setZ(i, (1 - u * u) * w * 0.09);
+   237→      }
+   238→      geo.computeVertexNormals();
+   239→      const mesh = new THREE.Mesh(geo, MAT[sailKey]);
+   240→      mesh.position.set(0, y, z);
+   241→      mesh.rotation.y = Math.PI / 2; // face fore-aft
+   242→      this.hull.add(mesh);
+   243→      return mesh;
+   244→    };
+   245→    this.sailMain = mkSail(DECK_Y + 10.4, mainZ, 7.6, 5.4);
+   246→    this.sailFore = mkSail(DECK_Y + 7.3, foreZ, 5.0, 4.2);
+   247→
+   248→    // --- Flag at main mast top ---
+   249→    const flagGeo = new THREE.PlaneGeometry(1.5, 0.7, 4, 1);
+   250→    this.flag = new THREE.Mesh(flagGeo, pirate ? MAT.clothRaven : MAT.clothGold);
+   251→    this.flag.position.set(0.76, DECK_Y + 14.6, mainZ - 0.3);
+   252→    this.flag.castShadow = false;
+   253→    this.hull.add(this.flag);
+   254→
+   255→    // --- Damage smoke sprites (pooled, hidden until hull low) ---
+   256→    const smokeCanvas = document.createElement('canvas');
+   257→    smokeCanvas.width = smokeCanvas.height = 64;
+   258→    const sctx = smokeCanvas.getContext('2d')!;
+   259→    const sgrad = sctx.createRadialGradient(32, 32, 2, 32, 32, 30);
+   260→    sgrad.addColorStop(0, 'rgba(60,58,56,0.85)');
+   261→    sgrad.addColorStop(1, 'rgba(60,58,56,0)');
+   262→    sctx.fillStyle = sgrad;
+   263→    sctx.fillRect(0, 0, 64, 64);
+   264→    const smokeTex = new THREE.CanvasTexture(smokeCanvas);
+   265→    for (let i = 0; i < 3; i++) {
+   266→      const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+   267→        map: smokeTex, transparent: true, depthWrite: false, opacity: 0,
+   268→      }));
+   269→      sp.scale.set(2.4, 2.4, 1);
+   270→      sp.position.set((i - 1) * 0.9, DECK_Y + 2.4, -1 - i * 1.4);
+   271→      this.hull.add(sp);
+   272→      this.smoke.push(sp);
+   273→    }
+   274→
+   275→    // --- Stern wake foam strip ---
+   276→    const foamGeo = new THREE.PlaneGeometry(W * 0.9, 1);
+   277→    foamGeo.rotateX(-Math.PI / 2);
+   278→    this.sternFoam = new THREE.Mesh(foamGeo, new THREE.MeshBasicMaterial({
+   279→      color: 0xe8f2ee, transparent: true, opacity: 0, depthWrite: false,
+   280→    }));
+   281→    this.sternFoam.position.set(0, 0.12, -L / 2 - 1.6);
+   282→    this.hull.add(this.sternFoam);
+   283→  }
+   284→
+   285→  // ------------------------------------------------------------ helpers
+   286→
+   287→  /**
+   288→   * Fase 7 — wear the repository's pirate_ship.glb as the ship's body.
+   289→   * The model is normalised to the gameplay hull (≈16 m, local +Z = bow,
+   290→   * deck plane at DECK_Y) and the procedural body/sails/flag are retired.
+   291→   * Cannons, wheel, smoke and wake foam stay (gameplay-anchored visuals).
+   292→   */
+   293→  attachGlb(model: THREE.Object3D, opts: { sailTint?: number; hullTint?: number } = {}): void {
+   294→    if (this.glbHull) return; // already dressed
+   295→
+   296→    // 1. Strip lights/cameras baked into the Sketchfab export
+   297→    const junk: THREE.Object3D[] = [];
+   298→    model.traverse((o) => {
+   299→      const any = o as unknown as { isLight?: boolean; isCamera?: boolean };
+   300→      if (any.isLight || any.isCamera) junk.push(o);
+   301→    });
+   302→    for (const j of junk) j.parent?.remove(j);
+   303→
+   304→    // 2. Per-ship material clones when a tint is requested (the AssetSystem
+   305→    //    shares materials between every instance of the model)
+   306→    if (opts.sailTint !== undefined || opts.hullTint !== undefined) {
+   307→      model.traverse((o) => {
+   308→        const mesh = o as THREE.Mesh;
+   309→        if (!mesh.isMesh) return;
+   310→        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+   311→        const clones = mats.map((m) => (m as THREE.Material).clone());
+   312→        for (const c of clones) {
+   313→          const std = c as THREE.MeshStandardMaterial;
+   314→          if (!std.isMeshStandardMaterial) continue;
+   315→          const name = (std.name ?? '').toLowerCase();
+   316→          if (opts.sailTint !== undefined && (name.includes('sail') || name.includes('material_0'))) {
+   317→            std.color.setHex(opts.sailTint);
+   318→          } else if (opts.hullTint !== undefined && (name.includes('mat.1') || name.includes('main'))) {
+   319→            std.color.lerp(new THREE.Color(opts.hullTint), 0.5);
+   320→          }
+   321→        }
+   322→        mesh.material = clones.length === 1 ? clones[0] : clones;
+   323→      });
+   324→    }
+   325→
+   326→    // 3. Normalise: fit the longest horizontal axis to ~17 m (the hull spans
+   327→    //    ≈16 m + bowsprit), flip so the GLB bow (-Z, verified from the
+   328→    //    bowsprit/jib geometry) matches the ship convention (+Z = bow).
+   329→    model.updateWorldMatrix(true, true);
+   330→    const rawBox = new THREE.Box3().setFromObject(model);
+   331→    const rawSize = rawBox.getSize(new THREE.Vector3());
+   332→    const s = 17.2 / Math.max(1e-6, Math.max(rawSize.x, rawSize.z));
+   333→
+   334→    const wrap = new THREE.Group();
+   335→    wrap.name = 'glb_hull';
+   336→    wrap.add(model);
+   337→    model.rotation.y = Math.PI; // bow to +Z
+   338→    model.scale.multiplyScalar(s);
+   339→
+   340→    // 4. Align: centre on X/Z and put the export's DESIGNED WATERLINE at the
+   341→    //    buoyancy surface (y ≈ 0). Measured offline (Fase 9, world-space
+   342→    //    vertex probe): the deck plane — where Mat.6/Mat.7 furniture sits —
+   343→    //    lands at raw Y ≈ 128 and the keel at −649. The old −60 waterline
+   344→    //    left only 0.68 m of freeboard: the ships rode badly sunken.
+   345→    //    −149 restores a seamanlike 1.1 m freeboard / 1.83 m draft.
+   346→    wrap.updateWorldMatrix(true, true);
+   347→    const box = new THREE.Box3().setFromObject(model);
+   348→    const center = box.getCenter(new THREE.Vector3());
+   349→    model.position.set(0, 0, 0);
+   350→    const WATERLINE_RAW = -149; // deck furniture raw 128 − 1.0 m / s
+   351→    wrap.position.set(-center.x, -WATERLINE_RAW * s, -center.z);
+   352→
+   353→    // 5. Retire the procedural body & sails — keep cannons, wheel, smoke, foam
+   354→    this.bodyG.visible = false;
+   355→    this.sailMain.visible = false;
+   356→    this.sailFore.visible = false;
+   357→    this.flag.visible = false;
+   358→    this.hull.add(wrap);
+   359→    this.glbHull = wrap;
+   360→  }
+   361→
+   362→  get usesGlbHull(): boolean {
+   363→    return this.glbHull !== null;
+   364→  }
+   365→
+   366→  get length(): number {
+   367→    return 16;
+   368→  }
+   369→
+   370→  /** Ship-local ↔ world transforms. Local +Z = bow. */
+   371→  toWorld(lx: number, ly: number, lz: number, out = new THREE.Vector3()): THREE.Vector3 {
+   372→    const s = Math.sin(this.heading);
+   373→    const c = Math.cos(this.heading);
+   374→    return out.set(
+   375→      this.pos.x + lx * c + lz * s,
+   376→      ly + this.group.position.y,
+   377→      this.pos.z - lx * s + lz * c,
+   378→    );
+   379→  }
+   380→
+   381→  toLocal(wx: number, wz: number, out = new THREE.Vector2()): THREE.Vector2 {
+   382→    const dx = wx - this.pos.x;
+   383→    const dz = wz - this.pos.z;
+   384→    const s = Math.sin(this.heading);
+   385→    const c = Math.cos(this.heading);
+   386→    return out.set(dx * c - dz * s, dx * s + dz * c);
+   387→  }
+   388→
+   389→  /** Deck platform height at ship-local coords, or null when off-deck. */
+   390→  deckHeightAt(lx: number, lz: number): number | null {
+   391→    if (Math.abs(lx) > 1.62) return null;
+   392→    if (lz >= -4.7 && lz <= 5.9) return DECK_Y + this.group.position.y;       // main + bow deck
+   393→    if (lz >= -7.9 && lz <= -4.3 && Math.abs(lx) < 1.5) return QUARTER_Y + this.group.position.y; // quarterdeck
+   394→    return null;
+   395→  }
+   396→
+   397→  /** Deck bounds for keeping crew aboard. */
+   398→  get deckBounds(): { minX: number; maxX: number; minZ: number; maxZ: number } {
+   399→    return { minX: -1.55, maxX: 1.55, minZ: -7.8, maxZ: 5.7 };
+   400→  }
+   401→
+   402→  get wheelWorld(): THREE.Vector3 {
+   403→    return this.toWorld(0, QUARTER_Y + 0.15, -5.2);
+   404→  }
+   405→
+   406→  get crippled(): boolean {
+   407→    return this.hullHp < this.maxHullHp * 0.35 && !this.sunk;
+   408→  }
+   409→
+   410→  // ------------------------------------------------------------- physics
+   411→
+   412→  /** Wind factor 0.12..1 by angle between heading and wind blowing direction. */
+   413→  windFactor(windDir: number): number {
+   414→    const cosA = Math.sin(this.heading) * Math.sin(windDir) + Math.cos(this.heading) * Math.cos(windDir);
+   415→    const ease = this.perks.windEase ?? 1; // nav_viento raises ease → adverse wind hurts less
+   416→    const base = 0.16 + 0.84 * Math.pow(cosA * 0.5 + 0.5, Math.max(0.6, 1.45 / ease));
+   417→    return clamp(base, 0.12, 1);
+   418→  }
+   419→
+   420→  get maxSpeed(): number {
+   421→    return (this.kind === 'caravel' ? 8.6 : 7.4) * (this.perks.speedMult ?? 1) * (this.crippled ? 0.55 : 1);
+   422→  }
+   423→
+   424→  update(
+   425→    dt: number,
+   426→    water: WaterSystem,
+   427→    terrain: TerrainHeight,
+   428→    windDir: number,
+   429→  ): void {
+   430→    this.t += dt;
+   431→
+   432→    if (this.sunk) {
+   433→      this.removable = true;
+   434→      return;
+   435→    }
+   436→
+   437→    // --- Sinking animation ---
+   438→    if (this.sinking > 0) {
+   439→      this.sinking = Math.min(1, this.sinking + dt / 14);
+   440→      this.group.position.y -= dt * (0.35 + this.sinking * 0.8);
+   441→      this.hull.rotation.z += dt * 0.06;
+   442→      this.hull.rotation.x -= dt * 0.03;
+   443→      this.speed = damp(this.speed, 0, 1.2, dt);
+   444→      if (this.sinking >= 1) {
+   445→        this.sunk = true;
+   446→        this.group.visible = false;
+   447→      }
+   448→      this.syncTransform();
+   449→      return;
+   450→    }
+   451→
+   452→    // --- Grounding: caravels need ~1.8 m of water ---
+   453→    const depth = terrain.height(this.pos.x, this.pos.z);
+   454→    if (depth > -1.7 && this.speed > 0.1) {
+   455→      this.speed = 0;
+   456→    }
+   457→
+   458→    // --- Sails & wind ---
+   459→    const wf = this.windFactor(windDir);
+   460→    const sailK = this.sailState / 2;
+   461→    const target = this.anchored || this.grappled ? 0 : sailK * this.maxSpeed * wf;
+   462→    const accel = target > this.speed ? 0.32 : 0.8;
+   463→    this.speed = damp(this.speed, target, accel, dt);
+   464→
+   465→    // --- Rudder & heading ---
+   466→    this.rudder = damp(this.rudder, this.rudderInput, 3.2, dt);
+   467→    if (!this.frozen && Math.abs(this.speed) > 0.15) {
+   468→      const turnRate = 0.62 * (0.35 + 0.65 * Math.abs(this.speed) / this.maxSpeed);
+   469→      this.heading += this.rudder * turnRate * dt;
+   470→    }
+   471→
+   472→    // --- Integrate ---
+   473→    if (!this.frozen) {
+   474→      this.pos.x += Math.sin(this.heading) * this.speed * dt;
+   475→      this.pos.z += Math.cos(this.heading) * this.speed * dt;
+   476→      this.pos.x = clamp(this.pos.x, -1010, 1010);
+   477→      this.pos.z = clamp(this.pos.z, -1010, 1010);
+   478→    }
+   479→
+   480→    // --- Buoyancy (4-point sampling of the same Gerstner waves as the shader) ---
+   481→    if (!this.frozen) {
+   482→      const pBow = this.toWorld(0, 0, 6.4);
+   483→      const pStern = this.toWorld(0, 0, -6.4);
+   484→      const pPort = this.toWorld(1.9, 0, 0);
+   485→      const pStar = this.toWorld(-1.9, 0, 0);
+   486→      const hBow = water.waveHeightAt(pBow.x, pBow.z);
+   487→      const hStern = water.waveHeightAt(pStern.x, pStern.z);
+   488→      const hPort = water.waveHeightAt(pPort.x, pPort.z);
+   489→      const hStar = water.waveHeightAt(pStar.x, pStar.z);
+   490→      const avg = (hBow + hStern + hPort + hStar) / 4;
+   491→      // Fase 9 — rides a touch high: +0.2 m keeps the scuppers clear of the
+   492→      // swell crests (the sunken-ship look was mostly water burying the deck)
+   493→      this.group.position.y = damp(this.group.position.y, avg + 0.2, 5, dt);
+   494→      const targetPitch = Math.atan2(hStern - hBow, 12.8);
+   495→      const targetRoll = Math.atan2(hPort - hStar, 3.8) + this.rudder * clamp(this.speed / this.maxSpeed, 0, 1) * 0.09;
+   496→      this.hull.rotation.x = dampAngle(this.hull.rotation.x, targetPitch, 4, dt);
+   497→      this.hull.rotation.z = dampAngle(this.hull.rotation.z, targetRoll, 4, dt);
+   498→    }
+   499→
+   500→    this.syncTransform();
+   501→
+   502→    // --- Sails visual state ---
+   503→    const sailScale = [0.1, 0.62, 1.0][this.sailState];
+   504→    const billow = 1 + (this.speed / Math.max(1, this.maxSpeed)) * 0.18 + Math.sin(this.t * 1.7) * 0.03;
+   505→    this.sailMain.scale.set(sailScale * billow, sailScale, 1);
+   506→    this.sailFore.scale.set(sailScale * billow, sailScale, 1);
+   507→    // Sails trim slightly toward the wind
+   508→    const relWind = Math.atan2(Math.sin(windDir - this.heading), Math.cos(windDir - this.heading));
+   509→    this.sailMain.rotation.x = clamp(relWind * 0.1, -0.2, 0.2);
+   510→    this.sailFore.rotation.x = clamp(relWind * 0.12, -0.25, 0.25);
+   511→
+   512→    // --- Flag flutter ---
+   513→    this.flag.rotation.y = Math.sin(this.t * 6) * 0.22 + relWind * 0.4;
+   514→    this.flag.scale.x = 0.7 + Math.abs(Math.sin(this.t * 2.3)) * 0.3;
+   515→
+   516→    // --- Wheel spins with the rudder ---
+   517→    this.wheel.rotation.z = this.rudder * 1.9;
+   518→
+   519→    // --- Damage smoke when crippled ---
+   520→    if (this.crippled) {
+   521→      this.smokeTimer += dt;
+   522→      for (let i = 0; i < this.smoke.length; i++) {
+   523→        const sp = this.smoke[i];
+   524→        const k = 1 - (this.smokeTimer * 0.4 + i * 0.33) % 1;
+   525→        sp.material.opacity = k * 0.5;
+   526→        sp.position.y = DECK_Y + 2.2 + (1 - k) * 2.6;
+   527→        sp.scale.setScalar(1.8 + (1 - k) * 2.2);
+   528→      }
+   529→    } else {
+   530→      for (const sp of this.smoke) sp.material.opacity = 0;
+   531→    }
+   532→
+   533→    // --- Wake foam ---
+   534→    const spd = Math.abs(this.speed);
+   535→    (this.sternFoam.material as THREE.MeshBasicMaterial).opacity = clamp(spd / 3, 0, 0.55);
+   536→    this.sternFoam.scale.set(1 + spd * 0.12, 1, 2.4 + spd * 0.9);
+   537→    if (spd > 0.2) {
+   538→      this.sternFoam.position.z = -this.length / 2 - 1.4 - spd * 0.25;
+   539→    }
+   540→
+   541→    // --- Hull creaks while underway (audio callback, throttled) ---
+   542→    if (spd > 2.5 && Math.random() < dt * 0.12) {
+   543→      this.onCreak?.(this.group.position);
+   544→    }
+   545→
+   546→    // --- Cannon cooldowns ---
+   547→    if (this.cdPort > 0) this.cdPort -= dt / (this.perks.cannonCdMult ?? 1);
+   548→    if (this.cdStar > 0) this.cdStar -= dt / (this.perks.cannonCdMult ?? 1);
+   549→  }
+   550→
+   551→  private syncTransform(): void {
+   552→    this.group.position.x = this.pos.x;
+   553→    this.group.position.z = this.pos.z;
+   554→    this.group.rotation.y = this.heading;
+   555→  }
+   556→
+   557→  /** Broadside spawn descriptors for one side (null if on cooldown). */
+   558→  fire(side: 'port' | 'starboard'): CannonShot[] | null {
+   559→    if (side === 'port' ? this.cdPort > 0 : this.cdStar > 0) return null;
+   560→    if (side === 'port') this.cdPort = this.cannonCd;
+   561→    else this.cdStar = this.cannonCd;
+   562→    const dirSign = side === 'port' ? 1 : -1;
+   563→    const out: CannonShot[] = [];
+   564→    for (const m of this.muzzles.filter((mm) => (side === 'port' ? mm.x > 0 : mm.x < 0))) {
+   565→      const from = this.toWorld(m.x, m.y, m.z);
+   566→      // Broadside direction: perpendicular to heading, plus slight forward bias
+   567→      const dx = Math.cos(this.heading) * dirSign + Math.sin(this.heading) * 0.18;
+   568→      const dz = -Math.sin(this.heading) * dirSign + Math.cos(this.heading) * 0.18;
+   569→      out.push({ from, dir: new THREE.Vector3(dx, 0.16, dz).normalize(), side });
+   570→    }
+   571→    return out;
+   572→  }
+   573→
+   574→  /** Muzzle world position for flash placement. */
+   575→  muzzleFlashPos(side: 'port' | 'starboard', index: number): THREE.Vector3 {
+   576→    const arr = this.muzzles.filter((mm) => (side === 'port' ? mm.x > 0 : mm.x < 0));
+   577→    const m = arr[index % arr.length];
+   578→    return this.toWorld(m.x, m.y, m.z);
+   579→  }
+   580→
+   581→  applyDamage(amount: number): void {
+   582→    if (this.sinking > 0 || this.sunk) return;
+   583→    this.hullHp = Math.max(0, this.hullHp - amount);
+   584→    if (this.hullHp <= 0) {
+   585→      this.sinking = 0.001;
+   586→    }
+   587→  }
+   588→
+   589→  serialize() {
+   590→    return {
+   591→      x: this.pos.x, z: this.pos.z, heading: this.heading,
+   592→      hullHp: this.hullHp, sailState: this.sailState,
+   593→      anchored: this.anchored, sunk: this.sunk, sinking: this.sinking,
+   594→    };
+   595→  }
+   596→
+   597→  // ---------------------------------------------------------- collisions
+   598→
+   599→  /**
+   600→   * Fase 9 — solid hull: an AABB composition that follows the ship.
+   601→   *
+   602→   * The PDF demanded real collisions: no walking through the hull, no
+   603→   * swimming through it, deck still walkable. The volumes mirror the hull
+   604→   * shape in 6 local boxes (port/starboard bulwarks in two segments so the
+   605→   * tapered bow is respected, bow cap, stern cap) — all of them OUTSIDE the
+   606→   // walkable deck bounds so boarding/crew combat is untouched.
+   607→   *
+   608→   * Re-sync only when the ship moved ≥ 0.35 m or turned ≥ 1.5° (and only
+   609→   * when a listener is within 140 m) — the registry update is not free.
+   610→   */
+   611→  private static readonly COLLIDER_PARTS: Array<{ x0: number; x1: number; z0: number; z1: number }> = [
+   612→    // port side, stern half (widest)
+   613→    { x0: 1.5, x1: 2.35, z0: -8.1, z1: 0.4 },
+   614→    // port side, bow half (tapered)
+   615→    { x0: 1.5, x1: 2.35, z0: 0.4, z1: 5.6 },
+   616→    // starboard mirror
+   617→    { x0: -2.35, x1: -1.5, z0: -8.1, z1: 0.4 },
+   618→    { x0: -2.35, x1: -1.5, z0: 0.4, z1: 5.6 },
+   619→    // bow cap (curved stem approximated)
+   620→    { x0: -1.35, x1: 1.35, z0: 5.6, z1: 8.4 },
+   621→    // stern cap (transom)
+   622→    { x0: -1.5, x1: 1.5, z0: -8.4, z1: -8.1 },
+   623→  ];
+   624→
+   625→  private colReg: ColliderRegistry | null = null;
+   626→  private colSynced = false;
+   627→  private lastColX = NaN;
+   628→  private lastColZ = NaN;
+   629→  private lastColHeading = NaN;
+   630→  private lastColY = NaN;
+   631→
+   632→  /** Bind the game's collision world (called once by the NavalSystem). */
+   633→  bindColliderRegistry(registry: ColliderRegistry): void {
+   634→    this.colReg = registry;
+   635→    this.colSynced = false;
+   636→    this.lastColX = NaN;
+   637→  }
+   638→
+   639→  /**
+   640→   * Refresh the hull AABBs when (and only when) the ship moved enough.
+   641→   * @param refX/refZ listener position (player) — far ships skip the sync.
+   642→   */
+   643→  syncColliders(refX: number, refZ: number): void {
+   644→    if (!this.colReg || this.sinking > 0 || this.sunk) {
+   645→      if (this.colSynced) this.clearColliders();
+   646→      return;
+   647→    }
+   648→    const dx = this.pos.x - refX;
+   649→    const dz = this.pos.z - refZ;
+   650→    const far = dx * dx + dz * dz > 140 * 140;
+   651→    if (far) {
+   652→      if (this.colSynced) this.clearColliders(); // out of range: free the cells
+   653→      return;
+   654→    }
+   655→    const moved = !this.colSynced
+   656→      || Math.abs(this.pos.x - this.lastColX) > 0.35
+   657→      || Math.abs(this.pos.z - this.lastColZ) > 0.35
+   658→      || Math.abs(this.heading - this.lastColHeading) > 0.026
+   659→      || Math.abs(this.group.position.y - this.lastColY) > 0.5;
+   660→    if (!moved) return;
+   661→
+   662→    this.clearColliders();
+   663→    const gy = this.group.position.y;
+   664→    const y0 = gy - 1.15;               // below the waterline: swimmers bump it
+   665→    const y1 = gy + DECK_Y + 0.72;      // bulwark/rail height
+   666→    const sinH = Math.sin(this.heading);
+   667→    const cosH = Math.cos(this.heading);
+   668→    for (let i = 0; i < Ship.COLLIDER_PARTS.length; i++) {
+   669→      const p = Ship.COLLIDER_PARTS[i];
+   670→      // local → world for the 4 corners, then take the AABB
+   671→      let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+   672→      for (const [lx, lz] of [
+   673→        [p.x0, p.z0], [p.x1, p.z0], [p.x0, p.z1], [p.x1, p.z1],
+   674→      ] as Array<[number, number]>) {
+   675→        // toWorld(): x' = x·cos + z·sin, z' = −x·sin + z·cos
+   676→        const wx = this.pos.x + lx * cosH + lz * sinH;
+   677→        const wz = this.pos.z - lx * sinH + lz * cosH;
+   678→        if (wx < minX) minX = wx;
+   679→        if (wx > maxX) maxX = wx;
+   680→        if (wz < minZ) minZ = wz;
+   681→        if (wz > maxZ) maxZ = wz;
+   682→      }
+   683→      this.colReg.add(`ship_${this.id}_${i}`, {
+   684→        kind: 'box', minX, maxX, minZ, maxZ, minY: y0, maxY: y1,
+   685→      });
+   686→    }
+   687→    this.colSynced = true;
+   688→    this.lastColX = this.pos.x;
+   689→    this.lastColZ = this.pos.z;
+   690→    this.lastColHeading = this.heading;
+   691→    this.lastColY = gy;
+   692→  }
+   693→
+   694→  private clearColliders(): void {
+   695→    if (!this.colReg) return;
+   696→    for (let i = 0; i < Ship.COLLIDER_PARTS.length; i++) {
+   697→      this.colReg.remove(`ship_${this.id}_${i}`);
+   698→    }
+   699→    this.colSynced = false;
+   700→  }
+   701→
+   702→  deserialize(d: ReturnType<Ship['serialize']>): void {
+   703→    this.pos.set(d.x, 0, d.z);
+   704→    this.heading = d.heading;
+   705→    this.hullHp = d.hullHp;
+   706→    this.sailState = d.sailState;
+   707→    this.anchored = d.anchored;
+   708→    this.sinking = d.sinking;
+   709→    this.sunk = d.sunk;
+   710→    this.group.visible = !d.sunk;
+   711→    this.speed = 0;
+   712→    this.syncTransform();
+   713→    this.group.position.y = 0.12;
+   714→  }
+   715→
+   716→  dispose(): void {
+   717→    this.clearColliders(); // Fase 9 — free the hull AABBs
+   718→    this.group.parent?.remove(this.group);
+   719→    this.group.traverse((obj) => {
+   720→      if ((obj as THREE.Mesh).isMesh) {
+   721→        (obj as THREE.Mesh).geometry.dispose();
+   722→      }
+   723→    });
+   724→  }
+   725→}
+   726→

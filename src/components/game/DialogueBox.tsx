@@ -170,13 +170,13 @@ export default function DialogueBox() {
         {/* Footer hint + continue arrow */}
         <div className="mt-3 flex items-center justify-between">
           <p className="text-[0.58rem] tracking-[0.25em] text-[color:var(--kotfs-parchment-dim)] opacity-45">
-            ESC PARA TERMINAR
+            ESC TO END
           </p>
           {typingDone ? (
             <span className="kfs-dlg-caret text-[color:var(--kotfs-gold)] opacity-80">▼</span>
           ) : (
             <span className="text-[0.58rem] tracking-[0.25em] text-[color:var(--kotfs-parchment-dim)] opacity-45">
-              CLIC PARA COMPLETAR
+              CLICK TO COMPLETE
             </span>
           )}
         </div>

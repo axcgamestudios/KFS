@@ -12,6 +12,8 @@ import HUD from './HUD';
 import AdminPanel from './AdminPanel';
 import DialogueBox from './DialogueBox';
 import InventoryUI from './InventoryUI';
+import ShopUI from './ShopUI';
+import NegotiationUI from './NegotiationUI';
 import MapUI from './MapUI';
 import JournalUI from './JournalUI';
 import SkillsUI from './SkillsUI';
@@ -44,7 +46,7 @@ export default function GameRoot() {
         console.error('Error al iniciar el juego:', err);
         if (!disposed) {
           setFatalError(
-            'No se pudo inicializar el mundo 3D. Comprueba que tu navegador soporta WebGL y recarga la página.',
+            'Could not initialize the 3D world. Check that your browser supports WebGL and reload the page.',
           );
         }
       }
@@ -71,11 +73,11 @@ export default function GameRoot() {
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/85 p-8">
           <div className="kotfs-panel kotfs-panel-corner max-w-lg p-8 text-center">
             <h2 className="kotfs-title mb-4 text-2xl text-[color:var(--kotfs-gold)]">
-              La marea no pudo alzarse
+              The Tide Could Not Rise
             </h2>
             <p className="mb-6 leading-relaxed text-[color:var(--kotfs-parchment-dim)]">{fatalError}</p>
             <button className="kotfs-btn" onClick={() => window.location.reload()}>
-              Recargar la página
+              Reload the page
             </button>
           </div>
         </div>
@@ -86,10 +88,12 @@ export default function GameRoot() {
           {phase === 'menu' && <MainMenu />}
           {phase === 'menu' && overlay === 'settings' && (
             <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/70 p-6">
-              <div className="kotfs-panel kotfs-panel-corner w-full max-w-md p-6">
-                <SettingsPanel
-                  onBack={() => useGameStore.getState().closeOverlay()}
-                />
+              <div className="kotfs-panel kotfs-panel-corner flex max-h-[86vh] w-full max-w-md flex-col overflow-hidden p-6">
+                <div className="kotfs-scroll min-h-0 flex-1 overflow-y-auto pr-2">
+                  <SettingsPanel
+                    onBack={() => useGameStore.getState().closeOverlay()}
+                  />
+                </div>
               </div>
             </div>
           )}
@@ -101,6 +105,8 @@ export default function GameRoot() {
               <HUD />
               <AdminPanel />
               <DialogueBox />
+              <ShopUI />
+              <NegotiationUI />
               {overlay === 'inventory' && <InventoryUI />}
               {overlay === 'map' && <MapUI />}
               {overlay === 'journal' && <JournalUI />}

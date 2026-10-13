@@ -1,0 +1,28 @@
+{
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "message": {
+        "content": "Yes. The large text painted into the artwork is: **\"KINGDOM OF THE FORGOTTEN SEAS\"**",
+        "role": "assistant"
+      }
+    }
+  ],
+  "created": 1791861336,
+  "id": "202610131115357f19532be079404c",
+  "model": "glm-5v-turbo",
+  "object": "chat.completion",
+  "request_id": "202610131115357f19532be079404c",
+  "usage": {
+    "completion_tokens": 27,
+    "completion_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "prompt_tokens": 1478,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "total_tokens": 1505
+  }
+}

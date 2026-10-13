@@ -1,0 +1,1756 @@
+src/game/data/dialogues.ts | -  /** Fase 16 — open a merchant'STR'shop'STR'close'STR'aldric'STR'Maestre Aldric'STR'talked_aldric'STR'a1'STR'¡Por las mareas! ¿Eres tú, muchacho? Eres el spit
+src/game/data/dialogues.ts | +  /** Fase 16 — open a merchant'STR'shop'STR'close'STR'aldric'STR'Master Aldric'STR'talked_aldric'STR'a1'STR'By the tides! Is that you, boy? You\'STR',
+src/game/data/dialogues.ts | +            options: [
+src/game/data/dialogues.ts | +              { text: 'STR', next: 'STR' },
+src/game/data/dialogues.ts | +              { text: 'STR', next: 'STR' },
+src/game/data/dialogues.ts | +            ],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +          a3: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [{ text: 'STR', next: 'STR' }],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +          a2: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [
+src/game/data/dialogues.ts | +              { text: 'STR', next: 'STR', action: { t: 'STR', flag: 'STR' } },
+src/game/data/dialogues.ts | +              { text: 'STR', next: 'STR' },
+src/game/data/dialogues.ts | +            ],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +          a5: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [
+src/game/data/dialogues.ts | +              { text: 'STR', next: 'STR', action: { t: 'STR', flag: 'STR' } },
+src/game/data/dialogues.ts | +            ],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +          a4: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [
+src/game/data/dialogues.ts | +              {
+src/game/data/dialogues.ts | +                text: 'STR',
+src/game/data/dialogues.ts | +                action: [
+src/game/data/dialogues.ts | +                  { t: 'STR', target: 'STR' },
+src/game/data/dialogues.ts | +                  { t: 'STR' },
+src/game/data/dialogues.ts | +                ],
+src/game/data/dialogues.ts | +              },
+src/game/data/dialogues.ts | +            ],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +        },
+src/game/data/dialogues.ts | +      },
+src/game/data/dialogues.ts | +      {
+src/game/data/dialogues.ts | +        cond: 'STR',
+src/game/data/dialogues.ts | +        notCond: 'STR',
+src/game/data/dialogues.ts | +        start: 'STR',
+src/game/data/dialogues.ts | +        nodes: {
+src/game/data/dialogues.ts | +          s1: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [
+src/game/data/dialogues.ts | +              { text: 'STR', next: 'STR' },
+src/game/data/dialogues.ts | +              { text: 'STR', next: 'STR' },
+src/game/data/dialogues.ts | +            ],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +          s2: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [
+src/game/data/dialogues.ts | +              { text: 'STR', next: 'STR' },
+src/game/data/dialogues.ts | +              { text: 'STR', next: 'STR' },
+src/game/data/dialogues.ts | +            ],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +          s4: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [{ text: 'STR', next: 'STR' }],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +          s3: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [
+src/game/data/dialogues.ts | +              {
+src/game/data/dialogues.ts | +                text: 'STR',
+src/game/data/dialogues.ts | +                action: [
+src/game/data/dialogues.ts | +                  { t: 'STR', flag: 'STR' },
+src/game/data/dialogues.ts | +                  { t: 'STR', target: 'STR' },
+src/game/data/dialogues.ts | +                  { t: 'STR', amount: 30 },
+src/game/data/dialogues.ts | +                  { t: 'STR' },
+src/game/data/dialogues.ts | +                ],
+src/game/data/dialogues.ts | +              },
+src/game/data/dialogues.ts | +            ],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +        },
+src/game/data/dialogues.ts | +      },
+src/game/data/dialogues.ts | +      {
+src/game/data/dialogues.ts | +        cond: 'STR',
+src/game/data/dialogues.ts | +        notCond: 'STR',
+src/game/data/dialogues.ts | +        start: 'STR',
+src/game/data/dialogues.ts | +        nodes: {
+src/game/data/dialogues.ts | +          w1: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [
+src/game/data/dialogues.ts | +              { text: 'STR', next: 'STR' },
+src/game/data/dialogues.ts | +              { text: 'STR', next: 'STR' },
+src/game/data/dialogues.ts | +            ],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +          w2: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [
+src/game/data/dialogues.ts | +              { text: 'STR', next: 'STR' },
+src/game/data/dialogues.ts | +              { text: 'STR', next: 'STR' },
+src/game/data/dialogues.ts | +            ],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +          w4: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [{ text: 'STR', next: 'STR' }],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +          w3: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [
+src/game/data/dialogues.ts | +              {
+src/game/data/dialogues.ts | +                text: 'STR',
+src/game/data/dialogues.ts | +                action: [
+src/game/data/dialogues.ts | +                  { t: 'STR', flag: 'STR' },
+src/game/data/dialogues.ts | +                  { t: 'STR', target: 'STR' },
+src/game/data/dialogues.ts | +                  { t: 'STR' },
+src/game/data/dialogues.ts | +                ],
+src/game/data/dialogues.ts | +              },
+src/game/data/dialogues.ts | +            ],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +        },
+src/game/data/dialogues.ts | +      },
+src/game/data/dialogues.ts | +      {
+src/game/data/dialogues.ts | +        cond: 'STR',
+src/game/data/dialogues.ts | +        notCond: 'STR',
+src/game/data/dialogues.ts | +        start: 'STR',
+src/game/data/dialogues.ts | +        nodes: {
+src/game/data/dialogues.ts | +          r1: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [
+src/game/data/dialogues.ts | +              { text: 'STR', next: 'STR' },
+src/game/data/dialogues.ts | +              { text: 'STR', next: 'STR' },
+src/game/data/dialogues.ts | +            ],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +          r2: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [
+src/game/data/dialogues.ts | +              { text: 'STR', next: 'STR' },
+src/game/data/dialogues.ts | +              { text: 'STR', next: 'STR' },
+src/game/data/dialogues.ts | +            ],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +          r3: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [
+src/game/data/dialogues.ts | +              {
+src/game/data/dialogues.ts | +                text: 'STR',
+src/game/data/dialogues.ts | +                action: [
+src/game/data/dialogues.ts | +                  { t: 'STR', flag: 'STR' },
+src/game/data/dialogues.ts | +                  { t: 'STR', target: 'STR' },
+src/game/data/dialogues.ts | +                  { t: 'STR' },
+src/game/data/dialogues.ts | +                ],
+src/game/data/dialogues.ts | +              },
+src/game/data/dialogues.ts | +            ],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +        },
+src/game/data/dialogues.ts | +      },
+src/game/data/dialogues.ts | +      {
+src/game/data/dialogues.ts | +        cond: 'STR',
+src/game/data/dialogues.ts | +        notCond: 'STR',
+src/game/data/dialogues.ts | +        start: 'STR',
+src/game/data/dialogues.ts | +        nodes: {
+src/game/data/dialogues.ts | +          k1: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [
+src/game/data/dialogues.ts | +              {
+src/game/data/dialogues.ts | +                text: 'STR',
+src/game/data/dialogues.ts | +                action: [
+src/game/data/dialogues.ts | +                  { t: 'STR', flag: 'STR' },
+src/game/data/dialogues.ts | +                  { t: 'STR' },
+src/game/data/dialogues.ts | +                ],
+src/game/data/dialogues.ts | +              },
+src/game/data/dialogues.ts | +              { text: 'STR', next: 'STR' },
+src/game/data/dialogues.ts | +            ],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +          k2: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [
+src/game/data/dialogues.ts | +              {
+src/game/data/dialogues.ts | +                text: 'STR',
+src/game/data/dialogues.ts | +                action: [
+src/game/data/dialogues.ts | +                  { t: 'STR', flag: 'STR' },
+src/game/data/dialogues.ts | +                  { t: 'STR' },
+src/game/data/dialogues.ts | +                ],
+src/game/data/dialogues.ts | +              },
+src/game/data/dialogues.ts | +            ],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +        },
+src/game/data/dialogues.ts | +      },
+src/game/data/dialogues.ts | +      {
+src/game/data/dialogues.ts | +        cond: 'STR',
+src/game/data/dialogues.ts | +        notCond: 'STR',
+src/game/data/dialogues.ts | +        start: 'STR',
+src/game/data/dialogues.ts | +        nodes: {
+src/game/data/dialogues.ts | +          f1: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [
+src/game/data/dialogues.ts | +              { text: 'STR', next: 'STR' },
+src/game/data/dialogues.ts | +              { text: 'STR', next: 'STR' },
+src/game/data/dialogues.ts | +            ],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +          f2: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [
+src/game/data/dialogues.ts | +              {
+src/game/data/dialogues.ts | +                text: 'STR',
+src/game/data/dialogues.ts | +                action: [
+src/game/data/dialogues.ts | +                  { t: 'STR', flag: 'STR' },
+src/game/data/dialogues.ts | +                  { t: 'STR' },
+src/game/data/dialogues.ts | +                ],
+src/game/data/dialogues.ts | +              },
+src/game/data/dialogues.ts | +            ],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +        },
+src/game/data/dialogues.ts | +      },
+src/game/data/dialogues.ts | +      {
+src/game/data/dialogues.ts | +        start: 'STR',
+src/game/data/dialogues.ts | +        nodes: {
+src/game/data/dialogues.ts | +          d1: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [
+src/game/data/dialogues.ts | +              { text: 'STR', next: 'STR' },
+src/game/data/dialogues.ts | +              { text: 'STR', action: { t: 'STR' } },
+src/game/data/dialogues.ts | +            ],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +          d2: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [{ text: 'STR', action: { t: 'STR' } }],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +        },
+src/game/data/dialogues.ts | +      },
+src/game/data/dialogues.ts | +    ],
+src/game/data/dialogues.ts | +  },
+src/game/data/dialogues.ts | +
+src/game/data/dialogues.ts | +  maren: {
+src/game/data/dialogues.ts | +    npcId: 'STR',
+src/game/data/dialogues.ts | +    name: 'STR',
+src/game/data/dialogues.ts | +    trees: [
+src/game/data/dialogues.ts | +      {
+src/game/data/dialogues.ts | +        notCond: 'STR',
+src/game/data/dialogues.ts | +        start: 'STR',
+src/game/data/dialogues.ts | +        nodes: {
+src/game/data/dialogues.ts | +          m1: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [
+src/game/data/dialogues.ts | +              { text: 'STR', next: 'STR' },
+src/game/data/dialogues.ts | +              { text: 'STR', next: 'STR' },
+src/game/data/dialogues.ts | +            ],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +          m3: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [{ text: 'STR', next: 'STR' }],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +          m2: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [
+src/game/data/dialogues.ts | +              {
+src/game/data/dialogues.ts | +                text: 'STR',
+src/game/data/dialogues.ts | +                next: 'STR',
+src/game/data/dialogues.ts | +                action: [
+src/game/data/dialogues.ts | +                  { t: 'STR', flag: 'STR' },
+src/game/data/dialogues.ts | +                  { t: 'STR', target: 'STR' },
+src/game/data/dialogues.ts | +                ],
+src/game/data/dialogues.ts | +              },
+src/game/data/dialogues.ts | +              { text: 'STR', next: 'STR' },
+src/game/data/dialogues.ts | +            ],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +          m5: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [
+src/game/data/dialogues.ts | +              {
+src/game/data/dialogues.ts | +                text: 'STR',
+src/game/data/dialogues.ts | +                next: 'STR',
+src/game/data/dialogues.ts | +                action: [
+src/game/data/dialogues.ts | +                  { t: 'STR', flag: 'STR' },
+src/game/data/dialogues.ts | +                  { t: 'STR', target: 'STR' },
+src/game/data/dialogues.ts | +                ],
+src/game/data/dialogues.ts | +              },
+src/game/data/dialogues.ts | +            ],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +          m4: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [{ text: 'STR', action: { t: 'STR' } }],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +        },
+src/game/data/dialogues.ts | +      },
+src/game/data/dialogues.ts | +      {
+src/game/data/dialogues.ts | +        cond: 'STR',
+src/game/data/dialogues.ts | +        notCond: 'STR',
+src/game/data/dialogues.ts | +        requireItem: { id: 'STR', count: 3 },
+src/game/data/dialogues.ts | +        start: 'STR',
+src/game/data/dialogues.ts | +        nodes: {
+src/game/data/dialogues.ts | +          t1: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [
+src/game/data/dialogues.ts | +              {
+src/game/data/dialogues.ts | +                text: 'STR',
+src/game/data/dialogues.ts | +                next: 'STR',
+src/game/data/dialogues.ts | +                action: { t: 'STR', id: 'STR', count: 3 },
+src/game/data/dialogues.ts | +              },
+src/game/data/dialogues.ts | +            ],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +          t2: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [
+src/game/data/dialogues.ts | +              { text: 'STR', next: 'STR' },
+src/game/data/dialogues.ts | +              { text: 'STR', next: 'STR' },
+src/game/data/dialogues.ts | +            ],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +          t3: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [{ text: 'STR', next: 'STR' }],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +          t4: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [{ text: 'STR', next: 'STR' }],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +          t5: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [
+src/game/data/dialogues.ts | +              {
+src/game/data/dialogues.ts | +                text: 'STR',
+src/game/data/dialogues.ts | +                action: [
+src/game/data/dialogues.ts | +                  { t: 'STR', id: 'STR', count: 1 },
+src/game/data/dialogues.ts | +                  { t: 'STR', flag: 'STR' },
+src/game/data/dialogues.ts | +                  { t: 'STR' },
+src/game/data/dialogues.ts | +                ],
+src/game/data/dialogues.ts | +              },
+src/game/data/dialogues.ts | +            ],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +        },
+src/game/data/dialogues.ts | +      },
+src/game/data/dialogues.ts | +      {
+src/game/data/dialogues.ts | +        cond: 'STR',
+src/game/data/dialogues.ts | +        notCond: 'STR',
+src/game/data/dialogues.ts | +        start: 'STR',
+src/game/data/dialogues.ts | +        nodes: {
+src/game/data/dialogues.ts | +          w1: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [
+src/game/data/dialogues.ts | +              { text: 'STR', action: { t: 'STR' } },
+src/game/data/dialogues.ts | +              { text: 'STR', next: 'STR' },
+src/game/data/dialogues.ts | +            ],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +          w2: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [{ text: 'STR', action: { t: 'STR' } }],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +        },
+src/game/data/dialogues.ts | +      },
+src/game/data/dialogues.ts | +      {
+src/game/data/dialogues.ts | +        start: 'STR',
+src/game/data/dialogues.ts | +        nodes: {
+src/game/data/dialogues.ts | +          f1: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [
+src/game/data/dialogues.ts | +              { text: 'STR', next: 'STR' },
+src/game/data/dialogues.ts | +              { text: 'STR', action: { t: 'STR' } },
+src/game/data/dialogues.ts | +            ],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +          f2: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [{ text: 'STR', action: { t: 'STR' } }],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +        },
+src/game/data/dialogues.ts | +      },
+src/game/data/dialogues.ts | +    ],
+src/game/data/dialogues.ts | +  },
+src/game/data/dialogues.ts | +
+src/game/data/dialogues.ts | +  rosa: {
+src/game/data/dialogues.ts | +    npcId: 'STR',
+src/game/data/dialogues.ts | +    name: 'STR',
+src/game/data/dialogues.ts | +    trees: [
+src/game/data/dialogues.ts | +      {
+src/game/data/dialogues.ts | +        notCond: 'STR',
+src/game/data/dialogues.ts | +        start: 'STR',
+src/game/data/dialogues.ts | +        nodes: {
+src/game/data/dialogues.ts | +          r1: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [
+src/game/data/dialogues.ts | +              { text: 'STR', next: 'STR' },
+src/game/data/dialogues.ts | +              { text: 'STR', action: { t: 'STR' } },
+src/game/data/dialogues.ts | +            ],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +          r2: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [
+src/game/data/dialogues.ts | +              {
+src/game/data/dialogues.ts | +                text: 'STR',
+src/game/data/dialogues.ts | +                next: 'STR',
+src/game/data/dialogues.ts | +                action: { t: 'STR', flag: 'STR' },
+src/game/data/dialogues.ts | +              },
+src/game/data/dialogues.ts | +              { text: 'STR', action: { t: 'STR' } },
+src/game/data/dialogues.ts | +            ],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +          r3: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [
+src/game/data/dialogues.ts | +              {
+src/game/data/dialogues.ts | +                text: 'STR',
+src/game/data/dialogues.ts | +                action: [
+src/game/data/dialogues.ts | +                  { t: 'STR', id: 'STR' },
+src/game/data/dialogues.ts | +                  { t: 'STR' },
+src/game/data/dialogues.ts | +                ],
+src/game/data/dialogues.ts | +              },
+src/game/data/dialogues.ts | +            ],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +        },
+src/game/data/dialogues.ts | +      },
+src/game/data/dialogues.ts | +      {
+src/game/data/dialogues.ts | +        cond: 'STR',
+src/game/data/dialogues.ts | +        notCond: 'STR',
+src/game/data/dialogues.ts | +        requireItem: { id: 'STR', count: 1 },
+src/game/data/dialogues.ts | +        start: 'STR',
+src/game/data/dialogues.ts | +        nodes: {
+src/game/data/dialogues.ts | +          r4: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [
+src/game/data/dialogues.ts | +              {
+src/game/data/dialogues.ts | +                text: 'STR',
+src/game/data/dialogues.ts | +                action: [
+src/game/data/dialogues.ts | +                  { t: 'STR', id: 'STR', count: 1 },
+src/game/data/dialogues.ts | +                  { t: 'STR', target: 'STR' },
+src/game/data/dialogues.ts | +                  { t: 'STR' },
+src/game/data/dialogues.ts | +                ],
+src/game/data/dialogues.ts | +              },
+src/game/data/dialogues.ts | +            ],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +        },
+src/game/data/dialogues.ts | +      },
+src/game/data/dialogues.ts | +      {
+src/game/data/dialogues.ts | +        cond: 'STR',
+src/game/data/dialogues.ts | +        notCond: 'STR',
+src/game/data/dialogues.ts | +        requireItem: { id: 'STR', count: 3 },
+src/game/data/dialogues.ts | +        start: 'STR',
+src/game/data/dialogues.ts | +        nodes: {
+src/game/data/dialogues.ts | +          rc1: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [
+src/game/data/dialogues.ts | +              {
+src/game/data/dialogues.ts | +                text: 'STR',
+src/game/data/dialogues.ts | +                action: [
+src/game/data/dialogues.ts | +                  { t: 'STR', id: 'STR', count: 3 },
+src/game/data/dialogues.ts | +                  { t: 'STR', id: 'STR', count: 3 },
+src/game/data/dialogues.ts | +                  { t: 'STR', flag: 'STR' },
+src/game/data/dialogues.ts | +                  { t: 'STR' },
+src/game/data/dialogues.ts | +                ],
+src/game/data/dialogues.ts | +              },
+src/game/data/dialogues.ts | +            ],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +        },
+src/game/data/dialogues.ts | +      },
+src/game/data/dialogues.ts | +      {
+src/game/data/dialogues.ts | +        cond: 'STR',
+src/game/data/dialogues.ts | +        notCond: 'STR',
+src/game/data/dialogues.ts | +        requireItem: { id: 'STR', count: 20 },
+src/game/data/dialogues.ts | +        start: 'STR',
+src/game/data/dialogues.ts | +        nodes: {
+src/game/data/dialogues.ts | +          rc2: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [
+src/game/data/dialogues.ts | +              {
+src/game/data/dialogues.ts | +                text: 'STR',
+src/game/data/dialogues.ts | +                action: [
+src/game/data/dialogues.ts | +                  { t: 'STR', id: 'STR', count: 20 },
+src/game/data/dialogues.ts | +                  { t: 'STR', id: 'STR', count: 3 },
+src/game/data/dialogues.ts | +                  { t: 'STR', flag: 'STR' },
+src/game/data/dialogues.ts | +                  { t: 'STR' },
+src/game/data/dialogues.ts | +                ],
+src/game/data/dialogues.ts | +              },
+src/game/data/dialogues.ts | +              { text: 'STR', action: { t: 'STR' } },
+src/game/data/dialogues.ts | +            ],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +        },
+src/game/data/dialogues.ts | +      },
+src/game/data/dialogues.ts | +      {
+src/game/data/dialogues.ts | +        cond: 'STR',
+src/game/data/dialogues.ts | +        notCond: 'STR',
+src/game/data/dialogues.ts | +        start: 'STR',
+src/game/data/dialogues.ts | +        nodes: {
+src/game/data/dialogues.ts | +          rc3: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [
+src/game/data/dialogues.ts | +              { text: 'STR', action: { t: 'STR' } },
+src/game/data/dialogues.ts | +            ],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +        },
+src/game/data/dialogues.ts | +      },
+src/game/data/dialogues.ts | +      {
+src/game/data/dialogues.ts | +        start: 'STR',
+src/game/data/dialogues.ts | +        nodes: {
+src/game/data/dialogues.ts | +          r5: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [
+src/game/data/dialogues.ts | +              { text: 'STR', next: 'STR' },
+src/game/data/dialogues.ts | +              { text: 'STR', action: { t: 'STR' } },
+src/game/data/dialogues.ts | +            ],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +          r6: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [{ text: 'STR', action: { t: 'STR' } }],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +        },
+src/game/data/dialogues.ts | +      },
+src/game/data/dialogues.ts | +    ],
+src/game/data/dialogues.ts | +  },
+src/game/data/dialogues.ts | +
+src/game/data/dialogues.ts | +  bram: {
+src/game/data/dialogues.ts | +    npcId: 'STR',
+src/game/data/dialogues.ts | +    name: 'STR',
+src/game/data/dialogues.ts | +    trees: [
+src/game/data/dialogues.ts | +      {
+src/game/data/dialogues.ts | +        cond: 'STR',
+src/game/data/dialogues.ts | +        notCond: 'STR',
+src/game/data/dialogues.ts | +        start: 'STR',
+src/game/data/dialogues.ts | +        nodes: {
+src/game/data/dialogues.ts | +          rf1: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [
+src/game/data/dialogues.ts | +              { text: 'STR', next: 'STR' },
+src/game/data/dialogues.ts | +              { text: 'STR', next: 'STR' },
+src/game/data/dialogues.ts | +            ],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +          rf2: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [
+src/game/data/dialogues.ts | +              {
+src/game/data/dialogues.ts | +                text: 'STR',
+src/game/data/dialogues.ts | +                action: [
+src/game/data/dialogues.ts | +                  { t: 'STR', target: 'STR' },
+src/game/data/dialogues.ts | +                  { t: 'STR' },
+src/game/data/dialogues.ts | +                ],
+src/game/data/dialogues.ts | +              },
+src/game/data/dialogues.ts | +              { text: 'STR', next: 'STR' },
+src/game/data/dialogues.ts | +            ],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +          rf3: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [
+src/game/data/dialogues.ts | +              {
+src/game/data/dialogues.ts | +                text: 'STR',
+src/game/data/dialogues.ts | +                action: [
+src/game/data/dialogues.ts | +                  { t: 'STR', target: 'STR' },
+src/game/data/dialogues.ts | +                  { t: 'STR' },
+src/game/data/dialogues.ts | +                ],
+src/game/data/dialogues.ts | +              },
+src/game/data/dialogues.ts | +            ],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +        },
+src/game/data/dialogues.ts | +      },
+src/game/data/dialogues.ts | +      {
+src/game/data/dialogues.ts | +        cond: 'STR',
+src/game/data/dialogues.ts | +        start: 'STR',
+src/game/data/dialogues.ts | +        nodes: {
+src/game/data/dialogues.ts | +          rf4: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [{ text: 'STR', action: { t: 'STR' } }],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +        },
+src/game/data/dialogues.ts | +      },
+src/game/data/dialogues.ts | +      {
+src/game/data/dialogues.ts | +        start: 'STR',
+src/game/data/dialogues.ts | +        nodes: {
+src/game/data/dialogues.ts | +          b1: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [
+src/game/data/dialogues.ts | +              { text: 'STR', next: 'STR' },
+src/game/data/dialogues.ts | +              { text: 'STR', next: 'STR' },
+src/game/data/dialogues.ts | +              { text: 'STR', action: { t: 'STR' } },
+src/game/data/dialogues.ts | +            ],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +          b2: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [
+src/game/data/dialogues.ts | +              { text: 'STR', next: 'STR' },
+src/game/data/dialogues.ts | +              { text: 'STR', action: { t: 'STR' } },
+src/game/data/dialogues.ts | +            ],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +          b4: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [{ text: 'STR', action: { t: 'STR' } }],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +          b3: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [{ text: 'STR', action: { t: 'STR' } }],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +        },
+src/game/data/dialogues.ts | +      },
+src/game/data/dialogues.ts | +    ],
+src/game/data/dialogues.ts | +  },
+src/game/data/dialogues.ts | +
+src/game/data/dialogues.ts | +  tom: {
+src/game/data/dialogues.ts | +    npcId: 'STR',
+src/game/data/dialogues.ts | +    name: 'STR',
+src/game/data/dialogues.ts | +    trees: [
+src/game/data/dialogues.ts | +      {
+src/game/data/dialogues.ts | +        cond: 'STR',
+src/game/data/dialogues.ts | +        notCond: 'STR',
+src/game/data/dialogues.ts | +        requireItem: { id: 'STR', count: 10 },
+src/game/data/dialogues.ts | +        start: 'STR',
+src/game/data/dialogues.ts | +        nodes: {
+src/game/data/dialogues.ts | +          tr1: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [
+src/game/data/dialogues.ts | +              {
+src/game/data/dialogues.ts | +                text: 'STR',
+src/game/data/dialogues.ts | +                action: [
+src/game/data/dialogues.ts | +                  { t: 'STR', id: 'STR', count: 10 },
+src/game/data/dialogues.ts | +                  { t: 'STR', id: 'STR', count: 2 },
+src/game/data/dialogues.ts | +                  { t: 'STR', flag: 'STR' },
+src/game/data/dialogues.ts | +                  { t: 'STR' },
+src/game/data/dialogues.ts | +                ],
+src/game/data/dialogues.ts | +              },
+src/game/data/dialogues.ts | +            ],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +        },
+src/game/data/dialogues.ts | +      },
+src/game/data/dialogues.ts | +      {
+src/game/data/dialogues.ts | +        cond: 'STR',
+src/game/data/dialogues.ts | +        notCond: 'STR',
+src/game/data/dialogues.ts | +        start: 'STR',
+src/game/data/dialogues.ts | +        nodes: {
+src/game/data/dialogues.ts | +          tr2: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [
+src/game/data/dialogues.ts | +              { text: 'STR', action: { t: 'STR' } },
+src/game/data/dialogues.ts | +              { text: 'STR', next: 'STR' },
+src/game/data/dialogues.ts | +            ],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +          tr3: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [{ text: 'STR', action: { t: 'STR' } }],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +        },
+src/game/data/dialogues.ts | +      },
+src/game/data/dialogues.ts | +      {
+src/game/data/dialogues.ts | +        start: 'STR',
+src/game/data/dialogues.ts | +        nodes: {
+src/game/data/dialogues.ts | +          t1: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [
+src/game/data/dialogues.ts | +              { text: 'STR', next: 'STR' },
+src/game/data/dialogues.ts | +              { text: 'STR', next: 'STR' },
+src/game/data/dialogues.ts | +            ],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +          t2: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [
+src/game/data/dialogues.ts | +              { text: 'STR', next: 'STR' },
+src/game/data/dialogues.ts | +              { text: 'STR', action: { t: 'STR' } },
+src/game/data/dialogues.ts | +            ],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +          t4: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [{ text: 'STR', action: { t: 'STR' } }],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +          t3: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [{ text: 'STR', action: { t: 'STR' } }],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +        },
+src/game/data/dialogues.ts | +      },
+src/game/data/dialogues.ts | +    ],
+src/game/data/dialogues.ts | +  },
+src/game/data/dialogues.ts | +
+src/game/data/dialogues.ts | +  elin: {
+src/game/data/dialogues.ts | +    npcId: 'STR',
+src/game/data/dialogues.ts | +    name: 'STR',
+src/game/data/dialogues.ts | +    trees: [
+src/game/data/dialogues.ts | +      {
+src/game/data/dialogues.ts | +        start: 'STR',
+src/game/data/dialogues.ts | +        nodes: {
+src/game/data/dialogues.ts | +          e1: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [
+src/game/data/dialogues.ts | +              { text: 'STR', next: 'STR' },
+src/game/data/dialogues.ts | +              { text: 'STR', next: 'STR' },
+src/game/data/dialogues.ts | +            ],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +          e2: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [{ text: 'STR', action: { t: 'STR' } }],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +          e3: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [{ text: 'STR', action: { t: 'STR' } }],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +        },
+src/game/data/dialogues.ts | +      },
+src/game/data/dialogues.ts | +    ],
+src/game/data/dialogues.ts | +  },
+src/game/data/dialogues.ts | +
+src/game/data/dialogues.ts | +  jorund: {
+src/game/data/dialogues.ts | +    npcId: 'STR',
+src/game/data/dialogues.ts | +    name: 'STR',
+src/game/data/dialogues.ts | +    trees: [
+src/game/data/dialogues.ts | +      {
+src/game/data/dialogues.ts | +        start: 'STR',
+src/game/data/dialogues.ts | +        nodes: {
+src/game/data/dialogues.ts | +          j1: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [
+src/game/data/dialogues.ts | +              { text: 'STR', next: 'STR' },
+src/game/data/dialogues.ts | +              { text: 'STR', next: 'STR' },
+src/game/data/dialogues.ts | +            ],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +          j2: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [
+src/game/data/dialogues.ts | +              { text: 'STR', next: 'STR' },
+src/game/data/dialogues.ts | +              { text: 'STR', action: { t: 'STR' } },
+src/game/data/dialogues.ts | +            ],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +          j4: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [{ text: 'STR', action: { t: 'STR' } }],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +          j3: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [{ text: 'STR', action: { t: 'STR' } }],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +        },
+src/game/data/dialogues.ts | +      },
+src/game/data/dialogues.ts | +    ],
+src/game/data/dialogues.ts | +  },
+src/game/data/dialogues.ts | +
+src/game/data/dialogues.ts | +  sigrid: {
+src/game/data/dialogues.ts | +    npcId: 'STR',
+src/game/data/dialogues.ts | +    name: 'STR',
+src/game/data/dialogues.ts | +    trees: [
+src/game/data/dialogues.ts | +      {
+src/game/data/dialogues.ts | +        start: 'STR',
+src/game/data/dialogues.ts | +        nodes: {
+src/game/data/dialogues.ts | +          sg1: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [
+src/game/data/dialogues.ts | +              { text: 'STR', next: 'STR' },
+src/game/data/dialogues.ts | +              { text: 'STR', action: { t: 'STR' } },
+src/game/data/dialogues.ts | +            ],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +          sg2: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [{ text: 'STR', action: { t: 'STR' } }],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +        },
+src/game/data/dialogues.ts | +      },
+src/game/data/dialogues.ts | +    ],
+src/game/data/dialogues.ts | +  },
+src/game/data/dialogues.ts | +
+src/game/data/dialogues.ts | +  // ---- Fase 16 — LA HERRERÍA: Torvald, el Herrero Estándar (nivel 6+) ----
+src/game/data/dialogues.ts | +  herrero: {
+src/game/data/dialogues.ts | +    npcId: 'STR',
+src/game/data/dialogues.ts | +    name: 'STR',
+src/game/data/dialogues.ts | +    trees: [
+src/game/data/dialogues.ts | +      {
+src/game/data/dialogues.ts | +        // Too green: no shop, no small talk
+src/game/data/dialogues.ts | +        maxLevel: 5,
+src/game/data/dialogues.ts | +        start: 'STR',
+src/game/data/dialogues.ts | +        nodes: {
+src/game/data/dialogues.ts | +          t_low: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [{ text: 'STR', action: { t: 'STR' } }],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +        },
+src/game/data/dialogues.ts | +      },
+src/game/data/dialogues.ts | +      {
+src/game/data/dialogues.ts | +        start: 'STR',
+src/game/data/dialogues.ts | +        nodes: {
+src/game/data/dialogues.ts | +          t1: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [
+src/game/data/dialogues.ts | +              { text: 'STR', action: { t: 'STR', vendor: 'STR' } },
+src/game/data/dialogues.ts | +              { text: 'STR', next: 'STR' },
+src/game/data/dialogues.ts | +              { text: 'STR', action: { t: 'STR' } },
+src/game/data/dialogues.ts | +            ],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +          t2: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [
+src/game/data/dialogues.ts | +              { text: 'STR', action: { t: 'STR', vendor: 'STR' } },
+src/game/data/dialogues.ts | +              { text: 'STR', action: { t: 'STR' } },
+src/game/data/dialogues.ts | +            ],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +        },
+src/game/data/dialogues.ts | +      },
+src/game/data/dialogues.ts | +    ],
+src/game/data/dialogues.ts | +  },
+src/game/data/dialogues.ts | +
+src/game/data/dialogues.ts | +  // ---- Fase 16 — EL HERRERO ENANO: Borin, Comercio Avanzado (nivel 10+) ----
+src/game/data/dialogues.ts | +  enano: {
+src/game/data/dialogues.ts | +    npcId: 'STR',
+src/game/data/dialogues.ts | +    name: 'STR',
+src/game/data/dialogues.ts | +    trees: [
+src/game/data/dialogues.ts | +      {
+src/game/data/dialogues.ts | +        maxLevel: 9,
+src/game/data/dialogues.ts | +        start: 'STR',
+src/game/data/dialogues.ts | +        nodes: {
+src/game/data/dialogues.ts | +          b_low: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [{ text: 'STR', action: { t: 'STR' } }],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +        },
+src/game/data/dialogues.ts | +      },
+src/game/data/dialogues.ts | +      {
+src/game/data/dialogues.ts | +        start: 'STR',
+src/game/data/dialogues.ts | +        nodes: {
+src/game/data/dialogues.ts | +          b1: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [
+src/game/data/dialogues.ts | +              { text: 'STR', action: { t: 'STR', vendor: 'STR' } },
+src/game/data/dialogues.ts | +              { text: 'STR', next: 'STR' },
+src/game/data/dialogues.ts | +              { text: 'STR', action: { t: 'STR' } },
+src/game/data/dialogues.ts | +            ],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +          b2: {
+src/game/data/dialogues.ts | +            text: 'STR',
+src/game/data/dialogues.ts | +            options: [
+src/game/data/dialogues.ts | +              { text: 'STR', action: { t: 'STR', vendor: 'STR' } },
+src/game/data/dialogues.ts | +              { text: 'STR', action: { t: 'STR' } },
+src/game/data/dialogues.ts | +            ],
+src/game/data/dialogues.ts | +          },
+src/game/data/dialogues.ts | +        },
+src/game/data/dialogues.ts | +      },
+src/game/data/dialogues.ts | +    ],
+src/game/data/dialogues.ts | +  },
+src/game/data/dialogues.ts | +};
+src/game/data/dialogues.ts | +
+src/game/data/dialogues.ts | +/** Narrator-style lore interactions (tablets, stones, doors). */
+src/game/data/dialogues.ts | +export interface LoreInteraction {
+src/game/data/dialogues.ts | +  id: string;
+src/game/data/dialogues.ts | +  title: string;
+src/game/data/dialogues.ts | +  text: string[];
+src/game/data/dialogues.ts | +}
+src/game/data/dialogues.ts | +
+src/game/data/dialogues.ts | +export const LORE: Record<string, LoreInteraction> = {
+src/game/data/dialogues.ts | +  tablet_ruins: {
+src/game/data/dialogues.ts | +    id: 'STR',
+src/game/data/dialogues.ts | +    title: 'STR',
+src/game/data/dialogues.ts | +    text: [
+src/game/data/dialogues.ts | +      'STR',
+src/game/data/dialogues.ts | +      'STR',
+src/game/data/dialogues.ts | +      'STR',
+src/game/data/dialogues.ts | +      'STR',
+src/game/data/dialogues.ts | +    ],
+src/game/data/dialogues.ts | +  },
+src/game/data/dialogues.ts | +  stones_center: {
+src/game/data/dialogues.ts | +    id: 'STR',
+src/game/data/dialogues.ts | +    title: 'STR',
+src/game/data/dialogues.ts | +    text: [
+src/game/data/dialogues.ts | +      'STR',
+src/game/data/dialogues.ts | +      'STR',
+src/game/data/dialogues.ts | +      'STR',
+src/game/data/dialogues.ts | +    ],
+src/game/data/dialogues.ts | +  },
+src/game/data/dialogues.ts | +  tower_door: {
+src/game/data/dialogues.ts | +    id: 'STR',
+src/game/data/dialogues.ts | +    title: 'STR',
+src/game/data/dialogues.ts | +    text: [
+src/game/data/dialogues.ts | +      'STR',
+src/game/data/dialogues.ts | +      'STR',
+src/game/data/dialogues.ts | +      'STR',
+src/game/data/dialogues.ts | +    ],
+src/game/data/dialogues.ts | +  },
+src/game/data/dialogues.ts | +  ship_colibri: {
+src/game/data/dialogues.ts | +    id: 'STR',
+src/game/data/dialogues.ts | +    title: 'STR',
+src/game/data/dialogues.ts | +    text: [
+src/game/data/dialogues.ts | +      'STR',
+src/game/data/dialogues.ts | +      'STR',
+src/game/data/dialogues.ts | +      'STR',
+src/game/data/dialogues.ts | +    ],
+src/game/data/dialogues.ts | +  },
+src/game/data/dialogues.ts | +};
+src/game/data/dialoguesF4.ts | - * Trees are PREPENDED to each NPC'STR'ancestro_dead'STR'aldric_f4_talked'STR'f4_1'STR'El Colmillo del Ancestro… entonces es cierto: el pacto puede volver a te
+src/game/data/dialoguesF4.ts | -      cond: 'STR',
+src/game/data/dialoguesF4.ts | -      notCond: 'STR',
+src/game/data/dialoguesF4.ts | -      start: 'STR',
+src/game/data/dialoguesF4.ts | -      nodes: {
+src/game/data/dialoguesF4.ts | -        h1: {
+src/game/data/dialoguesF4.ts | -          text: 'STR',
+src/game/data/dialoguesF4.ts | + * Trees are PREPENDED to each NPC'STR'ancestro_dead'STR'aldric_f4_talked'STR'f4_1'STR'The Ancestor\'STR',
+src/game/data/dialoguesF4.ts | +          options: [
+src/game/data/dialoguesF4.ts | +            { text: 'STR', next: 'STR' },
+src/game/data/dialoguesF4.ts | +            { text: 'STR', next: 'STR' },
+src/game/data/dialoguesF4.ts | +          ],
+src/game/data/dialoguesF4.ts | +        },
+src/game/data/dialoguesF4.ts | +        f4_2: {
+src/game/data/dialoguesF4.ts | +          text: 'STR',
+src/game/data/dialoguesF4.ts | +          options: [{ text: 'STR', next: 'STR' }],
+src/game/data/dialoguesF4.ts | +        },
+src/game/data/dialoguesF4.ts | +        f4_2b: {
+src/game/data/dialoguesF4.ts | +          text: 'STR',
+src/game/data/dialoguesF4.ts | +          options: [{ text: 'STR', next: 'STR' }],
+src/game/data/dialoguesF4.ts | +        },
+src/game/data/dialoguesF4.ts | +        f4_3: {
+src/game/data/dialoguesF4.ts | +          text: 'STR',
+src/game/data/dialoguesF4.ts | +          options: [
+src/game/data/dialoguesF4.ts | +            {
+src/game/data/dialoguesF4.ts | +              text: 'STR',
+src/game/data/dialoguesF4.ts | +              action: [
+src/game/data/dialoguesF4.ts | +                { t: 'STR', target: 'STR' },
+src/game/data/dialoguesF4.ts | +                { t: 'STR', flag: 'STR' },
+src/game/data/dialoguesF4.ts | +                { t: 'STR' },
+src/game/data/dialoguesF4.ts | +              ],
+src/game/data/dialoguesF4.ts | +            },
+src/game/data/dialoguesF4.ts | +          ],
+src/game/data/dialoguesF4.ts | +        },
+src/game/data/dialoguesF4.ts | +      },
+src/game/data/dialoguesF4.ts | +    },
+src/game/data/dialoguesF4.ts | +    {
+src/game/data/dialoguesF4.ts | +      // q11: report after the flagship
+src/game/data/dialoguesF4.ts | +      cond: 'STR',
+src/game/data/dialoguesF4.ts | +      notCond: 'STR',
+src/game/data/dialoguesF4.ts | +      start: 'STR',
+src/game/data/dialoguesF4.ts | +      nodes: {
+src/game/data/dialoguesF4.ts | +        st1: {
+src/game/data/dialoguesF4.ts | +          text: 'STR',
+src/game/data/dialoguesF4.ts | +          options: [
+src/game/data/dialoguesF4.ts | +            { text: 'STR', next: 'STR' },
+src/game/data/dialoguesF4.ts | +            { text: 'STR', next: 'STR' },
+src/game/data/dialoguesF4.ts | +          ],
+src/game/data/dialoguesF4.ts | +        },
+src/game/data/dialoguesF4.ts | +        st2: {
+src/game/data/dialoguesF4.ts | +          text: 'STR',
+src/game/data/dialoguesF4.ts | +          options: [
+src/game/data/dialoguesF4.ts | +            {
+src/game/data/dialoguesF4.ts | +              text: 'STR',
+src/game/data/dialoguesF4.ts | +              action: [
+src/game/data/dialoguesF4.ts | +                { t: 'STR', flag: 'STR' },
+src/game/data/dialoguesF4.ts | +                { t: 'STR' },
+src/game/data/dialoguesF4.ts | +              ],
+src/game/data/dialoguesF4.ts | +            },
+src/game/data/dialoguesF4.ts | +          ],
+src/game/data/dialoguesF4.ts | +        },
+src/game/data/dialoguesF4.ts | +      },
+src/game/data/dialoguesF4.ts | +    },
+src/game/data/dialoguesF4.ts | +    {
+src/game/data/dialoguesF4.ts | +      // q14: the Council
+src/game/data/dialoguesF4.ts | +      cond: 'STR',
+src/game/data/dialoguesF4.ts | +      notCond: 'STR',
+src/game/data/dialoguesF4.ts | +      start: 'STR',
+src/game/data/dialoguesF4.ts | +      nodes: {
+src/game/data/dialoguesF4.ts | +        cn1: {
+src/game/data/dialoguesF4.ts | +          text: 'STR',
+src/game/data/dialoguesF4.ts | +          options: [
+src/game/data/dialoguesF4.ts | +            { text: 'STR', next: 'STR' },
+src/game/data/dialoguesF4.ts | +            { text: 'STR', next: 'STR' },
+src/game/data/dialoguesF4.ts | +          ],
+src/game/data/dialoguesF4.ts | +        },
+src/game/data/dialoguesF4.ts | +        cn2: {
+src/game/data/dialoguesF4.ts | +          text: 'STR',
+src/game/data/dialoguesF4.ts | +          options: [{ text: 'STR', next: 'STR' }],
+src/game/data/dialoguesF4.ts | +        },
+src/game/data/dialoguesF4.ts | +        cn3: {
+src/game/data/dialoguesF4.ts | +          text: 'STR',
+src/game/data/dialoguesF4.ts | +          options: [{ text: 'STR', next: 'STR' }],
+src/game/data/dialoguesF4.ts | +        },
+src/game/data/dialoguesF4.ts | +        cn4: {
+src/game/data/dialoguesF4.ts | +          text: 'STR',
+src/game/data/dialoguesF4.ts | +          options: [
+src/game/data/dialoguesF4.ts | +            {
+src/game/data/dialoguesF4.ts | +              text: 'STR',
+src/game/data/dialoguesF4.ts | +              action: [
+src/game/data/dialoguesF4.ts | +                { t: 'STR', target: 'STR' },
+src/game/data/dialoguesF4.ts | +                { t: 'STR', flag: 'STR' },
+src/game/data/dialoguesF4.ts | +                { t: 'STR' },
+src/game/data/dialoguesF4.ts | +              ],
+src/game/data/dialoguesF4.ts | +            },
+src/game/data/dialoguesF4.ts | +          ],
+src/game/data/dialoguesF4.ts | +        },
+src/game/data/dialoguesF4.ts | +      },
+src/game/data/dialoguesF4.ts | +    },
+src/game/data/dialoguesF4.ts | +    {
+src/game/data/dialoguesF4.ts | +      // sq_guardianes: the knight statue report
+src/game/data/dialoguesF4.ts | +      cond: 'STR',
+src/game/data/dialoguesF4.ts | +      notCond: 'STR',
+src/game/data/dialoguesF4.ts | +      start: 'STR',
+src/game/data/dialoguesF4.ts | +      nodes: {
+src/game/data/dialoguesF4.ts | +        es1: {
+src/game/data/dialoguesF4.ts | +          text: 'STR',
+src/game/data/dialoguesF4.ts | +          options: [
+src/game/data/dialoguesF4.ts | +            {
+src/game/data/dialoguesF4.ts | +              text: 'STR',
+src/game/data/dialoguesF4.ts | +              next: 'STR',
+src/game/data/dialoguesF4.ts | +            },
+src/game/data/dialoguesF4.ts | +          ],
+src/game/data/dialoguesF4.ts | +        },
+src/game/data/dialoguesF4.ts | +        es2: {
+src/game/data/dialoguesF4.ts | +          text: 'STR',
+src/game/data/dialoguesF4.ts | +          options: [
+src/game/data/dialoguesF4.ts | +            {
+src/game/data/dialoguesF4.ts | +              text: 'STR',
+src/game/data/dialoguesF4.ts | +              action: [
+src/game/data/dialoguesF4.ts | +                { t: 'STR', target: 'STR' },
+src/game/data/dialoguesF4.ts | +                { t: 'STR', flag: 'STR' },
+src/game/data/dialoguesF4.ts | +                { t: 'STR' },
+src/game/data/dialoguesF4.ts | +              ],
+src/game/data/dialoguesF4.ts | +            },
+src/game/data/dialoguesF4.ts | +          ],
+src/game/data/dialoguesF4.ts | +        },
+src/game/data/dialoguesF4.ts | +      },
+src/game/data/dialoguesF4.ts | +    },
+src/game/data/dialoguesF4.ts | +    {
+src/game/data/dialoguesF4.ts | +      // sq_estandarte: obsidian feathers
+src/game/data/dialoguesF4.ts | +      cond: 'STR',
+src/game/data/dialoguesF4.ts | +      notCond: 'STR',
+src/game/data/dialoguesF4.ts | +      requireItem: { id: 'STR', count: 3 },
+src/game/data/dialoguesF4.ts | +      start: 'STR',
+src/game/data/dialoguesF4.ts | +      nodes: {
+src/game/data/dialoguesF4.ts | +        pl1: {
+src/game/data/dialoguesF4.ts | +          text: 'STR',
+src/game/data/dialoguesF4.ts | +          options: [
+src/game/data/dialoguesF4.ts | +            {
+src/game/data/dialoguesF4.ts | +              text: 'STR',
+src/game/data/dialoguesF4.ts | +              next: 'STR',
+src/game/data/dialoguesF4.ts | +            },
+src/game/data/dialoguesF4.ts | +          ],
+src/game/data/dialoguesF4.ts | +        },
+src/game/data/dialoguesF4.ts | +        pl2: {
+src/game/data/dialoguesF4.ts | +          text: 'STR',
+src/game/data/dialoguesF4.ts | +          options: [
+src/game/data/dialoguesF4.ts | +            {
+src/game/data/dialoguesF4.ts | +              text: 'STR',
+src/game/data/dialoguesF4.ts | +              action: [
+src/game/data/dialoguesF4.ts | +                { t: 'STR', id: 'STR', count: 3 },
+src/game/data/dialoguesF4.ts | +                { t: 'STR', target: 'STR' },
+src/game/data/dialoguesF4.ts | +                { t: 'STR', flag: 'STR' },
+src/game/data/dialoguesF4.ts | +                { t: 'STR' },
+src/game/data/dialoguesF4.ts | +              ],
+src/game/data/dialoguesF4.ts | +            },
+src/game/data/dialoguesF4.ts | +          ],
+src/game/data/dialoguesF4.ts | +        },
+src/game/data/dialoguesF4.ts | +      },
+src/game/data/dialoguesF4.ts | +    },
+src/game/data/dialoguesF4.ts | +    {
+src/game/data/dialoguesF4.ts | +      // sq_lamento: after listening to the ruins
+src/game/data/dialoguesF4.ts | +      cond: 'STR',
+src/game/data/dialoguesF4.ts | +      notCond: 'STR',
+src/game/data/dialoguesF4.ts | +      start: 'STR',
+src/game/data/dialoguesF4.ts | +      nodes: {
+src/game/data/dialoguesF4.ts | +        lm1: {
+src/game/data/dialoguesF4.ts | +          text: 'STR',
+src/game/data/dialoguesF4.ts | +          options: [
+src/game/data/dialoguesF4.ts | +            {
+src/game/data/dialoguesF4.ts | +              text: 'STR',
+src/game/data/dialoguesF4.ts | +              action: [
+src/game/data/dialoguesF4.ts | +                { t: 'STR', target: 'STR' },
+src/game/data/dialoguesF4.ts | +                { t: 'STR', flag: 'STR' },
+src/game/data/dialoguesF4.ts | +                { t: 'STR' },
+src/game/data/dialoguesF4.ts | +              ],
+src/game/data/dialoguesF4.ts | +            },
+src/game/data/dialoguesF4.ts | +          ],
+src/game/data/dialoguesF4.ts | +        },
+src/game/data/dialoguesF4.ts | +      },
+src/game/data/dialoguesF4.ts | +    },
+src/game/data/dialoguesF4.ts | +    {
+src/game/data/dialoguesF4.ts | +      // sq_estandarte: offer the feather hunt
+src/game/data/dialoguesF4.ts | +      cond: 'STR',
+src/game/data/dialoguesF4.ts | +      notCond: 'STR',
+src/game/data/dialoguesF4.ts | +      start: 'STR',
+src/game/data/dialoguesF4.ts | +      nodes: {
+src/game/data/dialoguesF4.ts | +        pl0: {
+src/game/data/dialoguesF4.ts | +          text: 'STR',
+src/game/data/dialoguesF4.ts | +          options: [
+src/game/data/dialoguesF4.ts | +            {
+src/game/data/dialoguesF4.ts | +              text: 'STR',
+src/game/data/dialoguesF4.ts | +              action: [
+src/game/data/dialoguesF4.ts | +                { t: 'STR', flag: 'STR' },
+src/game/data/dialoguesF4.ts | +                { t: 'STR' },
+src/game/data/dialoguesF4.ts | +              ],
+src/game/data/dialoguesF4.ts | +            },
+src/game/data/dialoguesF4.ts | +          ],
+src/game/data/dialoguesF4.ts | +        },
+src/game/data/dialoguesF4.ts | +      },
+src/game/data/dialoguesF4.ts | +    },
+src/game/data/dialoguesF4.ts | +  ],
+src/game/data/dialoguesF4.ts | +
+src/game/data/dialoguesF4.ts | +  // ---------------- HALVARD — the stable master (new NPC) ----------------
+src/game/data/dialoguesF4.ts | +  // (full definition below, not an insert)
+src/game/data/dialoguesF4.ts | +
+src/game/data/dialoguesF4.ts | +  // ---------------- BRAM — the Guardian forge (q12) ----------------
+src/game/data/dialoguesF4.ts | +  bram: [
+src/game/data/dialoguesF4.ts | +    {
+src/game/data/dialoguesF4.ts | +      cond: 'STR',
+src/game/data/dialoguesF4.ts | +      notCond: 'STR',
+src/game/data/dialoguesF4.ts | +      start: 'STR',
+src/game/data/dialoguesF4.ts | +      nodes: {
+src/game/data/dialoguesF4.ts | +        fg1: {
+src/game/data/dialoguesF4.ts | +          text: 'STR',
+src/game/data/dialoguesF4.ts | +          options: [
+src/game/data/dialoguesF4.ts | +            { text: 'STR', next: 'STR' },
+src/game/data/dialoguesF4.ts | +            { text: 'STR', next: 'STR' },
+src/game/data/dialoguesF4.ts | +          ],
+src/game/data/dialoguesF4.ts | +        },
+src/game/data/dialoguesF4.ts | +        fg2: {
+src/game/data/dialoguesF4.ts | +          text: 'STR',
+src/game/data/dialoguesF4.ts | +          options: [{ text: 'STR', next: 'STR' }],
+src/game/data/dialoguesF4.ts | +        },
+src/game/data/dialoguesF4.ts | +        fg3: {
+src/game/data/dialoguesF4.ts | +          text: 'STR',
+src/game/data/dialoguesF4.ts | +          options: [
+src/game/data/dialoguesF4.ts | +            {
+src/game/data/dialoguesF4.ts | +              text: 'STR',
+src/game/data/dialoguesF4.ts | +              action: [
+src/game/data/dialoguesF4.ts | +                { t: 'STR', target: 'STR' },
+src/game/data/dialoguesF4.ts | +                { t: 'STR', flag: 'STR' },
+src/game/data/dialoguesF4.ts | +                { t: 'STR' },
+src/game/data/dialoguesF4.ts | +              ],
+src/game/data/dialoguesF4.ts | +            },
+src/game/data/dialoguesF4.ts | +          ],
+src/game/data/dialoguesF4.ts | +        },
+src/game/data/dialoguesF4.ts | +      },
+src/game/data/dialoguesF4.ts | +    },
+src/game/data/dialoguesF4.ts | +    {
+src/game/data/dialoguesF4.ts | +      // sq_yunque: scales delivery
+src/game/data/dialoguesF4.ts | +      cond: 'STR',
+src/game/data/dialoguesF4.ts | +      notCond: 'STR',
+src/game/data/dialoguesF4.ts | +      requireItem: { id: 'STR', count: 3 },
+src/game/data/dialoguesF4.ts | +      start: 'STR',
+src/game/data/dialoguesF4.ts | +      nodes: {
+src/game/data/dialoguesF4.ts | +        yq1: {
+src/game/data/dialoguesF4.ts | +          text: 'STR',
+src/game/data/dialoguesF4.ts | +          options: [
+src/game/data/dialoguesF4.ts | +            {
+src/game/data/dialoguesF4.ts | +              text: 'STR',
+src/game/data/dialoguesF4.ts | +              action: [
+src/game/data/dialoguesF4.ts | +                { t: 'STR', id: 'STR', count: 3 },
+src/game/data/dialoguesF4.ts | +                { t: 'STR', target: 'STR' },
+src/game/data/dialoguesF4.ts | +                { t: 'STR', flag: 'STR' },
+src/game/data/dialoguesF4.ts | +                { t: 'STR' },
+src/game/data/dialoguesF4.ts | +              ],
+src/game/data/dialoguesF4.ts | +            },
+src/game/data/dialoguesF4.ts | +          ],
+src/game/data/dialoguesF4.ts | +        },
+src/game/data/dialoguesF4.ts | +      },
+src/game/data/dialoguesF4.ts | +    },
+src/game/data/dialoguesF4.ts | +    {
+src/game/data/dialoguesF4.ts | +      // sq_yunque: offer
+src/game/data/dialoguesF4.ts | +      cond: 'STR',
+src/game/data/dialoguesF4.ts | +      notCond: 'STR',
+src/game/data/dialoguesF4.ts | +      start: 'STR',
+src/game/data/dialoguesF4.ts | +      nodes: {
+src/game/data/dialoguesF4.ts | +        yq0: {
+src/game/data/dialoguesF4.ts | +          text: 'STR',
+src/game/data/dialoguesF4.ts | +          options: [
+src/game/data/dialoguesF4.ts | +            {
+src/game/data/dialoguesF4.ts | +              text: 'STR',
+src/game/data/dialoguesF4.ts | +              action: [
+src/game/data/dialoguesF4.ts | +                { t: 'STR', flag: 'STR' },
+src/game/data/dialoguesF4.ts | +                { t: 'STR' },
+src/game/data/dialoguesF4.ts | +              ],
+src/game/data/dialoguesF4.ts | +            },
+src/game/data/dialoguesF4.ts | +          ],
+src/game/data/dialoguesF4.ts | +        },
+src/game/data/dialoguesF4.ts | +      },
+src/game/data/dialoguesF4.ts | +    },
+src/game/data/dialoguesF4.ts | +  ],
+src/game/data/dialoguesF4.ts | +
+src/game/data/dialoguesF4.ts | +  // ---------------- MAREN — potions & petals ----------------
+src/game/data/dialoguesF4.ts | +  maren: [
+src/game/data/dialoguesF4.ts | +    {
+src/game/data/dialoguesF4.ts | +      // q12: provisions
+src/game/data/dialoguesF4.ts | +      cond: 'STR',
+src/game/data/dialoguesF4.ts | +      notCond: 'STR',
+src/game/data/dialoguesF4.ts | +      start: 'STR',
+src/game/data/dialoguesF4.ts | +      nodes: {
+src/game/data/dialoguesF4.ts | +        mp1: {
+src/game/data/dialoguesF4.ts | +          text: 'STR',
+src/game/data/dialoguesF4.ts | +          options: [
+src/game/data/dialoguesF4.ts | +            { text: 'STR', next: 'STR' },
+src/game/data/dialoguesF4.ts | +          ],
+src/game/data/dialoguesF4.ts | +        },
+src/game/data/dialoguesF4.ts | +        mp2: {
+src/game/data/dialoguesF4.ts | +          text: 'STR',
+src/game/data/dialoguesF4.ts | +          options: [
+src/game/data/dialoguesF4.ts | +            {
+src/game/data/dialoguesF4.ts | +              text: 'STR',
+src/game/data/dialoguesF4.ts | +              action: [
+src/game/data/dialoguesF4.ts | +                { t: 'STR', id: 'STR', count: 3 },
+src/game/data/dialoguesF4.ts | +                { t: 'STR', target: 'STR' },
+src/game/data/dialoguesF4.ts | +                { t: 'STR', flag: 'STR' },
+src/game/data/dialoguesF4.ts | +                { t: 'STR' },
+src/game/data/dialoguesF4.ts | +              ],
+src/game/data/dialoguesF4.ts | +            },
+src/game/data/dialoguesF4.ts | +          ],
+src/game/data/dialoguesF4.ts | +        },
+src/game/data/dialoguesF4.ts | +      },
+src/game/data/dialoguesF4.ts | +    },
+src/game/data/dialoguesF4.ts | +    {
+src/game/data/dialoguesF4.ts | +      // sq_petalo_tumba: petals delivery
+src/game/data/dialoguesF4.ts | +      cond: 'STR',
+src/game/data/dialoguesF4.ts | +      notCond: 'STR',
+src/game/data/dialoguesF4.ts | +      requireItem: { id: 'STR', count: 5 },
+src/game/data/dialoguesF4.ts | +      start: 'STR',
+src/game/data/dialoguesF4.ts | +      nodes: {
+src/game/data/dialoguesF4.ts | +        pt1: {
+src/game/data/dialoguesF4.ts | +          text: 'STR',
+src/game/data/dialoguesF4.ts | +          options: [
+src/game/data/dialoguesF4.ts | +            {
+src/game/data/dialoguesF4.ts | +              text: 'STR',
+src/game/data/dialoguesF4.ts | +              action: [
+src/game/data/dialoguesF4.ts | +                { t: 'STR', id: 'STR', count: 5 },
+src/game/data/dialoguesF4.ts | +                { t: 'STR', target: 'STR' },
+src/game/data/dialoguesF4.ts | +                { t: 'STR', flag: 'STR' },
+src/game/data/dialoguesF4.ts | +                { t: 'STR' },
+src/game/data/dialoguesF4.ts | +              ],
+src/game/data/dialoguesF4.ts | +            },
+src/game/data/dialoguesF4.ts | +          ],
+src/game/data/dialoguesF4.ts | +        },
+src/game/data/dialoguesF4.ts | +      },
+src/game/data/dialoguesF4.ts | +    },
+src/game/data/dialoguesF4.ts | +    {
+src/game/data/dialoguesF4.ts | +      // sq_arce: maple seed delivery
+src/game/data/dialoguesF4.ts | +      cond: 'STR',
+src/game/data/dialoguesF4.ts | +      notCond: 'STR',
+src/game/data/dialoguesF4.ts | +      requireItem: { id: 'STR', count: 1 },
+src/game/data/dialoguesF4.ts | +      start: 'STR',
+src/game/data/dialoguesF4.ts | +      nodes: {
+src/game/data/dialoguesF4.ts | +        ar1: {
+src/game/data/dialoguesF4.ts | +          text: 'STR',
+src/game/data/dialoguesF4.ts | +          options: [
+src/game/data/dialoguesF4.ts | +            {
+src/game/data/dialoguesF4.ts | +              text: 'STR',
+src/game/data/dialoguesF4.ts | +              action: [
+src/game/data/dialoguesF4.ts | +                { t: 'STR', id: 'STR', count: 1 },
+src/game/data/dialoguesF4.ts | +                { t: 'STR', target: 'STR' },
+src/game/data/dialoguesF4.ts | +                { t: 'STR', flag: 'STR' },
+src/game/data/dialoguesF4.ts | +                { t: 'STR' },
+src/game/data/dialoguesF4.ts | +              ],
+src/game/data/dialoguesF4.ts | +            },
+src/game/data/dialoguesF4.ts | +          ],
+src/game/data/dialoguesF4.ts | +        },
+src/game/data/dialoguesF4.ts | +      },
+src/game/data/dialoguesF4.ts | +    },
+src/game/data/dialoguesF4.ts | +    {
+src/game/data/dialoguesF4.ts | +      // sq_petalo_tumba: offer
+src/game/data/dialoguesF4.ts | +      cond: 'STR',
+src/game/data/dialoguesF4.ts | +      notCond: 'STR',
+src/game/data/dialoguesF4.ts | +      start: 'STR',
+src/game/data/dialoguesF4.ts | +      nodes: {
+src/game/data/dialoguesF4.ts | +        pt0: {
+src/game/data/dialoguesF4.ts | +          text: 'STR',
+src/game/data/dialoguesF4.ts | +          options: [
+src/game/data/dialoguesF4.ts | +            {
+src/game/data/dialoguesF4.ts | +              text: 'STR',
+src/game/data/dialoguesF4.ts | +              action: [
+src/game/data/dialoguesF4.ts | +                { t: 'STR', flag: 'STR' },
+src/game/data/dialoguesF4.ts | +                { t: 'STR' },
+src/game/data/dialoguesF4.ts | +              ],
+src/game/data/dialoguesF4.ts | +            },
+src/game/data/dialoguesF4.ts | +          ],
+src/game/data/dialoguesF4.ts | +        },
+src/game/data/dialoguesF4.ts | +      },
+src/game/data/dialoguesF4.ts | +    },
+src/game/data/dialoguesF4.ts | +    {
+src/game/data/dialoguesF4.ts | +      // sq_arce: offer
+src/game/data/dialoguesF4.ts | +      cond: 'STR',
+src/game/data/dialoguesF4.ts | +      notCond: 'STR',
+src/game/data/dialoguesF4.ts | +      start: 'STR',
+src/game/data/dialoguesF4.ts | +      nodes: {
+src/game/data/dialoguesF4.ts | +        ar0: {
+src/game/data/dialoguesF4.ts | +          text: 'STR',
+src/game/data/dialoguesF4.ts | +          options: [
+src/game/data/dialoguesF4.ts | +            {
+src/game/data/dialoguesF4.ts | +              text: 'STR',
+src/game/data/dialoguesF4.ts | +              action: [
+src/game/data/dialoguesF4.ts | +                { t: 'STR', flag: 'STR' },
+src/game/data/dialoguesF4.ts | +                { t: 'STR' },
+src/game/data/dialoguesF4.ts | +              ],
+src/game/data/dialoguesF4.ts | +            },
+src/game/data/dialoguesF4.ts | +          ],
+src/game/data/dialoguesF4.ts | +        },
+src/game/data/dialoguesF4.ts | +      },
+src/game/data/dialoguesF4.ts | +    },
+src/game/data/dialoguesF4.ts | +  ],
+src/game/data/dialoguesF4.ts | +
+src/game/data/dialoguesF4.ts | +  // ---------------- TOM — fish, sails & storms ----------------
+src/game/data/dialoguesF4.ts | +  tom: [
+src/game/data/dialoguesF4.ts | +    {
+src/game/data/dialoguesF4.ts | +      // sq_raciones: fish delivery
+src/game/data/dialoguesF4.ts | +      cond: 'STR',
+src/game/data/dialoguesF4.ts | +      notCond: 'STR',
+src/game/data/dialoguesF4.ts | +      requireItem: { id: 'STR', count: 4 },
+src/game/data/dialoguesF4.ts | +      start: 'STR',
+src/game/data/dialoguesF4.ts | +      nodes: {
+src/game/data/dialoguesF4.ts | +        ra1: {
+src/game/data/dialoguesF4.ts | +          text: 'STR',
+src/game/data/dialoguesF4.ts | +          options: [
+src/game/data/dialoguesF4.ts | +            {
+src/game/data/dialoguesF4.ts | +              text: 'STR',
+src/game/data/dialoguesF4.ts | +              action: [
+src/game/data/dialoguesF4.ts | +                { t: 'STR', id: 'STR', count: 4 },
+src/game/data/dialoguesF4.ts | +                { t: 'STR', target: 'STR' },
+src/game/data/dialoguesF4.ts | +                { t: 'STR', flag: 'STR' },
+src/game/data/dialoguesF4.ts | +                { t: 'STR' },
+src/game/data/dialoguesF4.ts | +              ],
+src/game/data/dialoguesF4.ts | +            },
+src/game/data/dialoguesF4.ts | +          ],
+src/game/data/dialoguesF4.ts | +        },
+src/game/data/dialoguesF4.ts | +      },
+src/game/data/dialoguesF4.ts | +    },
+src/game/data/dialoguesF4.ts | +    {
+src/game/data/dialoguesF4.ts | +      // sq_vela: sailcloth delivery
+src/game/data/dialoguesF4.ts | +      cond: 'STR',
+src/game/data/dialoguesF4.ts | +      notCond: 'STR',
+src/game/data/dialoguesF4.ts | +      requireItem: { id: 'STR', count: 3 },
+src/game/data/dialoguesF4.ts | +      start: 'STR',
+src/game/data/dialoguesF4.ts | +      nodes: {
+src/game/data/dialoguesF4.ts | +        ve1: {
+src/game/data/dialoguesF4.ts | +          text: 'STR',
+src/game/data/dialoguesF4.ts | +          options: [
+src/game/data/dialoguesF4.ts | +            {
+src/game/data/dialoguesF4.ts | +              text: 'STR',
+src/game/data/dialoguesF4.ts | +              action: [
+src/game/data/dialoguesF4.ts | +                { t: 'STR', id: 'STR', count: 3 },
+src/game/data/dialoguesF4.ts | +                { t: 'STR', id: 'STR', count: 2 },
+src/game/data/dialoguesF4.ts | +                { t: 'STR', target: 'STR' },
+src/game/data/dialoguesF4.ts | +                { t: 'STR', flag: 'STR' },
+src/game/data/dialoguesF4.ts | +                { t: 'STR' },
+src/game/data/dialoguesF4.ts | +              ],
+src/game/data/dialoguesF4.ts | +            },
+src/game/data/dialoguesF4.ts | +          ],
+src/game/data/dialoguesF4.ts | +        },
+src/game/data/dialoguesF4.ts | +      },
+src/game/data/dialoguesF4.ts | +    },
+src/game/data/dialoguesF4.ts | +    {
+src/game/data/dialoguesF4.ts | +      // sq_cazatormentas: report the storm
+src/game/data/dialoguesF4.ts | +      cond: 'STR',
+src/game/data/dialoguesF4.ts | +      notCond: 'STR',
+src/game/data/dialoguesF4.ts | +      start: 'STR',
+src/game/data/dialoguesF4.ts | +      nodes: {
+src/game/data/dialoguesF4.ts | +        to1: {
+src/game/data/dialoguesF4.ts | +          text: 'STR',
+src/game/data/dialoguesF4.ts | +          options: [
+src/game/data/dialoguesF4.ts | +            {
+src/game/data/dialoguesF4.ts | +              text: 'STR',
+src/game/data/dialoguesF4.ts | +              action: [
+src/game/data/dialoguesF4.ts | +                { t: 'STR', target: 'STR' },
+src/game/data/dialoguesF4.ts | +                { t: 'STR', flag: 'STR' },
+src/game/data/dialoguesF4.ts | +                { t: 'STR' },
+src/game/data/dialoguesF4.ts | +              ],
+src/game/data/dialoguesF4.ts | +            },
+src/game/data/dialoguesF4.ts | +          ],
+src/game/data/dialoguesF4.ts | +        },
+src/game/data/dialoguesF4.ts | +      },
+src/game/data/dialoguesF4.ts | +    },
+src/game/data/dialoguesF4.ts | +    {
+src/game/data/dialoguesF4.ts | +      // sq_raciones: offer
+src/game/data/dialoguesF4.ts | +      cond: 'STR',
+src/game/data/dialoguesF4.ts | +      notCond: 'STR',
+src/game/data/dialoguesF4.ts | +      start: 'STR',
+src/game/data/dialoguesF4.ts | +      nodes: {
+src/game/data/dialoguesF4.ts | +        ra0: {
+src/game/data/dialoguesF4.ts | +          text: 'STR',
+src/game/data/dialoguesF4.ts | +          options: [
+src/game/data/dialoguesF4.ts | +            {
+src/game/data/dialoguesF4.ts | +              text: 'STR',
+src/game/data/dialoguesF4.ts | +              action: [
+src/game/data/dialoguesF4.ts | +                { t: 'STR', flag: 'STR' },
+src/game/data/dialoguesF4.ts | +                { t: 'STR' },
+src/game/data/dialoguesF4.ts | +              ],
+src/game/data/dialoguesF4.ts | +            },
+src/game/data/dialoguesF4.ts | +          ],
+src/game/data/dialoguesF4.ts | +        },
+src/game/data/dialoguesF4.ts | +      },
+src/game/data/dialoguesF4.ts | +    },
+src/game/data/dialoguesF4.ts | +    {
+src/game/data/dialoguesF4.ts | +      // sq_vela: offer
+src/game/data/dialoguesF4.ts | +      cond: 'STR',
+src/game/data/dialoguesF4.ts | +      notCond: 'STR',
+src/game/data/dialoguesF4.ts | +      start: 'STR',
+src/game/data/dialoguesF4.ts | +      nodes: {
+src/game/data/dialoguesF4.ts | +        ve0: {
+src/game/data/dialoguesF4.ts | +          text: 'STR',
+src/game/data/dialoguesF4.ts | +          options: [
+src/game/data/dialoguesF4.ts | +            {
+src/game/data/dialoguesF4.ts | +              text: 'STR',
+src/game/data/dialoguesF4.ts | +              action: [
+src/game/data/dialoguesF4.ts | +                { t: 'STR', flag: 'STR' },
+src/game/data/dialoguesF4.ts | +                { t: 'STR' },
+src/game/data/dialoguesF4.ts | +              ],
+src/game/data/dialoguesF4.ts | +            },
+src/game/data/dialoguesF4.ts | +          ],
+src/game/data/dialoguesF4.ts | +        },
+src/game/data/dialoguesF4.ts | +      },
+src/game/data/dialoguesF4.ts | +    },
+src/game/data/dialoguesF4.ts | +    {
+src/game/data/dialoguesF4.ts | +      // sq_cazatormentas: offer
+src/game/data/dialoguesF4.ts | +      cond: 'STR',
+src/game/data/dialoguesF4.ts | +      notCond: 'STR',
+src/game/data/dialoguesF4.ts | +      start: 'STR',
+src/game/data/dialoguesF4.ts | +      nodes: {
+src/game/data/dialoguesF4.ts | +        ca0: {
+src/game/data/dialoguesF4.ts | +          text: 'STR',
+src/game/data/dialoguesF4.ts | +          options: [
+src/game/data/dialoguesF4.ts | +            {
+src/game/data/dialoguesF4.ts | +              text: 'STR',
+src/game/data/dialoguesF4.ts | +              action: [
+src/game/data/dialoguesF4.ts | +                { t: 'STR', flag: 'STR' },
+src/game/data/dialoguesF4.ts | +                { t: 'STR' },
+src/game/data/dialoguesF4.ts | +              ],
+src/game/data/dialoguesF4.ts | +            },
+src/game/data/dialoguesF4.ts | +          ],
+src/game/data/dialoguesF4.ts | +        },
+src/game/data/dialoguesF4.ts | +      },
+src/game/data/dialoguesF4.ts | +    },
+src/game/data/dialoguesF4.ts | +  ],
+src/game/data/dialoguesF4.ts | +
+src/game/data/dialoguesF4.ts | +  // ---------------- ROSA — the tavern tales ----------------
+src/game/data/dialoguesF4.ts | +  rosa: [
+src/game/data/dialoguesF4.ts | +    {
+src/game/data/dialoguesF4.ts | +      // sq_cartas: tablets report
+src/game/data/dialoguesF4.ts | +      cond: 'STR',
+src/game/data/dialoguesF4.ts | +      notCond: 'STR',
+src/game/data/dialoguesF4.ts | +      start: 'STR',
+src/game/data/dialoguesF4.ts | +      nodes: {
+src/game/data/dialoguesF4.ts | +        rc1f: {
+src/game/data/dialoguesF4.ts | +          text: 'STR',
+src/game/data/dialoguesF4.ts | +          options: [
+src/game/data/dialoguesF4.ts | +            {
+src/game/data/dialoguesF4.ts | +              text: 'STR',
+src/game/data/dialoguesF4.ts | +              action: [
+src/game/data/dialoguesF4.ts | +                { t: 'STR', target: 'STR' },
+src/game/data/dialoguesF4.ts | +                { t: 'STR', flag: 'STR' },
+src/game/data/dialoguesF4.ts | +                { t: 'STR' },
+src/game/data/dialoguesF4.ts | +              ],
+src/game/data/dialoguesF4.ts | +            },
+src/game/data/dialoguesF4.ts | +          ],
+src/game/data/dialoguesF4.ts | +        },
+src/game/data/dialoguesF4.ts | +      },
+src/game/data/dialoguesF4.ts | +    },
+src/game/data/dialoguesF4.ts | +    {
+src/game/data/dialoguesF4.ts | +      // sq_cartas: offer
+src/game/data/dialoguesF4.ts | +      cond: 'STR',
+src/game/data/dialoguesF4.ts | +      notCond: 'STR',
+src/game/data/dialoguesF4.ts | +      start: 'STR',
+src/game/data/dialoguesF4.ts | +      nodes: {
+src/game/data/dialoguesF4.ts | +        rc0: {
+src/game/data/dialoguesF4.ts | +          text: 'STR',
+src/game/data/dialoguesF4.ts | +          options: [
+src/game/data/dialoguesF4.ts | +            {
+src/game/data/dialoguesF4.ts | +              text: 'STR',
+src/game/data/dialoguesF4.ts | +              action: [
+src/game/data/dialoguesF4.ts | +                { t: 'STR', flag: 'STR' },
+src/game/data/dialoguesF4.ts | +                { t: 'STR' },
+src/game/data/dialoguesF4.ts | +              ],
+src/game/data/dialoguesF4.ts | +            },
+src/game/data/dialoguesF4.ts | +          ],
+src/game/data/dialoguesF4.ts | +        },
+src/game/data/dialoguesF4.ts | +      },
+src/game/data/dialoguesF4.ts | +    },
+src/game/data/dialoguesF4.ts | +  ],
+src/game/data/dialoguesF4.ts | +
+src/game/data/dialoguesF4.ts | +  // ---------------- ELIN — the shopkeeper ----------------
+src/game/data/dialoguesF4.ts | +  elin: [
+src/game/data/dialoguesF4.ts | +    {
+src/game/data/dialoguesF4.ts | +      // sq_espejo: mirror delivery
+src/game/data/dialoguesF4.ts | +      cond: 'STR',
+src/game/data/dialoguesF4.ts | +      notCond: 'STR',
+src/game/data/dialoguesF4.ts | +      requireItem: { id: 'STR', count: 1 },
+src/game/data/dialoguesF4.ts | +      start: 'STR',
+src/game/data/dialoguesF4.ts | +      nodes: {
+src/game/data/dialoguesF4.ts | +        ep1: {
+src/game/data/dialoguesF4.ts | +          text: 'STR',
+src/game/data/dialoguesF4.ts | +          options: [
+src/game/data/dialoguesF4.ts | +            {
+src/game/data/dialoguesF4.ts | +              text: 'STR',
+src/game/data/dialoguesF4.ts | +              action: [
+src/game/data/dialoguesF4.ts | +                { t: 'STR', id: 'STR', count: 1 },
+src/game/data/dialoguesF4.ts | +                { t: 'STR', target: 'STR' },
+src/game/data/dialoguesF4.ts | +                { t: 'STR', flag: 'STR' },
+src/game/data/dialoguesF4.ts | +                { t: 'STR' },
+src/game/data/dialoguesF4.ts | +              ],
+src/game/data/dialoguesF4.ts | +            },
+src/game/data/dialoguesF4.ts | +          ],
+src/game/data/dialoguesF4.ts | +        },
+src/game/data/dialoguesF4.ts | +      },
+src/game/data/dialoguesF4.ts | +    },
+src/game/data/dialoguesF4.ts | +    {
+src/game/data/dialoguesF4.ts | +      // sq_caravana: wood delivery (needs the cart hitched)
+src/game/data/dialoguesF4.ts | +      cond: 'STR',
+src/game/data/dialoguesF4.ts | +      notCond: 'STR',
+src/game/data/dialoguesF4.ts | +      requireItem: { id: 'STR', count: 2 },
+src/game/data/dialoguesF4.ts | +      start: 'STR',
+src/game/data/dialoguesF4.ts | +      nodes: {
+src/game/data/dialoguesF4.ts | +        cv1: {
+src/game/data/dialoguesF4.ts | +          text: 'STR',
+src/game/data/dialoguesF4.ts | +          options: [
+src/game/data/dialoguesF4.ts | +            {
+src/game/data/dialoguesF4.ts | +              text: 'STR',
+src/game/data/dialoguesF4.ts | +              action: [
+src/game/data/dialoguesF4.ts | +                { t: 'STR', id: 'STR', count: 2 },
+src/game/data/dialoguesF4.ts | +                { t: 'STR', target: 'STR' },
+src/game/data/dialoguesF4.ts | +                { t: 'STR', flag: 'STR' },
+src/game/data/dialoguesF4.ts | +                { t: 'STR' },
+src/game/data/dialoguesF4.ts | +              ],
+src/game/data/dialoguesF4.ts | +            },
+src/game/data/dialoguesF4.ts | +          ],
+src/game/data/dialoguesF4.ts | +        },
+src/game/data/dialoguesF4.ts | +      },
+src/game/data/dialoguesF4.ts | +    },
+src/game/data/dialoguesF4.ts | +    {
+src/game/data/dialoguesF4.ts | +      // sq_moneda: ancient coins delivery
+src/game/data/dialoguesF4.ts | +      cond: 'STR',
+src/game/data/dialoguesF4.ts | +      notCond: 'STR',
+src/game/data/dialoguesF4.ts | +      requireItem: { id: 'STR', count: 3 },
+src/game/data/dialoguesF4.ts | +      start: 'STR',
+src/game/data/dialoguesF4.ts | +      nodes: {
+src/game/data/dialoguesF4.ts | +        mn1: {
+src/game/data/dialoguesF4.ts | +          text: 'STR',
+src/game/data/dialoguesF4.ts | +          options: [
+src/game/data/dialoguesF4.ts | +            {
+src/game/data/dialoguesF4.ts | +              text: 'STR',
+src/game/data/dialoguesF4.ts | +              action: [
+src/game/data/dialoguesF4.ts | +                { t: 'STR', id: 'STR', count: 3 },
+src/game/data/dialoguesF4.ts | +                { t: 'STR', target: 'STR' },
+src/game/data/dialoguesF4.ts | +                { t: 'STR', flag: 'STR' },
+src/game/data/dialoguesF4.ts | +                { t: 'STR' },
+src/game/data/dialoguesF4.ts | +              ],
+src/game/data/dialoguesF4.ts | +            },
+src/game/data/dialoguesF4.ts | +          ],
+src/game/data/dialoguesF4.ts | +        },
+src/game/data/dialoguesF4.ts | +      },
+src/game/data/dialoguesF4.ts | +    },
+src/game/data/dialoguesF4.ts | +    {
+src/game/data/dialoguesF4.ts | +      // sq_comercio: rich report
+src/game/data/dialoguesF4.ts | +      cond: 'STR',
+src/game/data/dialoguesF4.ts | +      notCond: 'STR',
+src/game/data/dialoguesF4.ts | +      start: 'STR',
+src/game/data/dialoguesF4.ts | +      nodes: {
+src/game/data/dialoguesF4.ts | +        cm1: {
+src/game/data/dialoguesF4.ts | +          text: 'STR',
+src/game/data/dialoguesF4.ts | +          options: [
+src/game/data/dialoguesF4.ts | +            {
+src/game/data/dialoguesF4.ts | +              text: 'STR',
+src/game/data/dialoguesF4.ts | +              action: [
+src/game/data/dialoguesF4.ts | +                { t: 'STR', id: 'STR', count: 1 },
+src/game/data/dialoguesF4.ts | +                { t: 'STR', target: 'STR' },
+src/game/data/dialoguesF4.ts | +                { t: 'STR', flag: 'STR' },
+src/game/data/dialoguesF4.ts | +                { t: 'STR' },
+src/game/data/dialoguesF4.ts | +              ],
+src/game/data/dialoguesF4.ts | +            },
+src/game/data/dialoguesF4.ts | +          ],
+src/game/data/dialoguesF4.ts | +        },
+src/game/data/dialoguesF4.ts | +      },
+src/game/data/dialoguesF4.ts | +    },
+src/game/data/dialoguesF4.ts | +    {
+src/game/data/dialoguesF4.ts | +      // Offers: mirror + coins
+src/game/data/dialoguesF4.ts | +      cond: 'STR',
+src/game/data/dialoguesF4.ts | +      notCond: 'STR',
+src/game/data/dialoguesF4.ts | +      start: 'STR',
+src/game/data/dialoguesF4.ts | +      nodes: {
+src/game/data/dialoguesF4.ts | +        ep0: {
+src/game/data/dialoguesF4.ts | +          text: 'STR',
+src/game/data/dialoguesF4.ts | +          options: [
+src/game/data/dialoguesF4.ts | +            {
+src/game/data/dialoguesF4.ts | +              text: 'STR',
+src/game/data/dialoguesF4.ts | +              action: [
+src/game/data/dialoguesF4.ts | +                { t: 'STR', flag: 'STR' },
+src/game/data/dialoguesF4.ts | +                { t: 'STR' },
+src/game/data/dialoguesF4.ts | +              ],
+src/game/data/dialoguesF4.ts | +            },
+src/game/data/dialoguesF4.ts | +          ],
+src/game/data/dialoguesF4.ts | +        },
+src/game/data/dialoguesF4.ts | +      },
+src/game/data/dialoguesF4.ts | +    },
+src/game/data/dialoguesF4.ts | +    {
+src/game/data/dialoguesF4.ts | +      cond: 'STR',
+src/game/data/dialoguesF4.ts | +      notCond: 'STR',
+src/game/data/dialoguesF4.ts | +      start: 'STR',
+src/game/data/dialoguesF4.ts | +      nodes: {
+src/game/data/dialoguesF4.ts | +        mn0: {
+src/game/data/dialoguesF4.ts | +          text: 'STR',
+src/game/data/dialoguesF4.ts | +          options: [
+src/game/data/dialoguesF4.ts | +            {
+src/game/data/dialoguesF4.ts | +              text: 'STR',
+src/game/data/dialoguesF4.ts | +              action: [
+src/game/data/dialoguesF4.ts | +                { t: 'STR', flag: 'STR' },
+src/game/data/dialoguesF4.ts | +                { t: 'STR' },
+src/game/data/dialoguesF4.ts | +              ],
+src/game/data/dialoguesF4.ts | +            },
+src/game/data/dialoguesF4.ts | +          ],
+src/game/data/dialoguesF4.ts | +        },
+src/game/data/dialoguesF4.ts | +      },
+src/game/data/dialoguesF4.ts | +    },
+src/game/data/dialoguesF4.ts | +    {
+src/game/data/dialoguesF4.ts | +      cond: 'STR',
+src/game/data/dialoguesF4.ts | +      notCond: 'STR',
+src/game/data/dialoguesF4.ts | +      start: 'STR',
+src/game/data/dialoguesF4.ts | +      nodes: {
+src/game/data/dialoguesF4.ts | +        cv0: {
+src/game/data/dialoguesF4.ts | +          text: 'STR',
+src/game/data/dialoguesF4.ts | +          options: [
+src/game/data/dialoguesF4.ts | +            {
+src/game/data/dialoguesF4.ts | +              text: 'STR',
+src/game/data/dialoguesF4.ts | +              action: [
+src/game/data/dialoguesF4.ts | +                { t: 'STR', flag: 'STR' },
+src/game/data/dialoguesF4.ts | +                { t: 'STR' },
+src/game/data/dialoguesF4.ts | +              ],
+src/game/data/dialoguesF4.ts | +            },
+src/game/data/dialoguesF4.ts | +          ],
+src/game/data/dialoguesF4.ts | +        },
+src/game/data/dialoguesF4.ts | +      },
+src/game/data/dialoguesF4.ts | +    },
+src/game/data/dialoguesF4.ts | +    {
+src/game/data/dialoguesF4.ts | +      cond: 'STR',
+src/game/data/dialoguesF4.ts | +      notCond: 'STR',
+src/game/data/dialoguesF4.ts | +      start: 'STR',
+src/game/data/dialoguesF4.ts | +      nodes: {
+src/game/data/dialoguesF4.ts | +        cm0: {
+src/game/data/dialoguesF4.ts | +          text: 'STR',
+src/game/data/dialoguesF4.ts | +          options: [
+src/game/data/dialoguesF4.ts | +            {
+src/game/data/dialoguesF4.ts | +              text: 'STR',
+src/game/data/dialoguesF4.ts | +              action: [
+src/game/data/dialoguesF4.ts | +                { t: 'STR', flag: 'STR' },
+src/game/data/dialoguesF4.ts | +                { t: 'STR' },
+src/game/data/dialoguesF4.ts | +              ],
+src/game/data/dialoguesF4.ts | +            },
+src/game/data/dialoguesF4.ts | +          ],
+src/game/data/dialoguesF4.ts | +        },
+src/game/data/dialoguesF4.ts | +      },
+src/game/data/dialoguesF4.ts | +    },
+src/game/data/dialoguesF4.ts | +  ],
+src/game/data/dialoguesF4.ts | +
+src/game/data/dialoguesF4.ts | +  // ---------------- JORUND — the guard ----------------
+src/game/data/dialoguesF4.ts | +  jorund: [
+src/game/data/dialoguesF4.ts | +    {
+src/game/data/dialoguesF4.ts | +      // sq_fuegos: lighthouse report
+src/game/data/dialoguesF4.ts | +      cond: 'STR',
+src/game/data/dialoguesF4.ts | +      notCond: 'STR',
+src/game/data/dialoguesF4.ts | +      start: 'STR',
+src/game/data/dialoguesF4.ts | +      nodes: {
+src/game/data/dialoguesF4.ts | +        fu1: {
+src/game/data/dialoguesF4.ts | +          text: 'STR',
+src/game/data/dialoguesF4.ts | +          options: [
+src/game/data/dialoguesF4.ts | +            {
+src/game/data/dialoguesF4.ts | +              text: 'STR',
+src/game/data/dialoguesF4.ts | +              action: [
+src/game/data/dialoguesF4.ts | +                { t: 'STR', target: 'STR' },
+src/game/data/dialoguesF4.ts | +                { t: 'STR', flag: 'STR' },
+src/game/data/dialoguesF4.ts | +                { t: 'STR' },
+src/game/data/dialoguesF4.ts | +              ],
+src/game/data/dialoguesF4.ts | +            },
+src/game/data/dialoguesF4.ts | +          ],
+src/game/data/dialoguesF4.ts | +        },
+src/game/data/dialoguesF4.ts | +      },
+src/game/data/dialoguesF4.ts | +    },
+src/game/data/dialoguesF4.ts | +    {
+src/game/data/dialoguesF4.ts | +      // sq_bounty: drakelings reward
+src/game/data/dialoguesF4.ts | +      cond: 'STR',
+src/game/data/dialoguesF4.ts | +      notCond: 'STR',
+src/game/data/dialoguesF4.ts | +      start: 'STR',
+src/game/data/dialoguesF4.ts | +      nodes: {
+src/game/data/dialoguesF4.ts | +        bo1: {
+src/game/data/dialoguesF4.ts | +          text: 'STR',
+src/game/data/dialoguesF4.ts | +          options: [
+src/game/data/dialoguesF4.ts | +            {
+src/game/data/dialoguesF4.ts | +              text: 'STR',
+src/game/data/dialoguesF4.ts | +              action: [
+src/game/data/dialoguesF4.ts | +                { t: 'STR', target: 'STR' },
+src/game/data/dialoguesF4.ts | +                { t: 'STR', flag: 'STR' },
+src/game/data/dialoguesF4.ts | +                { t: 'STR' },
+src/game/data/dialoguesF4.ts | +              ],
+src/game/data/dialoguesF4.ts | +            },
+src/game/data/dialoguesF4.ts | +          ],
+src/game/data/dialoguesF4.ts | +        },
+src/game/data/dialoguesF4.ts | +      },
+src/game/data/dialoguesF4.ts | +    },
+src/game/data/dialoguesF4.ts | +    {
+src/game/data/dialoguesF4.ts | +      // sq_fuegos: offer
+src/game/data/dialoguesF4.ts | +      cond: 'STR',
+src/game/data/dialoguesF4.ts | +      notCond: 'STR',
+src/game/data/dialoguesF4.ts | +      start: 'STR',
+src/game/data/dialoguesF4.ts | +      nodes: {
+src/game/data/dialoguesF4.ts | +        fu0: {
+src/game/data/dialoguesF4.ts | +          text: 'STR',
+src/game/data/dialoguesF4.ts | +          options: [
+src/game/data/dialoguesF4.ts | +            {
+src/game/data/dialoguesF4.ts | +              text: 'STR',
+src/game/data/dialoguesF4.ts | +              action: [
+src/game/data/dialoguesF4.ts | +                { t: 'STR', flag: 'STR' },
+src/game/data/dialoguesF4.ts | +                { t: 'STR' },
+src/game/data/dialoguesF4.ts | +              ],
+src/game/data/dialoguesF4.ts | +            },
+src/game/data/dialoguesF4.ts | +          ],
+src/game/data/dialoguesF4.ts | +        },
+src/game/data/dialoguesF4.ts | +      },
+src/game/data/dialoguesF4.ts | +    },
+src/game/data/dialoguesF4.ts | +    {
+src/game/data/dialoguesF4.ts | +      // sq_bounty: offer
+src/game/data/dialoguesF4.ts | +      cond: 'STR',
+src/game/data/dialoguesF4.ts | +      notCond: 'STR',
+src/game/data/dialoguesF4.ts | +      start: 'STR',
+src/game/data/dialoguesF4.ts | +      nodes: {
+src/game/data/dialoguesF4.ts | +        bo0: {
+src/game/data/dialoguesF4.ts | +          text: 'STR',
+src/game/data/dialoguesF4.ts | +          options: [
+src/game/data/dialoguesF4.ts | +            {
+src/game/data/dialoguesF4.ts | +              text: 'STR',
+src/game/data/dialoguesF4.ts | +              action: [
+src/game/data/dialoguesF4.ts | +                { t: 'STR', flag: 'STR' },
+src/game/data/dialoguesF4.ts | +                { t: 'STR' },
+src/game/data/dialoguesF4.ts | +              ],
+src/game/data/dialoguesF4.ts | +            },
+src/game/data/dialoguesF4.ts | +          ],
+src/game/data/dialoguesF4.ts | +        },
+src/game/data/dialoguesF4.ts | +      },
+src/game/data/dialoguesF4.ts | +    },
+src/game/data/dialoguesF4.ts | +  ],
+src/game/data/dialoguesF4.ts | +
+src/game/data/dialoguesF4.ts | +  // ---------------- SIGRID — the laundress ----------------
+src/game/data/dialoguesF4.ts | +  sigrid: [
+src/game/data/dialoguesF4.ts | +    {
+src/game/data/dialoguesF4.ts | +      // sq_cascada: nightfall report
+src/game/data/dialoguesF4.ts | +      cond: 'STR',
+src/game/data/dialoguesF4.ts | +      notCond: 'STR',
+src/game/data/dialoguesF4.ts | +      start: 'STR',
+src/game/data/dialoguesF4.ts | +      nodes: {
+src/game/data/dialoguesF4.ts | +        sc1: {
+src/game/data/dialoguesF4.ts | +          text: 'STR',
+src/game/data/dialoguesF4.ts | +          options: [
+src/game/data/dialoguesF4.ts | +            {
+src/game/data/dialoguesF4.ts | +              text: 'STR',
+src/game/data/dialoguesF4.ts | +              action: [
+src/game/data/dialoguesF4.ts | +                { t: 'STR', target: 'STR' },
+src/game/data/dialoguesF4.ts | +                { t: 'STR', flag: 'STR' },
+src/game/data/dialoguesF4.ts | +                { t: 'STR' },
+src/game/data/dialoguesF4.ts | +              ],
+src/game/data/dialoguesF4.ts | +            },
+src/game/data/dialoguesF4.ts | +          ],
+src/game/data/dialoguesF4.ts | +        },
+src/game/data/dialoguesF4.ts | +      },
+src/game/data/dialoguesF4.ts | +    },
+src/game/data/dialoguesF4.ts | +    {
+src/game/data/dialoguesF4.ts | +      // sq_cascada: offer
+src/game/data/dialoguesF4.ts | +      cond: 'STR',
+src/game/data/dialoguesF4.ts | +      notCond: 'STR',
+src/game/data/dialoguesF4.ts | +      start: 'STR',
+src/game/data/dialoguesF4.ts | +      nodes: {
+src/game/data/dialoguesF4.ts | +        sc0: {
+src/game/data/dialoguesF4.ts | +          text: 'STR',
+src/game/data/dialoguesF4.ts | +          options: [
+src/game/data/dialoguesF4.ts | +            {
+src/game/data/dialoguesF4.ts | +              text: 'STR',
+src/game/data/dialoguesF4.ts | +              action: [
+src/game/data/dialoguesF4.ts | +                { t: 'STR', flag: 'STR' },
+src/game/data/dialoguesF4.ts | +                { t: 'STR' },
+src/game/data/dialoguesF4.ts | +              ],
+src/game/data/dialoguesF4.ts | +            },
+src/game/data/dialoguesF4.ts | +          ],
+src/game/data/dialoguesF4.ts | +        },
+src/game/data/dialoguesF4.ts | +      },
+src/game/data/dialoguesF4.ts | +    },
+src/game/data/dialoguesF4.ts | +  ],
+src/game/data/dialoguesF4.ts | +};
+src/game/data/dialoguesF4.ts | +
+src/game/data/dialoguesF4.ts | +// ---- Halvard: brand-new NPC (the stable master) ----
+src/game/data/dialoguesF4.ts | +const HALVARD: NPCDialogue = {
+src/game/data/dialoguesF4.ts | +  npcId: 'STR',
+src/game/data/dialoguesF4.ts | +  name: 'STR',
+src/game/data/dialoguesF4.ts | +  trees: [
+src/game/data/dialoguesF4.ts | +    {
+src/game/data/dialoguesF4.ts | +      // q10: Tormenta, the Order'STR'corona_thalassar_counted'STR'halvard_horse_talked'STR'h1'STR'So the Crown has returned… and you are the Warden who brough

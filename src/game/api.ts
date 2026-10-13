@@ -29,6 +29,27 @@ export interface GameApi {
   equipItem(id: string): void;
   unequipWeapon(): void;
   equippedWeapon(): string | null;
+  /** Fase 16 — armor & wings slots (null = nothing on). */
+  equippedArmor(): string | null;
+  equippedWings(): string | null;
+  unequipArmor(): void;
+  unequipWings(): void;
+  // Fase 16 — merchant system
+  /** Catalog for a vendor: entries + whether the player can currently buy. */
+  shopCatalog(vendor: string): {
+    name: string;
+    title: string;
+    minLevel: number;
+    levelOk: boolean;
+    level: number;
+    coins: number;
+    entries: Array<{ id: string; name: string; desc: string; icon: string; price: number; note?: string; owned: boolean; canAfford: boolean; rarity?: string; stats?: string }>;
+  } | null;
+  /** Buy one unit. Returns 'ok' | 'gold' | 'level'. */
+  buyShopItem(vendor: string, itemId: string): 'ok' | 'gold' | 'level';
+  // Fase 15 — pirate toll negotiation
+  /** Resolve the standing pirate negotiation ('item' | 'coins' | 'mercy'). */
+  negotiateChoice(option: 'item' | 'coins' | 'mercy'): void;
   // Progression
   journal(): JournalEntry[];
   quests(): QuestView[];
@@ -105,6 +126,13 @@ export const gameApi: GameApi = {
   equipItem: () => undefined,
   unequipWeapon: () => undefined,
   equippedWeapon: () => null,
+  equippedArmor: () => null,
+  equippedWings: () => null,
+  unequipArmor: () => undefined,
+  unequipWings: () => undefined,
+  shopCatalog: () => null,
+  buyShopItem: () => 'gold',
+  negotiateChoice: () => undefined,
   journal: () => [],
   quests: () => [],
   skills: () => [],

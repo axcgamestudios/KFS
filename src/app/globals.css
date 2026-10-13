@@ -748,26 +748,52 @@
 
 /* ============================================================
    FASE 7 — HUD AAA: marcos de metal biselado, gemas, medallas
+   FASE 17 — re-skinned to the MENU aesthetic: the same storm-navy
+   iron and gold trim that frames the key art (Fondo_Menu). The
+   panels borrow the art itself as a whisper of texture.
    ============================================================ */
 
-/* --- Beveled iron/brass frame with inner gold hairline ------- */
+/* The menu key art, injected at runtime (HUD sets the CSS var once) */
+:root {
+  --kfs-art-url: none;
+}
+
+/* --- Beveled storm-iron frame with gold hairline + art texture --- */
 .kfs-frame {
   position: relative;
-  background: linear-gradient(165deg, rgba(40, 32, 21, 0.92) 0%, rgba(20, 15, 10, 0.95) 100%);
-  border: 1px solid rgba(201, 162, 39, 0.38);
+  background:
+    linear-gradient(115deg, transparent 32%, rgba(190, 215, 240, 0.06) 47%, transparent 62%),
+    radial-gradient(130% 170% at 50% -25%, rgba(150, 180, 210, 0.10), transparent 55%),
+    repeating-linear-gradient(97deg, rgba(255, 255, 255, 0.014) 0 2px, transparent 2px 7px),
+    linear-gradient(165deg, rgba(34, 45, 58, 0.92) 0%, rgba(12, 17, 24, 0.95) 100%);
+  border: 1px solid #3d5064;
+  border-left: 2px solid rgba(201, 162, 39, 0.35);
   box-shadow:
     0 0 0 1px rgba(0, 0, 0, 0.7),
-    inset 0 1px 0 rgba(255, 226, 150, 0.08),
+    inset 0 1px 0 rgba(170, 200, 230, 0.09),
     inset 0 -1px 0 rgba(0, 0, 0, 0.6),
     0 12px 38px rgba(0, 0, 0, 0.6);
   backdrop-filter: blur(5px);
+}
+/* the key art itself, breathing under the paint at a whisper */
+.kfs-frame::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: var(--kfs-art-url);
+  background-size: cover;
+  background-position: 50% 12%;
+  opacity: 0.05;
+  mix-blend-mode: luminosity;
+  pointer-events: none;
 }
 .kfs-frame::before {
   content: '';
   position: absolute;
   inset: 3px;
-  border: 1px solid rgba(201, 162, 39, 0.14);
+  border: 1px solid rgba(201, 162, 39, 0.16);
   pointer-events: none;
+  z-index: 1;
 }
 .kfs-rivet {
   position: absolute;
@@ -866,9 +892,11 @@
   position: relative;
   height: 34px;
   overflow: hidden;
-  border: 1px solid rgba(201, 162, 39, 0.4);
+  border: 1px solid #3d5064;
+  border-left: 2px solid rgba(201, 162, 39, 0.35);
   background:
-    linear-gradient(180deg, rgba(24, 18, 12, 0.92), rgba(12, 9, 6, 0.94)),
+    radial-gradient(130% 170% at 50% -25%, rgba(150, 180, 210, 0.10), transparent 55%),
+    linear-gradient(180deg, rgba(26, 34, 44, 0.92), rgba(10, 14, 19, 0.94)),
     repeating-linear-gradient(90deg, transparent 0 3px, rgba(255, 255, 255, 0.012) 3px 4px);
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.7), inset 0 2px 8px rgba(0, 0, 0, 0.9), 0 8px 26px rgba(0, 0, 0, 0.55);
 }
@@ -902,18 +930,24 @@
   align-items: center;
   justify-content: center;
   gap: 2px;
-  background: linear-gradient(170deg, rgba(38, 30, 20, 0.9), rgba(16, 12, 9, 0.94));
-  border: 1px solid rgba(201, 162, 39, 0.22);
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 226, 150, 0.06);
+  background:
+    radial-gradient(130% 170% at 50% -25%, rgba(150, 180, 210, 0.10), transparent 55%),
+    linear-gradient(170deg, rgba(30, 40, 52, 0.9), rgba(10, 14, 19, 0.94));
+  border: 1px solid #3d5064;
+  border-top: 2px solid rgba(201, 162, 39, 0.3);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(170, 200, 230, 0.08);
   transition: all 0.22s ease;
 }
 .kfs-slot-owned:hover {
-  border-color: rgba(201, 162, 39, 0.55);
+  border-color: rgba(107, 131, 160, 0.9);
+  border-top-color: #e2b95c;
   transform: translateY(-2px);
 }
 .kfs-slot-equipped {
   border-color: rgba(232, 201, 106, 0.95);
-  background: linear-gradient(170deg, rgba(64, 50, 26, 0.95), rgba(30, 22, 12, 0.96));
+  background:
+    radial-gradient(130% 170% at 50% -25%, rgba(201, 162, 39, 0.16), transparent 55%),
+    linear-gradient(170deg, rgba(48, 54, 50, 0.95), rgba(18, 22, 20, 0.96));
   box-shadow:
     0 0 0 1px rgba(0, 0, 0, 0.65),
     0 0 20px rgba(201, 162, 39, 0.35),
@@ -939,10 +973,10 @@
   font-size: 0.62rem;
   font-weight: 700;
   color: #f0e2b6;
-  background: linear-gradient(180deg, #5a4826, #2e2312);
+  background: linear-gradient(180deg, #33414f, #18212b);
   border: 1px solid rgba(232, 201, 106, 0.65);
   border-radius: 3px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 235, 170, 0.25);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(190, 215, 240, 0.22);
 }
 
 /* --- Prompt with keycaps -------------------------------------- */
@@ -965,10 +999,10 @@
   font-size: 0.72rem;
   font-weight: 700;
   color: #f4e8c0;
-  background: linear-gradient(180deg, #4c3d20, #241b0d);
+  background: linear-gradient(180deg, #33414f, #141c25);
   border: 1px solid rgba(232, 201, 106, 0.7);
   border-radius: 4px;
-  box-shadow: 0 3px 6px rgba(0, 0, 0, 0.85), inset 0 1px 0 rgba(255, 235, 170, 0.3);
+  box-shadow: 0 3px 6px rgba(0, 0, 0, 0.85), inset 0 1px 0 rgba(190, 215, 240, 0.25);
   vertical-align: middle;
   transform: translateY(-1px);
 }
@@ -1313,4 +1347,103 @@
 }
 .kfs-dlg-bar {
   animation: kfs-dlg-bar-in 0.6s cubic-bezier(0.22, 0.9, 0.24, 1) both;
+}
+
+/* ============================================================ Fase 15 ===
+   Underwater caustics (dive overlay) + themed scrollbars for the settings
+   panel (the old panel was taller than the screen with NO way to scroll). */
+@keyframes kotfs-caustics {
+  0%, 100% { opacity: 0.82; filter: hue-rotate(0deg); }
+  50%      { opacity: 1;    filter: hue-rotate(-6deg); }
+}
+
+.kotfs-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(201, 162, 39, 0.55) rgba(10, 8, 4, 0.55);
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.kotfs-scroll::-webkit-scrollbar {
+  width: 9px;
+}
+.kotfs-scroll::-webkit-scrollbar-track {
+  background: rgba(10, 8, 4, 0.55);
+  border-left: 1px solid rgba(201, 162, 39, 0.18);
+}
+.kotfs-scroll::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(201, 162, 39, 0.6), rgba(201, 162, 39, 0.32));
+  border: 1px solid rgba(201, 162, 39, 0.35);
+}
+.kotfs-scroll::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgba(232, 201, 106, 0.8), rgba(201, 162, 39, 0.5));
+}
+
+/* ============================================================
+   FASE 17 — the Spider-Man-grade combat layer: Sea Fury bar,
+   danger-signal cues, finisher prompt. Menu palette: storm-navy
+   iron, gold trim, and the telegraph colours read at a glance.
+   ============================================================ */
+
+/* --- Sea Fury (Valor) fill: cold tide-blue with a gold head --- */
+.kfs-bar-fill-valor {
+  background: linear-gradient(180deg, #bfe8ff 0%, #5fb2dc 38%, #2e6d94 72%, #1b4a66 100%);
+  box-shadow: 0 0 12px rgba(120, 200, 240, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+.kfs-valor-glow .kfs-bar {
+  animation: kfs-valor-breath 2.2s ease-in-out infinite;
+}
+@keyframes kfs-valor-breath {
+  0%, 100% { box-shadow: inset 0 2px 7px rgba(0, 0, 0, 0.95), 0 0 6px rgba(120, 200, 240, 0.35); }
+  50% { box-shadow: inset 0 2px 7px rgba(0, 0, 0, 0.95), 0 0 18px rgba(140, 215, 255, 0.8); }
+}
+
+/* --- Danger-signal cue chips (the Q/C/V prompts at reticle) --- */
+.kfs-danger-cue {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 16px;
+  font-family: 'Cinzel', serif;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: #f6f2e4;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9);
+  background: linear-gradient(180deg, rgba(20, 27, 35, 0.92), rgba(8, 11, 16, 0.95));
+  border-radius: 3px;
+  animation: kfs-cue-in 0.16s ease-out, kfs-cue-pulse 0.5s ease-in-out infinite;
+  pointer-events: none;
+  white-space: nowrap;
+}
+@keyframes kfs-cue-in {
+  from { transform: scale(0.8); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+.kfs-danger-parry {
+  border: 1px solid rgba(255, 214, 10, 0.9);
+  box-shadow: 0 0 22px rgba(255, 200, 20, 0.4), inset 0 0 18px rgba(255, 200, 20, 0.12);
+  color: #ffe98a;
+}
+@keyframes kfs-cue-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.045); }
+}
+.kfs-danger-dodge {
+  border: 1px solid rgba(74, 168, 255, 0.9);
+  box-shadow: 0 0 22px rgba(60, 150, 255, 0.4), inset 0 0 18px rgba(60, 150, 255, 0.12);
+  color: #a8d8ff;
+}
+.kfs-danger-finisher {
+  border: 1px solid rgba(232, 201, 106, 0.95);
+  box-shadow: 0 0 26px rgba(201, 162, 39, 0.5), inset 0 0 20px rgba(201, 162, 39, 0.14);
+  color: #ffe9a6;
+  animation: kfs-cue-in 0.16s ease-out, kfs-valor-breath 1.6s ease-in-out infinite;
+}
+
+/* --- Enemy telegraph screen tint (subtle, additive to the 3D glows) --- */
+.kfs-danger-edge {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
 }

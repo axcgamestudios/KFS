@@ -16,6 +16,8 @@ import {
   buildRuins, buildStoneCircle, buildWatchtower, buildShipwreck, buildGrotto, buildWaterfall, buildDragonLair,
 } from './structures/POIs';
 import { buildPirateFort, buildFaroRuins, buildBrumaCamp } from './structures/Islands';
+import { buildNavelIsland, type NavelRefs } from './structures/NavelIsland';
+import { buildSmithy } from './structures/Smithy';
 import { createChest, createHerb, type ChestHandles } from './structures/Props';
 import { StaticBuilder, MAT } from './structures/Materials';
 import { buildFase4World, type Fase4Refs } from './structures/Fase4POIs';
@@ -64,6 +66,8 @@ export interface WorldRefs {
   fase4: Fase4Refs;
   /** Fase 5 — exploded repository kits (weapons, shields, furniture, props). */
   kits: KitSystem;
+  /** Fase 15 — the Navel of the Sea: horn altar + King of the Sea arena. */
+  navel: NavelRefs;
 }
 
 /** Pre-render the top-down world map (colors + hillshade) for the map UI. */
@@ -125,17 +129,17 @@ export async function buildWorld(
 ): Promise<WorldRefs> {
   const prog = (f: number, l: string) => onProgress?.(f, l);
 
-  prog(0.01, 'Desplegando las velas…');
+  prog(0.01, 'Unfurling the sails…');
   await new Promise((r) => setTimeout(r, 30));
 
   // --- Fase 4: repository assets (PBR textures) load BEFORE the world so
   //     structures receive textured materials right away. ---
   const assets = new AssetSystem();
-  prog(0.03, 'Cargando texturas antiguas…');
+  prog(0.03, 'Loading ancient textures…');
   await assets.loadCoreTextures(quality === 'xlow' || quality === 'low' ? 1 : quality === 'medium' ? 2 : quality === 'high' ? 4 : 8);
   assets.applyToStructureMaterials(MAT as unknown as Record<string, THREE.MeshStandardMaterial>);
 
-  prog(0.06, 'Esculpiendo montañas y valles…');
+  prog(0.06, 'Carving mountains and valleys…');
   const terrainHeight = new TerrainHeight();
   const terrain = new TerrainSystem(terrainHeight, quality, {
     grass: assets.pbr.grass?.map,
@@ -155,7 +159,7 @@ export async function buildWorld(
   // --- Fase 4: dynamic weather (rain, storms, wind) ---
   const weather = new WeatherSystem(scene);
 
-  prog(0.10, 'Plantando los bosques antiguos…');
+  prog(0.10, 'Planting the ancient forests…');
   // Fase 13 — densidad inicial del pasto: interruptor del jugador si llegó,
   // escalón de calidad en caso contrario.
   const baseGrass = quality === 'xlow' || quality === 'low' ? 0 : quality === 'medium' ? 0.26 : quality === 'high' ? 0.65 : 1;
@@ -179,7 +183,7 @@ export async function buildWorld(
   // Distance streaming for structures (culls far draw calls while sailing)
   const streamer = new StructureStreamer();
 
-  prog(0.18, 'Alzando el Castillo de Aldmor…');
+  prog(0.18, 'Raising Aldmor Castle…');
   const castleB = new StaticBuilder(colliders, 'castle');
   const castle = buildCastle(castleB, terrainHeight);
   const castleGroup = new THREE.Group();
@@ -187,13 +191,13 @@ export async function buildWorld(
   scene.add(castleGroup);
   streamer.register(castleGroup, WORLD.castlePos.x, WORLD.castlePos.z, 60);
 
-  prog(0.3, 'Construyendo Puerto Cuervo…');
+  prog(0.3, 'Building Crowhaven…');
   const village = buildVillage(scene, terrainHeight, colliders);
   streamer.register(village.mainGroup, 20, 175, 110);
   streamer.register(village.staticShip, village.shipPos.x, village.shipPos.z, 30);
 
   // --- Fase 5: the repository kits dress the world where they belong ---
-  prog(0.34, 'Desplegando los kits del estudio…');
+  prog(0.34, 'Furnishing the world…');
   const kits = new KitSystem(assets);
   await kits.load();
   const dressed = dressWithKits(scene, terrainHeight, colliders, kits, {
@@ -209,7 +213,7 @@ export async function buildWorld(
   }
   streamer.register(dressed, 20, 200, 150);
 
-  prog(0.45, 'Sembrando ruinas y misterios…');
+  prog(0.45, 'Sowing ruins and mysteries…');
   const ruinsB = new StaticBuilder(colliders, 'ruins');
   const ruins = buildRuins(ruinsB, terrainHeight);
   const stonesB = new StaticBuilder(colliders, 'stones');
@@ -231,7 +235,7 @@ export async function buildWorld(
   scene.add(falls.sheet);
   scene.add(falls.foam);
 
-  prog(0.52, 'Alzando la Fortaleza del Cuervo…');
+  prog(0.52, 'Raising the Fortress of the Crow…');
   const fortB = new StaticBuilder(colliders, 'fort');
   const fort = buildPirateFort(fortB, terrainHeight);
   const fortGroup = new THREE.Group();
@@ -239,7 +243,7 @@ export async function buildWorld(
   scene.add(fortGroup);
   streamer.register(fortGroup, -490, -445, 70);
 
-  prog(0.56, 'Excavando el Farallón del Faro…');
+  prog(0.56, 'Carving out the Lighthouse Sea Stack…');
   const faroB = new StaticBuilder(colliders, 'faro');
   const faro = buildFaroRuins(faroB, terrainHeight);
   const faroGroup = new THREE.Group();
@@ -247,7 +251,7 @@ export async function buildWorld(
   scene.add(faroGroup);
   streamer.register(faroGroup, 567, 116, 45);
 
-  prog(0.58, 'Tendiendo el campamento de la Bruma…');
+  prog(0.58, 'Pitching camp in the Mist Isles…');
   const brumaB = new StaticBuilder(colliders, 'bruma');
   const bruma = buildBrumaCamp(brumaB, terrainHeight);
   const brumaGroup = new THREE.Group();
@@ -255,7 +259,31 @@ export async function buildWorld(
   scene.add(brumaGroup);
   streamer.register(brumaGroup, -60, 578, 30);
 
-  prog(0.60, 'Alzando el Nido del Ancestro…');
+  // ---- Fase 15 — EL OMBLIGO DEL MAR: the sea-center summon island ----
+  prog(0.585, 'Raising the monoliths of the Navel…');
+  const navel = buildNavelIsland(scene, terrainHeight, colliders);
+  streamer.register(navel.group, navel.x, navel.z, 90);
+
+  // ---- Fase 16 — LA HERRERÍA: the merchants' establishments (white concrete) ----
+  prog(0.59, 'Lighting the forges…');
+  // Torvald — the standard smithy, by the castle road, facing the square
+  const torvaldB = new StaticBuilder(colliders, 'smithy_std');
+  const torvald = buildSmithy(torvaldB, terrainHeight, { x: 52, z: 116, yaw: -0.75 });
+  const torvaldGroup = new THREE.Group();
+  torvaldB.build(torvaldGroup, { shadows: true });
+  scene.add(torvaldGroup);
+  streamer.register(torvaldGroup, 52, 116, 26);
+  // Borin — the dwarf forge deep in the western woods, facing the north trail
+  const borinB = new StaticBuilder(colliders, 'smithy_dwarf');
+  const borin = buildSmithy(borinB, terrainHeight, { x: -120, z: -60, yaw: 2.36, dwarf: true });
+  const borinGroup = new THREE.Group();
+  borinB.build(borinGroup, { shadows: true });
+  scene.add(borinGroup);
+  streamer.register(borinGroup, -120, -60, 24);
+  void torvald.anvilPos; void torvald.forgePos; // (layout refs; keep for future props)
+  void borin.anvilPos; void borin.forgePos;
+
+  prog(0.60, 'Raising the Ancestor’s Nest…');
   const lairB = new StaticBuilder(colliders, 'lair');
   const lair = buildDragonLair(lairB, terrainHeight);
   const lairGroup = new THREE.Group();
@@ -264,7 +292,7 @@ export async function buildWorld(
   streamer.register(lairGroup, 20, -300, 55);
   void lair.lockStone;
 
-  prog(0.62, 'Escondiendo tesoros entre las rocas…');
+  prog(0.62, 'Hiding treasures among the rocks…');
   const chests: ChestRef[] = [];
   const herbs: HerbRef[] = [];
 
@@ -331,86 +359,104 @@ export async function buildWorld(
     herbs.push({ id, pos: new THREE.Vector3(x, y, z), mesh: createHerb(x, y, z, scene) });
   }
 
-  prog(0.74, 'Despertando a los aldeanos…');
+  prog(0.74, 'Waking the villagers…');
   const g = (x: number, z: number) => terrainHeight.height(x, z);
   const npcDefs: NPCDef[] = [
     {
-      id: 'aldric', name: 'Maestre Aldric', paletteIndex: 1, cape: true, dialogueId: 'aldric',
+      id: 'aldric', name: 'Maester Aldric', paletteIndex: 1, cape: true, dialogueId: 'aldric',
       home: new THREE.Vector3(29, g(29, 233), 233),
       work: new THREE.Vector3(27, g(27, 218), 218),
       evening: new THREE.Vector3(12, g(12, 173), 173),
       nightAtHome: true,
     },
     {
-      id: 'maren', name: 'Maren la Herborista', paletteIndex: 3, dialogueId: 'maren',
+      id: 'maren', name: 'Maren the Herbalist', paletteIndex: 3, dialogueId: 'maren',
       home: new THREE.Vector3(8, g(8, 207), 207),
       work: new THREE.Vector3(9.5, g(9.5, 208), 208),
       evening: new THREE.Vector3(8, g(8, 207), 207),
       nightAtHome: true,
     },
     {
-      id: 'bram', name: 'Bram el Herrero', paletteIndex: 0, dialogueId: 'bram',
+      id: 'bram', name: 'Bram the Blacksmith', paletteIndex: 0, dialogueId: 'bram',
       home: new THREE.Vector3(39, g(39, 185), 185),
       work: new THREE.Vector3(28, g(28, 193), 193),
       evening: new THREE.Vector3(12, g(12, 172), 172),
       nightAtHome: true,
     },
     {
-      id: 'rosa', name: 'Rosa, tabernera', paletteIndex: 2, dialogueId: 'rosa',
+      id: 'rosa', name: 'Rosa the Innkeeper', paletteIndex: 2, dialogueId: 'rosa',
       home: new THREE.Vector3(11, g(11, 168), 168),
       work: new THREE.Vector3(11, g(11, 172), 172),
       evening: new THREE.Vector3(10, g(10, 173), 173),
       nightAtHome: false,
     },
     {
-      id: 'tom', name: 'Tom el Pescador', paletteIndex: 4, dialogueId: 'tom',
+      id: 'tom', name: 'Tom the Fisherman', paletteIndex: 4, dialogueId: 'tom',
       home: new THREE.Vector3(36, g(36, 234), 234),
       work: new THREE.Vector3(18, g(18, 226), 226),
       evening: new THREE.Vector3(13, g(13, 171), 171),
       nightAtHome: true,
     },
     {
-      id: 'elin', name: 'Elin, tendera', paletteIndex: 3, dialogueId: 'elin',
+      id: 'elin', name: 'Elin the Shopkeeper', paletteIndex: 3, dialogueId: 'elin',
       home: new THREE.Vector3(9, g(9, 137), 137),
       work: new THREE.Vector3(17, g(17, 145), 145),
       evening: new THREE.Vector3(14, g(14, 174), 174),
       nightAtHome: true,
     },
     {
-      id: 'jorund', name: 'Guardia Jorund', paletteIndex: 1, cape: true, dialogueId: 'jorund',
+      id: 'jorund', name: 'Guard Jorund', paletteIndex: 1, cape: true, dialogueId: 'jorund',
       home: new THREE.Vector3(50, g(50, 100), 100),
       work: new THREE.Vector3(40, g(40, 115), 115),
       evening: new THREE.Vector3(45, g(45, 108), 108),
       nightAtHome: false,
     },
     {
-      id: 'sigrid', name: 'Sigrid la Lavandera', paletteIndex: 4, dialogueId: 'sigrid',
+      id: 'sigrid', name: 'Sigrid the Laundress', paletteIndex: 4, dialogueId: 'sigrid',
       home: new THREE.Vector3(32, g(32, 160), 160),
       work: new THREE.Vector3(22, g(22, 152), 152),
       evening: new THREE.Vector3(15, g(15, 175), 175),
       nightAtHome: true,
     },
     {
-      id: 'halvard', name: 'Halvard el Herrador', paletteIndex: 0, cape: true, dialogueId: 'halvard',
+      id: 'halvard', name: 'Halvard the Farrier', paletteIndex: 0, cape: true, dialogueId: 'halvard',
       home: new THREE.Vector3(34, g(34, 150), 150),
       work: new THREE.Vector3(34, g(34, 153), 153),
       evening: new THREE.Vector3(12, g(12, 173), 173),
       nightAtHome: true,
     },
+    // ---- Fase 16 — LA HERRERÍA: los dos comerciantes ----
+    {
+      // Torvald — the standard smith, by the castle road (level 6 shop)
+      id: 'herrero', name: 'Torvald the Blacksmith', paletteIndex: 0, role: 'smith', dialogueId: 'herrero',
+      home: new THREE.Vector3(52, g(52, 116), 116),
+      work: new THREE.Vector3(52, g(52, 116), 116),
+      evening: new THREE.Vector3(20, g(20, 150), 150),
+      nightAtHome: false,
+    },
+    {
+      // Borin — the dwarf smith, deep in the western woods (level 10, "rotas")
+      id: 'enano', name: 'Borin the Dwarf', paletteIndex: 2, role: 'smith', dialogueId: 'enano',
+      scale: [1.22, 0.64, 1.22], // dwarf proportions: short & wide
+      home: new THREE.Vector3(-120, g(-120, -60), -60),
+      work: new THREE.Vector3(-120, g(-120, -60), -60),
+      evening: new THREE.Vector3(-120, g(-120, -60), -60),
+      nightAtHome: true,
+    },
   ];
 
-  prog(0.82, 'Soltando gaviotas sobre la bahía…');
+  prog(0.82, 'Releasing gulls over the bay…');
   const gulls = new WildlifeSystem(scene, new THREE.Vector3(20, 3, 240), 9);
 
   // --- Fase 4 world: sunken sanctuary, crow cove, flagship wreck,
   //     Great Maple, stable, dig spot, fish spots, altars ---
-  prog(0.86, 'Despertando al Cuervo de Tres Cabezas…');
+  prog(0.86, 'Waking the Three-Headed Crow…');
   const fase4 = buildFase4World(scene, terrainHeight, colliders, assets);
   for (const gr of fase4.groups) {
     streamer.register(gr.group, gr.x, gr.z, gr.r);
   }
 
-  prog(0.90, 'Trazando el mapa de Aldmor…');
+  prog(0.90, 'Charting the map of Aldmor…');
   const mapCanvas = renderMapCanvas(terrainHeight);
 
   // Restore opened chests / picked herbs from a loaded save
@@ -425,7 +471,7 @@ export async function buildWorld(
     }
   }
 
-  prog(0.97, 'Listo para zarpar…');
+  prog(0.97, 'Ready to set sail…');
 
   // Dock spawn for the Colibrí: scan outward from the pier end into deep water
   let dockX = 20, dockZ = 258;
@@ -455,6 +501,7 @@ export async function buildWorld(
     weather,
     fase4,
     kits,
+    navel,
   };
 }
 

@@ -7,6 +7,8 @@ export type DialogueActionSingle =
   | { t: 'quest'; id: string }
   | { t: 'xp'; amount: number }
   | { t: 'talk'; target: string }
+  /** Fase 16 — open a merchant's shop panel and close the dialogue. */
+  | { t: 'shop'; vendor: string }
   | { t: 'close' };
 
 /** Actions can be a single action or a list applied in order. */
@@ -18,6 +20,9 @@ export interface DialogueOption {
   action?: DialogueAction;
   cond?: string;   // flag must be set to show
   notCond?: string; // flag must NOT be set to show
+  /** Fase 15 — inventory requirement: option only shows while the player
+   *  carries every listed item (Elin's sea-goods hub, Bram's forge). */
+  requires?: Array<{ id: string; count: number }>;
 }
 
 export interface DialogueNode {
@@ -31,6 +36,9 @@ export interface DialogueTree {
   notCond?: string;
   /** Marks a required item count (id>=count) for this tree to trigger. */
   requireItem?: { id: string; count: number };
+  /** Fase 16 — player level gates (inclusive). Used by the smiths. */
+  minLevel?: number;
+  maxLevel?: number;
   nodes: Record<string, DialogueNode>;
   start: string;
 }
@@ -44,41 +52,41 @@ export interface NPCDialogue {
 export const DIALOGUES: Record<string, NPCDialogue> = {
   aldric: {
     npcId: 'aldric',
-    name: 'Maestre Aldric',
+    name: 'Master Aldric',
     trees: [
       {
         notCond: 'talked_aldric',
         start: 'a1',
         nodes: {
           a1: {
-            text: '¡Por las mareas! ¿Eres tú, muchacho? Eres el spitting image de Eirik cuando tenía tu edad… Saludos. Soy Aldric, maestre de este puerto. Tu padre era mi mejor amigo… y mi peor cliente de taberna.',
+            text: 'By the tides! Is that you, boy? You\'re the spitting image of Eirik at your age… Greetings. I\'m Aldric, master of this port. Your father was my best friend… and my worst tavern customer.',
             options: [
-              { text: 'He vuelto por su herencia. ¿Qué dejó para mí?', next: 'a2' },
-              { text: '¿Erais amigos? Cuéntame cómo era.', next: 'a3' },
+              { text: 'I\'ve come back for his legacy. What did he leave me?', next: 'a2' },
+              { text: 'You were friends? Tell me what he was like.', next: 'a3' },
             ],
           },
           a3: {
-            text: 'Terco como un ancla en el fango, y dos veces más leal. Reparaba barcos ajenos antes que el suyo. Los últimos meses hablaba de cartas antiguas, de rumbos que ningún mapamundi muestra… y de un cuervo de tres cabezas que según él le seguía.',
-            options: [{ text: 'Un cuervo de tres cabezas…', next: 'a2' }],
+            text: 'Stubborn as an anchor in the mud, and twice as loyal. He would mend other men\'s ships before his own. In his last months he spoke of old charts, of courses no mapmaker ever drew… and of a three-headed crow that, he swore, was following him.',
+            options: [{ text: 'A three-headed crow…', next: 'a2' }],
           },
           a2: {
-            text: 'Dejó un cofre de mar. Está en mi almacén, junto al muelle, cerrado con un cierre que solo abre un amuleto de cobre. Eirik confió el amuleto a Maren, la herborista. Si quieres lo que hay dentro… habla con ella.',
+            text: 'He left a sea chest. It sits in my warehouse by the quay, shut with a lock only a copper amulet will open. Eirik entrusted the amulet to Maren, the herbalist. If you want what\'s inside… go speak with her.',
             options: [
-              { text: 'Iré a verla. Gracias, Aldric.', next: 'a4', action: { t: 'flag', flag: 'talked_aldric' } },
-              { text: '¿Y por qué no lo abriste vos mismo?', next: 'a5' },
+              { text: 'I\'ll go see her. Thank you, Aldric.', next: 'a4', action: { t: 'flag', flag: 'talked_aldric' } },
+              { text: 'And why didn\'t you open it yourself?', next: 'a5' },
             ],
           },
           a5: {
-            text: '¿Y profanar la herencia de un amigo muerto? Nunca. Además… ese cierre no es cosa de herreros. Hay grabados en el metal que no vi ni en los archivos del castillo. Cosa de la Orden de la Marea, decía Eirik. Vete a ver a Maren: ella sabe más de lo que cuenta.',
+            text: 'And desecrate a dead friend\'s legacy? Never. Besides… that lock is no smith\'s work. There are engravings in the metal I never saw even in the castle archives. Work of the Order of the Tide, Eirik said. Go see Maren: she knows more than she tells.',
             options: [
-              { text: 'Iré a verla.', next: 'a4', action: { t: 'flag', flag: 'talked_aldric' } },
+              { text: 'I\'ll go see her.', next: 'a4', action: { t: 'flag', flag: 'talked_aldric' } },
             ],
           },
           a4: {
-            text: 'Un consejo, chico: Maren no regala nada. Te pedirá algo a cambio — pétalos, setas, paciencia. Cualquier cosa menos oro. Ah… y bienvenido a casa. Puerto Cuervo te necesita más de lo que crees.',
+            text: 'A word of advice, lad: Maren gives nothing away. She\'ll ask something in return — petals, mushrooms, patience. Anything but gold. Ah… and welcome home. Crowhaven needs you more than you know.',
             options: [
               {
-                text: 'Hasta pronto, Aldric.',
+                text: 'See you soon, Aldric.',
                 action: [
                   { t: 'talk', target: 'aldric' },
                   { t: 'close' },
@@ -94,28 +102,28 @@ export const DIALOGUES: Record<string, NPCDialogue> = {
         start: 's1',
         nodes: {
           s1: {
-            text: 'Así que lo has abierto. Vaya… la espada de Eirik. La última vez que la vi partía esa vela vieja hacia el noroeste, jurando que volvería en una semana. Llevo doce inviernos esperándole.',
+            text: 'So you\'ve opened it. Well now… Eirik\'s sword. The last time I saw it, he was putting out to sea under that old sail, bound northwest, swearing he\'d be back within a week. I have waited twelve winters for him.',
             options: [
-              { text: 'La carta habla de la Isla del Cuervo Viejo. Y de dragones.', next: 's2' },
-              { text: 'El Colibrí de Mar… ¿puede volver a navegar?', next: 's2' },
+              { text: 'The letter speaks of Old Crow Isle. And of dragons.', next: 's2' },
+              { text: 'The Sea Hummingbird… can she sail again?', next: 's2' },
             ],
           },
           s2: {
-            text: 'Con madera buena, lona nueva y tres semanas de trabajo, el Colibrí volará sobre las olas. La quilla está sana — tu padre la hizo reposar en el fondo de la bahía para que la marea no la secara. Yo mismo supervisaré la carena… si me dejas ir contigo cuando zarpe.',
+            text: 'With good timber, new canvas and three weeks of work, the Hummingbird will fly over the waves again. The keel is sound — your father kept her resting on the bottom of the bay so the tide would not dry her out. I will oversee the refit myself… if you let me come along when she weighs anchor.',
             options: [
-              { text: 'Es un trato, maestre.', next: 's3' },
-              { text: '¿Por qué ayudarías a un desconocido?', next: 's4' },
+              { text: 'It\'s a deal, Master.', next: 's3' },
+              { text: 'Why would you help a stranger?', next: 's4' },
             ],
           },
           s4: {
-            text: 'Porque Eirik era un Guardián de la Marea, y los Guardianes no eligen sucesores: la sal los elige. Tú has vuelto al puerto con su espada. En Aldmor eso solo significa una cosa… El mar te está llamando, muchacho.',
-            options: [{ text: 'Entonces que me llame. Reparemos el Colibrí.', next: 's3' }],
+            text: 'Because Eirik was a Warden of the Tide, and Wardens do not choose their successors: the salt chooses them. You came back to port carrying his sword. In Aldmor that means only one thing… The sea is calling you, boy.',
+            options: [{ text: 'Then let it call. Let\'s mend the Hummingbird.', next: 's3' }],
           },
           s3: {
-            text: '¡JA! ¡Esa chispa tenías que tener! Mientras trabajo el casco, tú hazte a la mar de otra forma: explora Aldmor, reúne provisiones, aprende sus senderos. Cuando el Colibrí esté listo, el Capítulo II de tu historia comenzará: Los Mares Olvidados te esperan.',
+            text: 'HA! That\'s the spark you needed! While I work the hull, take to the sea another way: explore Aldmor, gather provisions, learn its paths. When the Hummingbird is ready, Chapter II of your story begins: The Forgotten Seas are waiting for you.',
             options: [
               {
-                text: 'Nos vemos en el muelle, Aldric.',
+                text: 'See you at the quay, Aldric.',
                 action: [
                   { t: 'flag', flag: 'aldric_ship_talked' },
                   { t: 'talk', target: 'aldric_ship' },
@@ -133,28 +141,28 @@ export const DIALOGUES: Record<string, NPCDialogue> = {
         start: 'w1',
         nodes: {
           w1: {
-            text: '¡Has vuelto! Todo el puerto habla del incendio del Cuervo... y de otra cosa. Los pastores bajan de las Garrahielo con los rebaños mermados: juran que una sombra con alas cruza el cielo al atardecer. Y los guardias del castillo dicen que las ruinas de Vaelthara «respiran».',
+            text: 'You\'re back! The whole port talks of the burning of the Crow... and of something else. Shepherds come down from the Iceclaw Peaks with thinned flocks: they swear a winged shadow crosses the sky at dusk. And the castle guards say the ruins of Vaelthara "breathe".',
             options: [
-              { text: '¿Dragones? Aquí, en Aldmor?', next: 'w2' },
-              { text: 'La carta de mi padre los mencionaba.', next: 'w2' },
+              { text: 'Dragons? Here, in Aldmor?', next: 'w2' },
+              { text: 'My father\'s letter mentioned them.', next: 'w2' },
             ],
           },
           w2: {
-            text: 'Los archivos de la Orden que custodio hablan de tres despertares: la guardiana de las ruinas, el cazador del mar y el que duerme en la cumbre. Si uno solo despierta, los demás lo oyen. Eirik murió intentando averiguar por qué despiertan.',
+            text: 'The Order\'s archives in my keeping speak of three awakenings: the guardian of the ruins, the hunter of the sea, and the one asleep in the summit. If but one wakes, the others hear it. Eirik died trying to learn why they wake.',
             options: [
-              { text: 'Entonces iré a las ruinas de Vaelthara.', next: 'w3' },
-              { text: '¿Qué sabéis de la guardiana?', next: 'w4' },
+              { text: 'Then I\'ll go to the ruins of Vaelthara.', next: 'w3' },
+              { text: 'What do you know of the guardian?', next: 'w4' },
             ],
           },
           w4: {
-            text: 'Territorial, vieja, más lenta en tierra que en el aire pero con un aliento que derrite el acero. Custodia Vaelthara como un perro custodia la tumba de su amo. Ve con el acero de tu padre... y cuando su cabeza se eche hacia atrás, corre: el fuego ya está cargando.',
-            options: [{ text: 'Iré con cuidado.', next: 'w3' }],
+            text: 'Territorial, old, slower on the ground than in the air — but with a breath that melts steel. She watches over Vaelthara as a dog watches its master\'s grave. Go with your father\'s steel... and when her head draws back, run: the fire is already charging.',
+            options: [{ text: 'I\'ll be careful.', next: 'w3' }],
           },
           w3: {
-            text: 'Las ruinas están al suroeste, más allá del bosque: columnas rotas con espirales de agua talladas. Mira con tus propios ojos y vuelve a contarme. Y muchacho... si de verdad hay un dragón allí, no lo despiertes tú.',
+            text: 'The ruins lie southwest, beyond the forest: broken columns carved with water spirals. See them with your own eyes and come back to tell me. And boy... if there truly is a dragon there, do not be the one who wakes it.',
             options: [
               {
-                text: 'Volveré con noticias, Aldric.',
+                text: 'I\'ll return with news, Aldric.',
                 action: [
                   { t: 'flag', flag: 'aldric_dragons_talked' },
                   { t: 'talk', target: 'aldric_dragons' },
@@ -171,24 +179,24 @@ export const DIALOGUES: Record<string, NPCDialogue> = {
         start: 'r1',
         nodes: {
           r1: {
-            text: 'Tu cara lo dice todo. La has visto. Dime que no te ha seguido hasta el muelle y te creo.',
+            text: 'Your face says it all. You have seen her. Tell me she did not follow you to the quay, and I\'ll believe you.',
             options: [
-              { text: 'Es enorme, Aldric. Y nos ha visto.', next: 'r2' },
-              { text: 'Custodia las ruinas como algo sagrado.', next: 'r2' },
+              { text: 'She\'s enormous, Aldric. And she saw us.', next: 'r2' },
+              { text: 'She guards the ruins like something sacred.', next: 'r2' },
             ],
           },
           r2: {
-            text: 'Entonces es ella. La guardiana de Vaelthara. Los archivos dicen que los Guardianes le hablaban... y que cuando la Orden se disolvió, se quedó sola con un juramento que nadie más recuerda. No es malvada, muchacho. Pero es leal a un mundo muerto.',
+            text: 'Then it is her. The guardian of Vaelthara. The archives say the Wardens spoke to her... and that when the Order dissolved, she was left alone with an oath no one else remembers. She is not evil, boy. But she is loyal to a dead world.',
             options: [
-              { text: '¿Qué hago si se interpone en mi camino?', next: 'r3' },
-              { text: 'Necesito llegar a las cumbres.', next: 'r3' },
+              { text: 'What do I do if she stands in my way?', next: 'r3' },
+              { text: 'I need to reach the peaks.', next: 'r3' },
             ],
           },
           r3: {
-            text: 'Toma esto de la vieja armería de la Orden: el hacha con que los Guardianes sometían bestias. Pesa, pero un golpe pesado tambalea incluso a un dragón. Y busca a Bram cuando la venzas: con sus escamas forjará algo que te salve la vida.',
+            text: 'Take this from the Order\'s old armory: the axe the Wardens used to subdue beasts. It is heavy, but a heavy blow will stagger even a dragon. And find Bram once you have bested her: with her scales he will forge something that will save your life.',
             options: [
               {
-                text: 'Gracias, Aldric. Por todo.',
+                text: 'Thank you, Aldric. For everything.',
                 action: [
                   { t: 'flag', flag: 'aldric_report_talked' },
                   { t: 'talk', target: 'aldric_report' },
@@ -205,23 +213,23 @@ export const DIALOGUES: Record<string, NPCDialogue> = {
         start: 'k1',
         nodes: {
           k1: {
-            text: 'El Corazón de Marea... Vivió para ver otro Guardián con las manos llenas de escamas. Escucha: al sur, entre la bahía y las Islas de la Bruma, los pescadores ven «una vela con garras». Es Skarnvind, el cazador del mar. Mientras vuele, no habrá paso al sur.',
+            text: 'The Heart of the Tide... She lived to see another Warden with hands full of scales. Listen: to the south, between the bay and the Mist Isles, fishermen speak of "a sail with claws". That is Skarnvind, the hunter of the sea. While he flies, there is no passage south.',
             options: [
               {
-                text: 'Zarparé hacia el sur.',
+                text: 'I\'ll set sail for the south.',
                 action: [
                   { t: 'flag', flag: 'skarnvind_hint' },
                   { t: 'close' },
                 ],
               },
-              { text: '¿Un wyvern en el mar abierto?', next: 'k2' },
+              { text: 'A wyvern on the open sea?', next: 'k2' },
             ],
           },
           k2: {
-            text: 'Caza desde el cielo lo que no puede nadar. Tus bordadas son tu espada allí: apunta cuando se pare frente a la proa, que es cuando carga su fuego. Y reza para que el Colibrí recuerde cómo esquivar truenos.',
+            text: 'He hunts from the sky what cannot swim. Your broadsides are your sword out there: strike when he hovers before the prow — that is when he charges his fire. And pray the Hummingbird remembers how to dodge thunder.',
             options: [
               {
-                text: 'Con viento a favor, Aldric.',
+                text: 'With the wind at my back, Aldric.',
                 action: [
                   { t: 'flag', flag: 'skarnvind_hint' },
                   { t: 'close' },
@@ -237,17 +245,17 @@ export const DIALOGUES: Record<string, NPCDialogue> = {
         start: 'f1',
         nodes: {
           f1: {
-            text: 'El colmillo... Los archivos decían la verdad, entonces. No lo mataste por oro ni por gloria: lo hiciste porque alguien debía sostener la guardia. Tu padre estaría orgulloso. La Orden de la Marea tiene de nuevo un Guardián.',
+            text: 'The fang... So the archives told the truth. You did not kill him for gold or glory: you did it because someone had to hold the watch. Your father would be proud. The Order of the Tide has a Warden again.',
             options: [
-              { text: '¿Y ahora qué, Aldric?', next: 'f2' },
-              { text: 'Los dragones no eran lo que decían las canciones.', next: 'f2' },
+              { text: 'And now what, Aldric?', next: 'f2' },
+              { text: 'The dragons were not what the songs claimed.', next: 'f2' },
             ],
           },
           f2: {
-            text: 'Ahora, el mar. Hay más islas al sur del horizonte, más sellos rotos que reparar y más canciones que aún no se atreven a contar la verdad. Bebe, descansa... y cuando el viento cambie, zarpa. Eldoria entera te debe un capítulo más.',
+            text: 'Now — the sea. There are more islands south of the horizon, more broken seals to mend, and more songs that do not yet dare tell the truth. Drink, rest... and when the wind turns, set sail. All Eldoria owes you one more chapter.',
             options: [
               {
-                text: 'Por los mares olvidados, Aldric.',
+                text: 'For the Forgotten Seas, Aldric.',
                 action: [
                   { t: 'flag', flag: 'aldric_final_talked' },
                   { t: 'close' },
@@ -261,15 +269,15 @@ export const DIALOGUES: Record<string, NPCDialogue> = {
         start: 'd1',
         nodes: {
           d1: {
-            text: 'El puerto está inquieto. Los mercantes dicen que hay una vela negra patrullando el paso del noroeste. Piratas… o algo peor. Si vas a explorar la costa, vuelve antes del anochecer.',
+            text: 'The port is restless. The merchants say a black sail is patrolling the northwest passage. Pirates… or something worse. If you mean to explore the coast, be back before nightfall.',
             options: [
-              { text: '¿Piratas tan cerca de la bahía?', next: 'd2' },
-              { text: 'Que los mares te sean leves, Aldric.', action: { t: 'close' } },
+              { text: 'Pirates so close to the bay?', next: 'd2' },
+              { text: 'May the seas be gentle with you, Aldric.', action: { t: 'close' } },
             ],
           },
           d2: {
-            text: 'Los mares cambian, muchacho. Antes los dragones mantenían la paz de las rutas; luego, los reinos; ahora… nadie. Solo el oro manda sobre las olas. Por eso este puerto necesita gente como tú.',
-            options: [{ text: 'Lo tendré en cuenta.', action: { t: 'close' } }],
+            text: 'The seas change, boy. Once the dragons kept the peace of the sea lanes; then the kingdoms; now… no one. Only gold rules the waves. That is why this port needs people like you.',
+            options: [{ text: 'I\'ll keep that in mind.', action: { t: 'close' } }],
           },
         },
       },
@@ -278,42 +286,42 @@ export const DIALOGUES: Record<string, NPCDialogue> = {
 
   maren: {
     npcId: 'maren',
-    name: 'Maren la Herborista',
+    name: 'Maren the Herbalist',
     trees: [
       {
         notCond: 'maren_met',
         start: 'm1',
         nodes: {
           m1: {
-            text: 'Ahí estás. Te esperaba desde que la gaviota anunció tu vela. Tienes los ojos de tu padre… y su tozudez, apuesto. Soy Maren. Curo verrugas, miedos y… guardo recuerdos ajenos, como el amuleto que buscas.',
+            text: 'There you are. I have been expecting you since the gull announced your sail. You have your father\'s eyes… and his stubbornness, I\'d wager. I am Maren. I cure warts and fears, and… I keep other people\'s memories — like the amulet you seek.',
             options: [
-              { text: 'Aldric dice que tenéis el amuleto de Eirik.', next: 'm2' },
-              { text: '¿Cómo sabíais que venía a buscarlo?', next: 'm3' },
+              { text: 'Aldric says you have Eirik\'s amulet.', next: 'm2' },
+              { text: 'How did you know I was coming for it?', next: 'm3' },
             ],
           },
           m3: {
-            text: 'Porque las mareas traen más que algas, muchacho. Traen noticias, presagios… y a veces traen a la gente justa al lugar justo. El amuleto de cobre lleva años esperándote en mi arcón. Pero nada regalado se aprecia: tendrás que ganártelo.',
-            options: [{ text: '¿Qué queréis a cambio?', next: 'm2' }],
+            text: 'Because the tides bring more than seaweed, boy. They bring news, omens… and sometimes they bring the right people to the right place. The copper amulet has waited years for you in my chest. But nothing given freely is ever valued: you will have to earn it.',
+            options: [{ text: 'What do you want in return?', next: 'm2' }],
           },
           m2: {
-            text: 'Tres pétalos de marfil. Florecen donde el agua canta: junto al sendero de la cascada del norte, y entre las ruinas del bosque occidental, donde la umbría es honda. Con ellos preparo el remedio del invierno para el pueblo.',
+            text: 'Three ivory petals. They bloom where the water sings: beside the trail of the northern waterfall, and among the ruins of the western woods, where the shade lies deep. With them I brew the winter remedy for the village.',
             options: [
               {
-                text: 'Los traeré. Esperadme.',
+                text: 'I\'ll bring them. Wait for me.',
                 next: 'm4',
                 action: [
                   { t: 'flag', flag: 'maren_met' },
                   { t: 'talk', target: 'maren' },
                 ],
               },
-              { text: '¿No hay otra forma de ganármelo?', next: 'm5' },
+              { text: 'Isn\'t there another way to earn it?', next: 'm5' },
             ],
           },
           m5: {
-            text: 'La hay: robarlo. Pero entonces la marea te daría la espalda, y créeme: vas a necesitar que el mar te mire con buenos ojos. Los pétalos, muchacho. El norte y el oeste.',
+            text: 'There is: steal it. But then the tide would turn its back on you, and believe me: you will need the sea to look on you kindly. The petals, boy. North and west.',
             options: [
               {
-                text: 'De acuerdo. Pétalos de marfil.',
+                text: 'Very well. Ivory petals.',
                 next: 'm4',
                 action: [
                   { t: 'flag', flag: 'maren_met' },
@@ -323,8 +331,8 @@ export const DIALOGUES: Record<string, NPCDialogue> = {
             ],
           },
           m4: {
-            text: 'Sigue el arroyo hacia las cumbres y encontrarás la cascada que susurra. Y en el bosque del oeste, las ruinas de los antiguos… ve con respeto: ese lugar recuerda a los que fueron. Que la umbría te sea piadosa.',
-            options: [{ text: 'Volveré con los pétalos.', action: { t: 'close' } }],
+            text: 'Follow the stream toward the peaks and you will find the whispering waterfall. And in the western woods, the ruins of the ancients… go with respect: that place remembers those who came before. May the shade be merciful to you.',
+            options: [{ text: 'I\'ll return with the petals.', action: { t: 'close' } }],
           },
         },
       },
@@ -335,35 +343,35 @@ export const DIALOGUES: Record<string, NPCDialogue> = {
         start: 't1',
         nodes: {
           t1: {
-            text: 'Hueles a rocío de cascada y a piedra antigua… Déjalos ver. ¡Vaya! Tres pétalos, ni uno marchito. Eirik recogía igual: con manos de pescador y paciencia de santo.',
+            text: 'You smell of waterfall mist and old stone… Let me see them. Well now! Three petals, not one wilted. Eirik gathered them just the same: with a fisherman\'s hands and a saint\'s patience.',
             options: [
               {
-                text: 'Entregar los tres pétalos',
+                text: 'Hand over the three petals',
                 next: 't2',
                 action: { t: 'takeItem', id: 'petalo', count: 3 },
               },
             ],
           },
           t2: {
-            text: 'Están perfectos. Toma, lo prometido: el amuleto de cobre de tu padre. Y una cosa más, porque los ojos te delatan: tu familia no eran pescadores, muchacho. Eran Guardianes de la Marea. Custodios del pacto con los que duermen bajo el mar.',
+            text: 'They are perfect. Here — as promised: your father\'s copper amulet. And one thing more, for your eyes give you away: your family were no fishermen, boy. They were Wardens of the Tide. Keepers of the pact with those who sleep beneath the sea.',
             options: [
-              { text: '¿El pacto… con los dragones?', next: 't3' },
-              { text: '¿Por qué no me lo contaron nunca?', next: 't4' },
+              { text: 'The pact… with the dragons?', next: 't3' },
+              { text: 'Why did they never tell me?', next: 't4' },
             ],
           },
           t3: {
-            text: 'Con los dragones, sí. Los que cantan las canciones de taberna y los que de verdad vuelan sobre las Garrahielo. La Orden velaba el equilibrio: que los reyes no codiciaran lo hundido, y que lo hundido no codiciara la superficie. Tu padre fue el último Guardián… que yo conozca.',
-            options: [{ text: 'Y ahora ¿qué soy yo?', next: 't5' }],
+            text: 'With the dragons, yes. The ones the tavern songs sing of, and the ones that truly fly above the Iceclaw Peaks. The Order kept the balance: that kings would not covet what lies sunken, and that the sunken would not covet the surface. Your father was the last Warden… that I know of.',
+            options: [{ text: 'And now — what am I?', next: 't5' }],
           },
           t4: {
-            text: 'Porque los Guardianes juran silencio, y el silencio protege. Un Guardián que grita su nombre en la taberna pone una diana sobre su familia. Eirik te calló la verdad para que pudieras dormir de niño. Ahora ya puedes despertar.',
-            options: [{ text: 'Entonces despertaré.', next: 't5' }],
+            text: 'Because Wardens swear silence, and silence protects. A Warden who shouts his name in the tavern puts a target on his family. Eirik kept the truth from you so you could sleep as a child. Now you may wake.',
+            options: [{ text: 'Then I will wake.', next: 't5' }],
           },
           t5: {
-            text: 'Eres lo que la sal elija. Ahora ve: el cofre de tu padre espera en el almacén del puerto. Y cuando la carta que guardo en mi memoria llegue a tus manos… recuerda que las viejas órdenes nunca mueren mientras alguien recuerde sus votos. Toma también estas pociones: vas a necesitarlas.',
+            text: 'You are whatever the salt chooses. Now go: your father\'s chest waits in the port warehouse. And when the letter I keep in my memory reaches your hands… remember that old orders never die while someone remembers their vows. Take these potions too: you will need them.',
             options: [
               {
-                text: 'Gracias, Maren.',
+                text: 'Thank you, Maren.',
                 action: [
                   { t: 'item', id: 'amuleto', count: 1 },
                   { t: 'flag', flag: 'maren_herbs_done' },
@@ -380,15 +388,15 @@ export const DIALOGUES: Record<string, NPCDialogue> = {
         start: 'w1',
         nodes: {
           w1: {
-            text: '¿Los pétalos, muchacho? Recuerda: florecen en la umbría. La cascada del norte, junto al sendero… y el bosque occidental, entre las ruinas que el musgo reclama. La naturaleza solo abre sus tesoros a quien camina despacio.',
+            text: 'The petals, boy? Remember: they bloom in the shade. The northern waterfall, beside the trail… and the western woods, among the ruins the moss is reclaiming. Nature opens its treasures only to those who walk slowly.',
             options: [
-              { text: 'Sigo buscando.', action: { t: 'close' } },
-              { text: '¿Cómo llego a la cascada?', next: 'w2' },
+              { text: 'Still searching.', action: { t: 'close' } },
+              { text: 'How do I reach the waterfall?', next: 'w2' },
             ],
           },
           w2: {
-            text: 'Del pozo de la plaza, camina al norte siguiendo el arroyo hasta las estribaciones. Oye el agua cantar antes de verla: por eso la llaman la Susurrante. Y de vuelta… cuidado con los lobos al anochecer. El bosque tiene hambre este año.',
-            options: [{ text: 'Iré con cuidado.', action: { t: 'close' } }],
+            text: 'From the well in the square, walk north along the stream into the foothills. You will hear the water sing before you see it: that is why they call her the Whisperer. And on the way back… beware the wolves at dusk. The forest is hungry this year.',
+            options: [{ text: 'I\'ll be careful.', action: { t: 'close' } }],
           },
         },
       },
@@ -396,15 +404,15 @@ export const DIALOGUES: Record<string, NPCDialogue> = {
         start: 'f1',
         nodes: {
           f1: {
-            text: 'Las hierbas me contaron que subiste a las Garrahielo. Pocos vuelven de allí con la cabeza girada hacia el cielo… Los pastores dicen que una sombra alada cruza las cumbres al atardecer. Yo digo: reza para que siga durmiendo.',
+            text: 'The herbs told me you climbed the Iceclaw Peaks. Few come back from there with their heads still turned toward the sky… The shepherds say a winged shadow crosses the summits at dusk. I say: pray it stays asleep.',
             options: [
-              { text: '¿Creéis en los dragones, Maren?', next: 'f2' },
-              { text: 'Debo irme.', action: { t: 'close' } },
+              { text: 'Do you believe in dragons, Maren?', next: 'f2' },
+              { text: 'I must go.', action: { t: 'close' } },
             ],
           },
           f2: {
-            text: 'Creo en lo que curan mis hierbas y en lo que hunden los mares. Los dragones… son ambas cosas, muchacho. Fueron remedio del mundo una vez. Y fueron su veneno. La Orden lo sabía. Por eso existían Guardianes.',
-            options: [{ text: 'Como mi padre.', action: { t: 'close' } }],
+            text: 'I believe in what my herbs heal and in what the seas sink. Dragons… are both, boy. They were the world\'s remedy once. And they were its poison. The Order knew it. That is why Wardens existed.',
+            options: [{ text: 'Like my father.', action: { t: 'close' } }],
           },
         },
       },
@@ -413,35 +421,35 @@ export const DIALOGUES: Record<string, NPCDialogue> = {
 
   rosa: {
     npcId: 'rosa',
-    name: 'Rosa, tabernera del Ancla Rota',
+    name: 'Rosa, barkeeper of the Broken Anchor',
     trees: [
       {
         notCond: 'rosa_started',
         start: 'r1',
         nodes: {
           r1: {
-            text: '¡Un cara nueva que no me debe dinero! Bienvenido al Ancla Rota, el único lugar de Aldmor donde la cerveza es más honesta que los precios. ¿Pinta? ¿Rumores? ¿Trabajo?',
+            text: 'A new face that doesn\'t owe me money! Welcome to the Broken Anchor, the only place in Aldmor where the beer is more honest than the prices. A pint? Rumors? Work?',
             options: [
-              { text: 'Has dicho ¿trabajo?', next: 'r2' },
-              { text: 'Solo miraba la taberna. Adelante con la noche.', action: { t: 'close' } },
+              { text: 'Did you say work?', next: 'r2' },
+              { text: 'Just admiring the tavern. On with the night.', action: { t: 'close' } },
             ],
           },
           r2: {
-            text: 'La tormenta del mes pasado partió al Espejismo contra la costa oeste. Se llevó medio cargamento de especias con que pagaba la letra de mi taberna. Si me lo traes del naufragio… oro contante y una poción de la casa. Yo no voy: el mar me escupe y yo le escupo a él.',
+            text: 'Last month\'s storm broke the Mirage on the west coast. It took half a cargo of spices — the very spices that paid my tavern\'s note. Bring it back from the wreck… hard coin and a house potion. I\'m not going: the sea spits me out, and I spit right back.',
             options: [
               {
-                text: 'Buscaré tu cargamento en la costa oeste.',
+                text: 'I\'ll search for your cargo on the west coast.',
                 next: 'r3',
                 action: { t: 'flag', flag: 'rosa_started' },
               },
-              { text: 'Suena a trabajo de marea baja… Lo pensaré.', action: { t: 'close' } },
+              { text: 'Sounds like a low-tide job… I\'ll think about it.', action: { t: 'close' } },
             ],
           },
           r3: {
-            text: '¡Esa es! Sigue la playa del oeste hasta ver el casco partido. Mi caja lleva el sello del ancla rota grabado a fuego. Y cuidado con lo que el mar devuelve… no todo lo que trae la marea está muerto.',
+            text: 'That\'s the spirit! Follow the western beach until you see the broken hull. My chest bears the broken-anchor seal, branded by fire. And mind what the sea gives back… not everything the tide brings in is dead.',
             options: [
               {
-                text: 'Volveré con la caja.',
+                text: 'I\'ll be back with the chest.',
                 action: [
                   { t: 'quest', id: 'q_rosa' },
                   { t: 'close' },
@@ -458,10 +466,10 @@ export const DIALOGUES: Record<string, NPCDialogue> = {
         start: 'r4',
         nodes: {
           r4: {
-            text: '¡Por el ancla de mi bisabuela! ¡La caja de especias! Huele… a canela y a beneficio. Toma tu recompensa, marinero: el oro prometido y la poción de la casa — la beben los pescadores cuando el mar les escupe mal heridos.',
+            text: 'By my great-grandmother\'s anchor! The spice chest! It smells… of cinnamon and profit. Here\'s your reward, sailor: the gold I promised and a house potion — the fishermen drink it when the sea spits them back half-drowned.',
             options: [
               {
-                text: 'Un trato es un trato, Rosa.',
+                text: 'A deal is a deal, Rosa.',
                 action: [
                   { t: 'takeItem', id: 'cargamento', count: 1 },
                   { t: 'talk', target: 'rosa_return' },
@@ -479,10 +487,10 @@ export const DIALOGUES: Record<string, NPCDialogue> = {
         start: 'rc1',
         nodes: {
           rc1: {
-            text: '¿Tres pétalos de marfil más? La luna me sonría. Con el baño de pétalo la lona queda encerada, teñida y tres veces más fuerte — el secreto de las velas que no se rompen. Dame un minuto… ya está: tres piezas de primera, listas para el Colibrí.',
+            text: 'Three more ivory petals? The moon smiles on me. With a petal bath the canvas comes out waxed, dyed and three times as strong — the secret behind sails that never tear. Give me a minute… there: three first-rate pieces, ready for the Hummingbird.',
             options: [
               {
-                text: 'Un arte, Rosa. Tomad.',
+                text: 'A true art, Rosa. Here you are.',
                 action: [
                   { t: 'takeItem', id: 'petalo', count: 3 },
                   { t: 'item', id: 'lona', count: 3 },
@@ -501,10 +509,10 @@ export const DIALOGUES: Record<string, NPCDialogue> = {
         start: 'rc2',
         nodes: {
           rc2: {
-            text: 'Sin pétalos también se puede, aunque la lona sale blanca y menos noble: lino del norte a veinte monedas las tres piezas. Elige tú: la marea no espera y Bram tampoco.',
+            text: 'It can be done without petals, though the canvas comes out white and less noble: northern linen, twenty coins for the three pieces. Your choice: the tide won\'t wait, and neither will Bram.',
             options: [
               {
-                text: 'Tomo el lino. Aquí tenéis.',
+                text: 'I\'ll take the linen. Here you are.',
                 action: [
                   { t: 'takeItem', id: 'coin', count: 20 },
                   { t: 'item', id: 'lona', count: 3 },
@@ -512,7 +520,7 @@ export const DIALOGUES: Record<string, NPCDialogue> = {
                   { t: 'close' },
                 ],
               },
-              { text: 'Volveré con pétalos de marfil.', action: { t: 'close' } },
+              { text: 'I\'ll be back with ivory petals.', action: { t: 'close' } },
             ],
           },
         },
@@ -523,9 +531,9 @@ export const DIALOGUES: Record<string, NPCDialogue> = {
         start: 'rc3',
         nodes: {
           rc3: {
-            text: '¿La lona para el Colibrí? Claro que sé hacerla — lavé las velas de tu padre años enteros. Tráeme tres pétalos de marfil para el baño de encerado… o veinte monedas si la naturaleza no te sonríe esta semana.',
+            text: 'Canvas for the Hummingbird? Of course I know how to make it — I washed your father\'s sails for years on end. Bring me three ivory petals for the waxing bath… or twenty coins if nature isn\'t smiling on you this week.',
             options: [
-              { text: 'Ya os traigo una cosa u otra.', action: { t: 'close' } },
+              { text: 'I\'ll bring you one or the other.', action: { t: 'close' } },
             ],
           },
         },
@@ -534,15 +542,15 @@ export const DIALOGUES: Record<string, NPCDialogue> = {
         start: 'r5',
         nodes: {
           r5: {
-            text: 'Sabías que tu padre pagaba sus deudas cantando? Mal, pero cantando. Si heredaste la voz, la casa invita. Si heredaste la sed… la casa cobra doble.',
+            text: 'Did you know your father paid his debts singing? Badly — but singing. If you inherited the voice, the house is buying. If you inherited the thirst… the house charges double.',
             options: [
-              { text: 'Tomaré algo y escucharé los rumores.', next: 'r6' },
-              { text: 'Otra noche será.', action: { t: 'close' } },
+              { text: 'I\'ll have a drink and listen to the rumors.', next: 'r6' },
+              { text: 'Another night, then.', action: { t: 'close' } },
             ],
           },
           r6: {
-            text: 'Pues apunta: un mercante jura que vio luces bajo el agua al noroeste, donde se dice que se hundió la vieja capital. Y el viejo Jorund asegura que las piedras del círculo cantan las noches sin luna. Yo solo sé que la marea trae cosas raras este año…',
-            options: [{ text: 'Cosas raras… las mías son las peores. Salud.', action: { t: 'close' } }],
+            text: 'Then mark this: a merchant swears he saw lights beneath the water to the northwest, where they say the old capital sank. And old Jorund vows the circle stones sing on moonless nights. All I know is the tide is bringing in strange things this year…',
+            options: [{ text: 'Strange things… mine are the worst of all. Cheers.', action: { t: 'close' } }],
           },
         },
       },
@@ -551,7 +559,7 @@ export const DIALOGUES: Record<string, NPCDialogue> = {
 
   bram: {
     npcId: 'bram',
-    name: 'Bram el Herrero',
+    name: 'Bram the Smith',
     trees: [
       {
         cond: 'aldric_ship_talked',
@@ -559,30 +567,30 @@ export const DIALOGUES: Record<string, NPCDialogue> = {
         start: 'rf1',
         nodes: {
           rf1: {
-            text: 'Así que el Colibrí volverá al agua y tú eres el nuevo dueño. Bien. Aldric ya me adelantó la mitad del pago — la otra mitad me la debes en madera, lona y cuerda. Yo pongo los clavos, el sudor y los juramentos.',
+            text: 'So the Hummingbird goes back in the water and you are the new owner. Good. Aldric already advanced me half the payment — the other half you owe me in timber, canvas and rope. I bring the nails, the sweat and the swearing.',
             options: [
-              { text: '¿Qué necesita exactamente el casco?', next: 'rf2' },
-              { text: '¿Y vos no os hacéis a la mar?', next: 'rf3' },
+              { text: 'What exactly does the hull need?', next: 'rf2' },
+              { text: 'And you don\'t take to the sea?', next: 'rf3' },
             ],
           },
           rf2: {
-            text: 'Cuatro tablones de roble curado — hay cajas marcadas con mi sello en el muelle, en la costa del naufragio y en el sendero de la cascada. Tres piezas de lona encerada, que Rosa sabe preparar como nadie. Y dos cuerdas de cáñamo del buenísimo de Tom. Cuando lo tengas todo, deja los materiales junto al casco y yo me encargo del resto.',
+            text: 'Four planks of cured oak — there are crates marked with my seal at the quay, on the wreck coast and along the waterfall trail. Three pieces of waxed canvas, which Rosa prepares better than anyone. And two hemp ropes from good old Tom. When you have it all, leave the materials by the hull and I will handle the rest.',
             options: [
               {
-                text: 'Con esa lista, a trabajar. Buena forja, Bram.',
+                text: 'With that list, to work. Good forging, Bram.',
                 action: [
                   { t: 'talk', target: 'bram_refit' },
                   { t: 'close' },
                 ],
               },
-              { text: '¿Y si falta algo?', next: 'rf3' },
+              { text: 'And if something is missing?', next: 'rf3' },
             ],
           },
           rf3: {
-            text: 'El Colibrí no zarpa a medias, muchacho. Ni los barcos ni los hombres. Consigue la lista completa y hablamos de mareas. Y una cosa más: cuando navegues, escucha al casco. La madera avisa antes de romperse… si sabes escuchar.',
+            text: 'The Hummingbird does not sail half-ready, boy. Neither ships nor men. Bring me the full list and we will talk tides. And one thing more: when you sail, listen to the hull. Wood warns before it breaks… if you know how to listen.',
             options: [
               {
-                text: 'Aprenderé a escuchar. Adiós, Bram.',
+                text: 'I will learn to listen. Farewell, Bram.',
                 action: [
                   { t: 'talk', target: 'bram_refit' },
                   { t: 'close' },
@@ -597,8 +605,8 @@ export const DIALOGUES: Record<string, NPCDialogue> = {
         start: 'rf4',
         nodes: {
           rf4: {
-            text: '¡Ahí está el nuevo capitán! El casco canta bien, ¿verdad? Le puse refuerzos dobles en la quilla, donde a tu padre le gustaba rozar los arrecifes. Si oyes un crujido raro a babor… es el recuerdo de Eirik protestando, no la madera.',
-            options: [{ text: 'Ojalá proteste muchos años. Buena forja.', action: { t: 'close' } }],
+            text: 'There\'s the new captain! The hull sings true, doesn\'t it? I put double reinforcements on the keel — right where your father liked to graze the reefs. If you hear an odd creak to port… that is Eirik\'s memory protesting, not the wood.',
+            options: [{ text: 'May he protest for many years. Good forging.', action: { t: 'close' } }],
           },
         },
       },
@@ -606,27 +614,27 @@ export const DIALOGUES: Record<string, NPCDialogue> = {
         start: 'b1',
         nodes: {
           b1: {
-            text: '¡Chispas! Acércate al fuego, que el norte corta esta temporada. ¿Hierro que reparar? ¿Uñas de barco? ¿O vienes a que te hable de la vez que vi una escama del tamaño de un escudo caer del cielo?',
+            text: 'Sparks! Come closer to the fire — the north wind cuts this season. Iron to mend? Ship nails? Or have you come to hear about the time I saw a scale the size of a shield fall from the sky?',
             options: [
-              { text: '¿Una escama… del cielo?', next: 'b2' },
-              { text: '¿Trabajo tienes para mí?', next: 'b3' },
-              { text: 'Solo pasaba. Buena forja.', action: { t: 'close' } },
+              { text: 'A scale… from the sky?', next: 'b2' },
+              { text: 'Do you have work for me?', next: 'b3' },
+              { text: 'Just passing through. Good forging.', action: { t: 'close' } },
             ],
           },
           b2: {
-            text: 'Iba yo con mi abuelo por el paso alto, hace treinta inviernos. Cayó girando como una hoja plateada y clavóse en el hielo a un pie de mi bota. Mi abuelo la miró, la dejó ahí y dijo: «Donde cae una escama, pronto cae su dueño. Corre.» Corrimos. Nunca volvimos por aquel paso.',
+            text: 'I was crossing the high pass with my grandfather, thirty winters ago. It came down spinning like a silver leaf and drove itself into the ice a foot from my boot. My grandfather looked at it, left it lying there and said: "Where a scale falls, its master soon follows. Run." We ran. We never went back through that pass.',
             options: [
-              { text: '¿Y aún conserváis la escama?', next: 'b4' },
-              { text: 'Buena historia para la taberna.', action: { t: 'close' } },
+              { text: 'And you still keep the scale?', next: 'b4' },
+              { text: 'A fine tale for the tavern.', action: { t: 'close' } },
             ],
           },
           b4: {
-            text: 'La fundí, muchacho. De ella salieron diez hoces y dos espadas… y te juro por la forja que el acero salió cantando. Aún me despierto algunas noches y oigo el eco de ese canto bajo la tierra. El metal recuerda, como el mar.',
-            options: [{ text: 'Entonces el metal y yo nos entenderemos. Adiós.', action: { t: 'close' } }],
+            text: 'I melted it down, boy. Ten scythes and two swords came out of it… and I swear by the forge, the steel came out singing. Some nights I still wake and hear the echo of that song beneath the earth. Metal remembers, like the sea.',
+            options: [{ text: 'Then the metal and I will understand each other. Farewell.', action: { t: 'close' } }],
           },
           b3: {
-            text: 'Para un muchacho con piernas: traeme carbón del monte y te afilo lo que lleves. Pero, entre nosotros, mejor trabajo es el que te da Aldric: el puerto paga… y el mar enseña.',
-            options: [{ text: 'Iré a verle. Buena forja, Bram.', action: { t: 'close' } }],
+            text: 'For a lad with legs: bring me charcoal from the mountain and I\'ll sharpen whatever you carry. But between us, the better work is what Aldric gives you: the port pays… and the sea teaches.',
+            options: [{ text: 'I\'ll go see him. Good forging, Bram.', action: { t: 'close' } }],
           },
         },
       },
@@ -635,7 +643,7 @@ export const DIALOGUES: Record<string, NPCDialogue> = {
 
   tom: {
     npcId: 'tom',
-    name: 'Tom el Pescador',
+    name: 'Tom the Fisherman',
     trees: [
       {
         cond: 'aldric_ship_talked',
@@ -644,10 +652,10 @@ export const DIALOGUES: Record<string, NPCDialogue> = {
         start: 'tr1',
         nodes: {
           tr1: {
-            text: '¿Eso que suena en tu bolsa? Exacto: monedas. Diez, contadas. Y estas son mis dos mejores cuerdas de cáñamo, trenzadas por mí, aguanta un mástil en plena galerna. Trato hecho, ¿eh? Nada de devoluciones: el cáñamo ya conoce tu olor.',
+            text: 'That jingling in your pouch? Exactly: coins. Ten, counted out. And these are my two best hemp ropes, braided by my own hands — they would hold a mast in a full gale. A deal, eh? No returns: the hemp already knows your smell.',
             options: [
               {
-                text: 'Trato hecho, Tom.',
+                text: 'It\'s a deal, Tom.',
                 action: [
                   { t: 'takeItem', id: 'coin', count: 10 },
                   { t: 'item', id: 'cuerda', count: 2 },
@@ -665,15 +673,15 @@ export const DIALOGUES: Record<string, NPCDialogue> = {
         start: 'tr2',
         nodes: {
           tr2: {
-            text: 'Cuerda de cáñamo para el Colibrí, ¿eh? Tengo las mejores del puerto… pero ya no regalo nada desde que un lobo me debía una red. Diez monedas por las dos cuerdas. El cáñamo no crece en las piedras, muchacho.',
+            text: 'Hemp rope for the Hummingbird, eh? I\'ve the best in the port… but I give nothing away anymore, not since a wolf owed me a net. Ten coins for the two ropes. Hemp doesn\'t grow on stones, boy.',
             options: [
-              { text: 'Volveré con las monedas.', action: { t: 'close' } },
-              { text: '¿Y no bajáis el precio para el hijo de Eirik?', next: 'tr3' },
+              { text: 'I\'ll be back with the coins.', action: { t: 'close' } },
+              { text: 'Won\'t you lower the price for Eirik\'s son?', next: 'tr3' },
             ],
           },
           tr3: {
-            text: 'Para el hijo de Eirik bajo la charla y subo el cariño: diez monedas igual, pero con un nudo de suerte regalado. Los precios de pescador son como las mareas, muchacho: firmes.',
-            options: [{ text: 'Tendrá razón la marea. Hasta luego.', action: { t: 'close' } }],
+            text: 'For Eirik\'s son I lower the talk and raise the warmth: still ten coins, but with a luck knot thrown in for free. Fisherman\'s prices are like the tides, boy: firm.',
+            options: [{ text: 'The tide must be right. See you later.', action: { t: 'close' } }],
           },
         },
       },
@@ -681,26 +689,26 @@ export const DIALOGUES: Record<string, NPCDialogue> = {
         start: 't1',
         nodes: {
           t1: {
-            text: '¡Eh! Tú el de la barba de Eirik. Bienvenido al muelle: donde los peces son listos y los hombres no tanto. ¿Vienes a pescar o a perderte como tu padre?',
+            text: 'Hey! You there, with Eirik\'s beard. Welcome to the quay: where the fish are clever and the men rather less. Have you come to fish, or to get lost like your father?',
             options: [
-              { text: '¿Perderse? Cuéntame.', next: 't2' },
-              { text: '¿Qué se pesca por aquí?', next: 't3' },
+              { text: 'Get lost? Tell me.', next: 't2' },
+              { text: 'What\'s the catch around here?', next: 't3' },
             ],
           },
           t2: {
-            text: 'Eirik se perdía a propósito, muchacho. Tomaba el Colibrí y desaparecía semanas, rumbo al noroeste, donde las cartas se quedan blancas. Volvía con la bodega llena de cosas… raras. Pergaminos. Piedras que brillan. Y una vez, juro por la marea, un diente más largo que mi brazo.',
+            text: 'Eirik got lost on purpose, boy. He would take the Hummingbird and vanish for weeks, bound northwest, where the charts go blank. He\'d come back with the hold full of… strange things. Parchments. Stones that shine. And once — I swear by the tide — a tooth longer than my arm.',
             options: [
-              { text: '¿Un diente? ¿De qué bestia?', next: 't4' },
-              { text: 'Parecía otro hombre.', action: { t: 'close' } },
+              { text: 'A tooth? From what beast?', next: 't4' },
+              { text: 'He seemed a different man.', action: { t: 'close' } },
             ],
           },
           t4: {
-            text: 'De la que no se pesca con caña, eso seguro. Lo cambió en el mercado del sur por un saco de plata. El comprador llevaba capa con… bah, ya ni lo recuerdo. El mar borra los detalles y se queda con las historias.',
-            options: [{ text: 'Gracias, Tom.', action: { t: 'close' } }],
+            text: 'Not the kind you catch with a rod, that\'s for sure. He traded it at the southern market for a sack of silver. The buyer wore a cloak with… bah, I can\'t remember anymore. The sea erases the details and keeps the stories.',
+            options: [{ text: 'Thanks, Tom.', action: { t: 'close' } }],
           },
           t3: {
-            text: 'Beso de dragón al amanecer, lubina entre las rocas del este y peces espada cuando el agua hierve en agosto. Y mentiras de pescador todo el año — las más sabrosas. Si el Colibrí vuelve a navegar, apúntame: echo el anzuelo y una canción.',
-            options: [{ text: 'Te tendré presente.', action: { t: 'close' } }],
+            text: 'Dragon\'s Kiss at dawn, sea bass among the eastern rocks, and swordfish when the water boils in August. And fishermen\'s lies all year round — the tastiest catch of all. If the Hummingbird sails again, count me in: I\'ll bring the hook and a song.',
+            options: [{ text: 'I\'ll keep you in mind.', action: { t: 'close' } }],
           },
         },
       },
@@ -709,25 +717,25 @@ export const DIALOGUES: Record<string, NPCDialogue> = {
 
   elin: {
     npcId: 'elin',
-    name: 'Elin, tendera',
+    name: 'Elin, shopkeeper',
     trees: [
       {
         start: 'e1',
         nodes: {
           e1: {
-            text: '¡Fruta, queso y cintas de colores! Perdona el desorden, es día de mercado. ¿Sabes que eres el tema de la semana? El hijo del Guardián… digo, del capitán Eirik, vuelve al puerto. La gente habla.',
+            text: 'Fruit, cheese and colored ribbons! Forgive the mess — it\'s market day. Did you know you\'re the talk of the week? The Warden\'s son… I mean, Captain Eirik\'s son, back in port. People talk.',
             options: [
-              { text: '¿Y qué dice la gente?', next: 'e2' },
-              { text: '¿Qué se vende hoy?', next: 'e3' },
+              { text: 'And what do people say?', next: 'e2' },
+              { text: 'What\'s for sale today?', next: 'e3' },
             ],
           },
           e2: {
-            text: 'Que los mares se agitan. Que la pesca escasea desde que esa vela negra merodea el paso. Y que las cabras del norte se niegan a pastar en la ladera de las Garrahielo. Los animales saben, muchacho. Siempre saben antes que nosotros.',
-            options: [{ text: 'Lo recordaré. Buen mercado.', action: { t: 'close' } }],
+            text: 'That the seas are restless. That fish run scarce since that black sail began prowling the passage. And that the northern goats refuse to graze on the slopes of the Iceclaw Peaks. Animals know, boy. They always know before we do.',
+            options: [{ text: 'I\'ll remember that. Good trading.', action: { t: 'close' } }],
           },
           e3: {
-            text: 'Queso de cabra de las colinas, manzanas de huerta y sal del este. Todo a precio de amigo del puerto. Ah, y si subes a la cascada del norte, tráeme plumas de halcón: pago bien por ellas, dicen que dan suerte… a los que navegan.',
-            options: [{ text: 'Quizá suba a por ellas.', action: { t: 'close' } }],
+            text: 'Goat cheese from the hills, orchard apples and salt from the east. All at friend-of-the-port prices. Ah, and if you climb to the northern waterfall, bring me hawk feathers: I pay well for them — they say they bring luck… to those who sail.',
+            options: [{ text: 'Perhaps I\'ll go up for some.', action: { t: 'close' } }],
           },
         },
       },
@@ -736,32 +744,32 @@ export const DIALOGUES: Record<string, NPCDialogue> = {
 
   jorund: {
     npcId: 'jorund',
-    name: 'Guardia Jorund',
+    name: 'Guard Jorund',
     trees: [
       {
         start: 'j1',
         nodes: {
           j1: {
-            text: 'Alto ahí… bah, tranquilo, muchacho. Todo el pueblo sabe quién eres. Jorund, guardia de la puerta. Mantén la paz dentro de los muros y no tendremos palabras… salvo las amistosas.',
+            text: 'Halt there… ah, easy, boy. The whole village knows who you are. Jorund, gate guard. Keep the peace inside the walls and we\'ll have no words… except the friendly kind.',
             options: [
-              { text: '¿Paz? ¿Pasa algo en el pueblo?', next: 'j2' },
-              { text: '¿Algún consejo de guardia veterano?', next: 'j3' },
+              { text: 'Peace? Is something wrong in the village?', next: 'j2' },
+              { text: 'Any advice from a veteran guard?', next: 'j3' },
             ],
           },
           j2: {
-            text: 'Bandidos en los caminos del sur, lobos con hambre en el bosque y algo que aúlla cerca del círculo de piedras las noches sin luna. El viejo señor del castillo duplicó la guardia. Yo solo digo: Puerto Cuervo duerme con un ojo abierto.',
+            text: 'Bandits on the southern roads, hungry wolves in the forest, and something that howls near the stone circle on moonless nights. The old lord of the castle has doubled the watch. All I\'m saying is: Crowhaven sleeps with one eye open.',
             options: [
-              { text: '¿El círculo de piedras dices?', next: 'j4' },
-              { text: 'Dormiréis bien vigilados.', action: { t: 'close' } },
+              { text: 'The stone circle, you say?', next: 'j4' },
+              { text: 'You will sleep well guarded.', action: { t: 'close' } },
             ],
           },
           j4: {
-            text: 'No vayas, muchacho. En serio. Mi abuelo enterró a dos compañeros que fueron a «ver las runas brillar». Los encontró la marea: mirando al cielo, sonriendo, sin marca alguna. Hay bellezas que no se miran dos veces. Esa es una.',
-            options: [{ text: '…Lo recordaré. Gracias, Jorund.', action: { t: 'close' } }],
+            text: 'Don\'t go there, boy. I mean it. My grandfather buried two mates who went to "see the runes glow". The tide found them: staring at the sky, smiling, without a mark on them. Some beauties are not meant to be looked at twice. That is one of them.',
+            options: [{ text: '…I\'ll remember that. Thank you, Jorund.', action: { t: 'close' } }],
           },
           j3: {
-            text: 'Uno: en las ruinas, pisa fuerte, que las serpientes huyen del ruido. Dos: si el bosque calla de golpe, no corras: cuenta hasta diez y camina despacio. Y tres… la cerveza de Rosa cobra intereses. Cuídate de las tres cosas y vivirás más que yo.',
-            options: [{ text: 'Sabiduría de guardia. Me la quedo.', action: { t: 'close' } }],
+            text: 'One: in the ruins, tread loud — snakes flee from noise. Two: if the forest falls suddenly silent, don\'t run: count to ten and walk slowly. And three… Rosa\'s beer charges interest. Beware all three and you\'ll outlive me.',
+            options: [{ text: 'Guard\'s wisdom. I\'ll take it.', action: { t: 'close' } }],
           },
         },
       },
@@ -770,21 +778,98 @@ export const DIALOGUES: Record<string, NPCDialogue> = {
 
   sigrid: {
     npcId: 'sigrid',
-    name: 'Sigrid la Lavandera',
+    name: 'Sigrid the Laundress',
     trees: [
       {
         start: 'sg1',
         nodes: {
           sg1: {
-            text: 'Cuidado con las baldosas, que el jabón no perdona. Ay, sí, tú eres el hijo de Eirik… Yo lavé sus velas años, sabes. En una encontré una carta cosida al doblez. Se la devolví sin leer… aunque la tentación fue grande, eso sí.',
+            text: 'Mind the flagstones — soap forgives nothing. Ah yes, you\'re Eirik\'s son… I washed his sails for years, you know. In one of them I found a letter sewn into the hem. I returned it unread… though the temptation was great, I\'ll admit.',
             options: [
-              { text: '¿Una carta cosida? ¿Qué decía?', next: 'sg2' },
-              { text: 'Buena persona era mi padre.', action: { t: 'close' } },
+              { text: 'A sewn-up letter? What did it say?', next: 'sg2' },
+              { text: 'My father was a good man.', action: { t: 'close' } },
             ],
           },
           sg2: {
-            text: 'No lo sé, muchacho, y que los dioses me perdonen: no la leí. Pero recuerdo el sello de lacre: un círculo de mareas alrededor de una llama. Días después, tu padre se hizo a la mar con ese mismo sello colgado del cuello… y no volvió más.',
-            options: [{ text: 'Un círculo de mareas… como el amuleto.', action: { t: 'close' } }],
+            text: 'I don\'t know, boy, and may the gods forgive me: I never read it. But I remember the wax seal: a circle of tides around a flame. Days later, your father put to sea with that same seal hung round his neck… and he never came back.',
+            options: [{ text: 'A circle of tides… like the amulet.', action: { t: 'close' } }],
+          },
+        },
+      },
+    ],
+  },
+
+  // ---- Fase 16 — LA HERRERÍA: Torvald, el Herrero Estándar (nivel 6+) ----
+  herrero: {
+    npcId: 'herrero',
+    name: 'Torvald',
+    trees: [
+      {
+        // Too green: no shop, no small talk
+        maxLevel: 5,
+        start: 't_low',
+        nodes: {
+          t_low: {
+            text: 'Come back when you\'ve toughened up a bit, eh? Level 6 is the bare minimum to touch my anvil. You still smell of the village.',
+            options: [{ text: 'I\'ll be back with more beard.', action: { t: 'close' } }],
+          },
+        },
+      },
+      {
+        start: 't1',
+        nodes: {
+          t1: {
+            text: 'Torvald, at your service. Steel, leather, and a pair of wings the gulls envy. Everything that leaves my forge carries my seal… and a fair price. What can I do for you?',
+            options: [
+              { text: 'Let\'s see the wares.', action: { t: 'shop', vendor: 'herrero' } },
+              { text: 'Wings? What are you talking about?', next: 't2' },
+              { text: 'Another time, then.', action: { t: 'close' } },
+            ],
+          },
+          t2: {
+            text: 'Waxed canvas over whalebone ribs, boy. You strap them on, leap from a tower… and hold SPACE in the air. The wind does the rest: you glide down like an albatross in debt.',
+            options: [
+              { text: 'I want them. Show me the wares.', action: { t: 'shop', vendor: 'herrero' } },
+              { text: 'One of these days.', action: { t: 'close' } },
+            ],
+          },
+        },
+      },
+    ],
+  },
+
+  // ---- Fase 16 — EL HERRERO ENANO: Borin, Comercio Avanzado (nivel 10+) ----
+  enano: {
+    npcId: 'enano',
+    name: 'Borin',
+    trees: [
+      {
+        maxLevel: 9,
+        start: 'b_low',
+        nodes: {
+          b_low: {
+            text: 'Out of my woods! Come back at level 10, whelp. Down here, steel breaks only in hands that deserve it.',
+            options: [{ text: '(back away slowly)', action: { t: 'close' } }],
+          },
+        },
+      },
+      {
+        start: 'b1',
+        nodes: {
+          b1: {
+            text: 'A human who made it this far? Ha. I am Borin, and that breathing you hear is the forge. I sell BROKEN versions of what Torvald makes: I break them on purpose. Steel knows no pity.',
+            options: [
+              { text: 'Show me the broken.', action: { t: 'shop', vendor: 'enano' } },
+              { text: '"Broken on purpose"?', next: 'b2' },
+              { text: 'Too much gold for me.', action: { t: 'close' } },
+            ],
+          },
+          b2: {
+            text: 'I tempered it backwards three times, until the metal gave up. It came out harder than an Ancestor\'s head. We dwarves break things until they work. Bring coins: many.',
+            options: [
+              { text: 'See the broken steel.', action: { t: 'shop', vendor: 'enano' } },
+              { text: 'I\'ll be back… with more coins.', action: { t: 'close' } },
+            ],
           },
         },
       },
@@ -802,39 +887,44 @@ export interface LoreInteraction {
 export const LORE: Record<string, LoreInteraction> = {
   tablet_ruins: {
     id: 'tablet_ruins',
-    title: 'Tablilla de Vaelthara',
+    title: 'The Vaelthara Tablet',
     text: [
-      'La piedra está fría pese al sol. Los caracteres, medio borrados por el musgo, parecen ondular como agua estancada.',
-      '«…y juraron los Siete Velar el Suebre de los Señores del Fuego, y sellaron la ciudad bajo la marea…»',
-      '«…cuando el cuervo de tres cabezas alce vuelo, despertarán los que duermen. Guardad la Marea. Guardad el pacto…»',
-      'Debajo, con caligrafía distinta y más reciente, alguien grabó: «E. estuvo aquí. La Orden vive.»',
+      'The stone is cold despite the sun. The characters, half-erased by moss, seem to ripple like stagnant water.',
+      '"…and the Seven swore to keep vigil over the Sleep of the Lords of Fire, and sealed the city beneath the tide…"',
+      '"…when the three-headed crow takes flight, those who sleep shall wake. Keep the Tide. Keep the pact…"',
+      'Below, in a different and more recent hand, someone carved: "E. was here. The Order lives."',
     ],
   },
   stones_center: {
     id: 'stones_center',
-    title: 'El Altar del Círculo',
+    title: 'The Altar of the Circle',
     text: [
-      'Colocas la mano sobre la piedra del altar. Está tibia, como un animal dormido.',
-      'Un zumbido grave recorre el círculo. Las runas de los monolitos laten con una luz verdosa, sincronizadas… con tu pulso.',
-      'En cuanto retiras la mano, todo se apaga. El silencio del prado vuelve, pero tarda en volverse natural, como si el aire dudara.',
+      'You lay your hand on the altar stone. It is warm, like a sleeping animal.',
+      'A low hum runs through the circle. The runes on the monoliths pulse with a greenish light, synchronized… with your heartbeat.',
+      'As soon as you withdraw your hand, everything goes dark. The meadow\'s silence returns, but it is slow to feel natural again — as if the air itself hesitated.',
     ],
   },
   tower_door: {
     id: 'tower_door',
-    title: 'Torre del Vigía',
+    title: 'The Watchman\'s Tower',
     text: [
-      'La puerta está tapiada con maderos podridos. Por las juntas asoman telarañas del tamaño de pañuelos.',
-      'Una placa oxidada recuerda mejores tiempos: «Aquí veló Halvor el Alerta, cuarenta años mirando el mar. Ninguna vela enemiga cruzó su horizonte.»',
-      'Alguien arrancó la campana de su soporte. En el suelo, marcas de arrastre se pierden monte abajo, hacia el oeste.',
+      'The door is barricaded with rotting planks. Through the gaps peer cobwebs the size of handkerchiefs.',
+      'A rusted plaque recalls better days: "Here kept watch Halvor the Vigilant, forty years gazing at the sea. No enemy sail ever crossed his horizon."',
+      'Someone tore the bell from its mount. On the ground, drag marks fade down the mountainside, toward the west.',
     ],
   },
   ship_colibri: {
     id: 'ship_colibri',
-    title: 'Colibrí de Mar',
+    title: 'The Sea Hummingbird',
     text: [
-      'La vieja carabela descansa junto al muelle, rodeada de andamios. El casco muestra remiendos recientes y parches de madera nueva.',
-      'En la popa, medio borrada por la sal, una figura de colibrí persigue una estrella. Bajo la línea de flotación, en la quilla, hay un sello que te pone la piel de gallina: un círculo de mareas alrededor de una llama.',
-      'El mismo sello que describía Sigrid. El barco de tu padre era algo más que un barco.',
+      'The old caravel rests by the quay, ringed with scaffolding. The hull shows recent patches and fresh timber.',
+      'On the stern, half-erased by salt, a hummingbird figure chases a star. Below the waterline, on the keel, a seal raises the hair on your skin: a circle of tides around a flame.',
+      'The same seal Sigrid described. Your father\'s ship was more than a ship.',
     ],
   },
 };
+
+// ---- Fase 15 sea-trade dialogues (Elin's market, Bram's abyssal forge,
+//      Tom's horn legend) — grafted onto the existing NPC trees. ----
+import { applyF15Dialogues } from './dialoguesF15';
+applyF15Dialogues(DIALOGUES);

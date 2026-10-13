@@ -1,0 +1,674 @@
+     1→import * as THREE from 'three';
+     2→import { CharacterModel, PLAYER_PALETTE, type CharacterVisual, type WeaponKind } from './CharacterModel';
+     3→import type { Input } from '../core/Input';
+     4→import type { TerrainHeight } from '../world/TerrainHeight';
+     5→import type { ColliderRegistry } from '../systems/ColliderRegistry';
+     6→import { clamp, damp, dampAngle } from '../core/MathUtils';
+     7→
+     8→export type FootstepSurface = 'grass' | 'sand' | 'stone' | 'wood';
+     9→
+    10→export interface PlayerStats {
+    11→  maxHealth: number;
+    12→  maxStamina: number;
+    13→  walkSpeed: number;
+    14→  runSpeed: number;
+    15→  swimSpeed: number;
+    16→}
+    17→
+    18→export class Player {
+    19→  readonly model: CharacterVisual;
+    20→  readonly group = new THREE.Group(); // world transform (position = feet)
+    21→  readonly velocity = new THREE.Vector3();
+    22→  yaw = 0; // facing
+    23→  health = 100;
+    24→  stamina = 100;
+    25→  grounded = true;
+    26→  swimming = false;
+    27→  attackT = 0;
+    28→  lanternOn = false;
+    29→  /** Fase 8 — admin free-fly: WASD + ESPACIO sube / E baja. */
+    30→  flying = false;
+    31→
+    32→  // ---- Fase 3 combat state (driven by CombatSystem, read for animation) ----
+    33→  /** Current attack animation variant. */
+    34→  attackKind: 'light1' | 'light2' | 'heavy' | 'thrust' | 'bowRelease' = 'light1';
+    35→  /** Duration of the current swing (heavy attacks are slower). */
+    36→  attackDur = 0.5;
+    37→  /** Recovery gate after a swing before the next may start. */
+    38→  attackRecovery = 0;
+    39→  /** Block pose blend target (RMB). */
+    40→  blocking = false;
+    41→  blockT = 0;
+    42→  /** Fase 9 — seconds since the block pose snapped up (parry window clock). */
+    43→  blockAge = 99;
+    44→  /** Fase 9 — > 0 while the parry flash glows (attackers can check this). */
+    45→  parryT = 0;
+    46→  /** Dodge roll in progress (0..1). */
+    47→  rollT = 0;
+    48→  readonly rollDir = new THREE.Vector3(0, 0, -1);
+    49→  /** Fase 10 — DOUBLE JUMP: second mid-air jump (marometa). flipT drives
+    50→   *  the full forward somersault (0..1); jumpsUsed resets on landing. */
+    51→  flipT = 0;
+    52→  jumpsUsed = 0;
+    53→  onDoubleJump?: () => void;
+    54→  /** Bow draw progress: -1 = not drawing, else 0..1. */
+    55→  bowDraw = -1;
+    56→  /** Post-hit invulnerability window (seconds left). */
+    57→  invulnT = 0;
+    58→  /** Movement multiplier (block / bow draw slow the player). */
+    59→  moveMult = 1;
+    60→  /** Damage taken while blocking is also paid with stamina. */
+    61→  hasShieldEquipped = false;
+    62→
+    63→  verticalVel = 0; // (admin fly needs to reset it externally)
+    64→  private stepTimer = 0;
+    65→  private lanternLight: THREE.PointLight;
+    66→  private lanternFlame: THREE.Sprite;
+    67→  private wasGrounded = true;
+    68→  private airTime = 0;
+    69→  private speedSm = 0;
+    70→  /** Fase 4 — water-vault lunge window: horizontal damping disabled. */
+    71→  private vaultT = 0;
+    72→  /** Fase 4 — walking through shallow water (slowed, no swimming). */
+    73→  wading = false;
+    74→
+    75→  stats: PlayerStats = {
+    76→    maxHealth: 100, maxStamina: 100,
+    77→    walkSpeed: 3.6, runSpeed: 6.6, swimSpeed: 2.3,
+    78→  };
+    79→
+    80→  onFootstep?: (surface: FootstepSurface) => void;
+    81→  onAttackSwing?: () => void;
+    82→  onDamaged?: (amount: number, reason: string) => void;
+    83→  onBlockSparks?: (pos: THREE.Vector3) => void;
+    84→  /** Fase 9 — a hit was PARRIED (perfect block): attackers stagger. */
+    85→  onParry?: (fromX: number, fromZ: number) => void;
+    86→  /** Fase 4 — fired when the body enters/leaves the water (splash VFX+SFX). */
+    87→  onWaterEvent?: (kind: 'enter' | 'exit', speed: number) => void;
+    88→
+    89→  /** Optional ship-deck ground probe (set while walking a ship's deck).
+    90→   *  Returns the deck height at a world XZ or null when off-deck. */
+    91→  platformProbe?: (x: number, z: number) => number | null;
+    92→  /** Fase 4 — local water surface height incl. waves (wired to WaterSystem).
+    93→   *  When absent, sea level (y=0) is assumed. */
+    94→  waterHeightAt?: (x: number, z: number) => number;
+    95→
+    96→  constructor(scene: THREE.Scene, visual?: CharacterVisual) {
+    97→    this.model = visual ?? new CharacterModel(PLAYER_PALETTE);
+    98→    this.group.add(this.model.root);
+    99→    scene.add(this.group);
+   100→
+   101→    // Lantern (F) — warm personal light
+   102→    this.lanternLight = new THREE.PointLight(0xffb066, 0, 14, 1.6);
+   103→    this.lanternLight.position.set(0.35, 1.35, 0.25);
+   104→    this.group.add(this.lanternLight);
+   105→    const flameCanvas = document.createElement('canvas');
+   106→    flameCanvas.width = flameCanvas.height = 32;
+   107→    const ctx = flameCanvas.getContext('2d')!;
+   108→    const grad = ctx.createRadialGradient(16, 16, 1, 16, 16, 15);
+   109→    grad.addColorStop(0, 'rgba(255,235,180,1)');
+   110→    grad.addColorStop(0.5, 'rgba(255,160,60,0.7)');
+   111→    grad.addColorStop(1, 'rgba(255,120,40,0)');
+   112→    ctx.fillStyle = grad;
+   113→    ctx.fillRect(0, 0, 32, 32);
+   114→    const tex = new THREE.CanvasTexture(flameCanvas);
+   115→    this.lanternFlame = new THREE.Sprite(new THREE.SpriteMaterial({
+   116→      map: tex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+   117→    }));
+   118→    this.lanternFlame.position.set(0.35, 1.42, 0.3);
+   119→    this.lanternFlame.scale.set(0.28, 0.34, 1);
+   120→    this.lanternFlame.visible = false;
+   121→    this.group.add(this.lanternFlame);
+   122→  }
+   123→
+   124→  get position(): THREE.Vector3 {
+   125→    return this.group.position;
+   126→  }
+   127→
+   128→  teleport(x: number, y: number, z: number): void {
+   129→    this.group.position.set(x, y, z);
+   130→    this.velocity.set(0, 0, 0);
+   131→    this.verticalVel = 0;
+   132→    // Cancel any combat action in progress
+   133→    this.attackT = 0;
+   134→    this.rollT = 0;
+   135→    this.flipT = 0;
+   136→    this.jumpsUsed = 0;
+   137→    this.bowDraw = -1;
+   138→    this.invulnT = 0;
+   139→    this.model.root.rotation.x = 0;
+   140→  }
+   141→
+   142→  toggleLantern(): void {
+   143→    this.lanternOn = !this.lanternOn;
+   144→    this.lanternFlame.visible = this.lanternOn;
+   145→  }
+   146→
+   147→  // ---------------------------------------------------------------- combat
+   148→
+   149→  /** Start a dodge roll toward a world-space direction (length-irrelevant). */
+   150→  beginRoll(dirX: number, dirZ: number): void {
+   151→    const len = Math.hypot(dirX, dirZ);
+   152→    if (len > 0.001) this.rollDir.set(dirX / len, 0, dirZ / len);
+   153→    else this.rollDir.set(-Math.sin(this.yaw), 0, -Math.cos(this.yaw)); // backward
+   154→    this.rollT = 0.001;
+   155→    this.attackT = 0;
+   156→    this.bowDraw = -1;
+   157→  }
+   158→
+   159→  get rolling(): boolean {
+   160→    return this.rollT > 0;
+   161→  }
+   162→
+   163→  get invulnerable(): boolean {
+   164→    return this.invulnT > 0 || this.rollT > 0; // roll grants i-frames
+   165→  }
+   166→
+   167→  /**
+   168→   * Central damage entry — applies i-frames, block reduction and stamina
+   169→   * drain. Returns the health actually lost (0 when fully avoided/blocked)
+   170→   * so callers can spawn the right VFX.
+   171→   */
+   172→  takeHit(damage: number, fromX?: number, fromZ?: number): number {
+   173→    if (this.invulnerable) return 0;
+   174→    // Blocking: absorb if the source is roughly in front (±60°)
+   175→    if (this.blockT > 0.5) {
+   176→      let facing = true;
+   177→      if (fromX !== undefined && fromZ !== undefined) {
+   178→        const toSrc = Math.atan2(fromX - this.position.x, fromZ - this.position.z);
+   179→        let d = toSrc - this.yaw;
+   180→        while (d > Math.PI) d -= Math.PI * 2;
+   181→        while (d < -Math.PI) d += Math.PI * 2;
+   182→        facing = Math.abs(d) < 1.05;
+   183→      }
+   184→      if (facing) {
+   185→        // Fase 9 — PARRY: the block snapped up within the last 0.19 s →
+   186→        // perfect defense. Zero damage, zero stamina, the attacker staggers
+   187→        // and a counterattack window opens (CombatSystem reads parryT).
+   188→        if (this.blockAge <= 0.19) {
+   189→          this.parryT = 0.55;
+   190→          this.invulnT = 0.35;
+   191→          this.model.blockImpact?.();
+   192→          if (fromX !== undefined && fromZ !== undefined) {
+   193→            this.onParry?.(fromX, fromZ);
+   194→          } else {
+   195→            this.onParry?.(this.position.x + Math.sin(this.yaw), this.position.z + Math.cos(this.yaw));
+   196→          }
+   197→          return 0;
+   198→        }
+   199→        const reduce = this.hasShieldEquipped ? 0.82 : 0.5;
+   200→        const blocked = damage * reduce;
+   201→        // Blocking drains stamina instead of most health
+   202→        this.stamina = Math.max(0, this.stamina - blocked * 0.55);
+   203→        const through = Math.max(0, damage - blocked);
+   204→        this.health = Math.max(0, this.health - through);
+   205→        this.invulnT = 0.45;
+   206→        this.model.flash();
+   207→        if (through <= 0.5 && this.onBlockSparks) {
+   208→          this.onBlockSparks(new THREE.Vector3(
+   209→            this.position.x + Math.sin(this.yaw) * 0.6,
+   210→            this.position.y + 1.1,
+   211→            this.position.z + Math.cos(this.yaw) * 0.6,
+   212→          ));
+   213→        }
+   214→        return through;
+   215→      }
+   216→    }
+   217→    this.health = Math.max(0, this.health - damage);
+   218→    this.invulnT = 0.7;
+   219→    this.model.flash();
+   220→    // Fase 9 — hit reaction: a light knockback impulse away from the source
+   221→    if (fromX !== undefined && fromZ !== undefined) {
+   222→      const dx = this.position.x - fromX;
+   223→      const dz = this.position.z - fromZ;
+   224→      const len = Math.hypot(dx, dz);
+   225→      if (len > 0.01) {
+   226→        this.knockX = (dx / len) * 3.1;
+   227→        this.knockZ = (dz / len) * 3.1;
+   228→        this.knockT = 0.22;
+   229→      }
+   230→    }
+   231→    return damage;
+   232→  }
+   233→
+   234→  /** Fase 9 — knockback impulse state (decays fast, read by the mover). */
+   235→  knockX = 0;
+   236→  knockZ = 0;
+   237→  knockT = 0;
+   238→
+   239→  update(dt: number, input: Input, cameraYaw: number, terrain: TerrainHeight, colliders: ColliderRegistry, dialogueActive: boolean): void {
+   240→    // --- Input direction (camera relative) ---
+   241→    let ix = 0;
+   242→    let iz = 0;
+   243→    if (!dialogueActive) {
+   244→      if (input.isDown('forward')) iz += 1;
+   245→      if (input.isDown('back')) iz -= 1;
+   246→      if (input.isDown('left')) ix -= 1;
+   247→      if (input.isDown('right')) ix += 1;
+   248→    }
+   249→    const inputLen = Math.hypot(ix, iz);
+   250→    let moveX = 0;
+   251→    let moveZ = 0;
+   252→    if (inputLen > 0) {
+   253→      ix /= inputLen;
+   254→      iz /= inputLen;
+   255→      // Camera-relative: forward = camera yaw direction (on XZ)
+   256→      // CameraRig looks along +(sin yaw, cos yaw); right is forward rotated -90°
+   257→      // around Y: right = (-cos yaw, sin yaw).
+   258→      const fx = Math.sin(cameraYaw);
+   259→      const fz = Math.cos(cameraYaw);
+   260→      const rx = -Math.cos(cameraYaw);
+   261→      const rz = Math.sin(cameraYaw);
+   262→      moveX = fx * iz + rx * ix;
+   263→      moveZ = fz * iz + rz * ix;
+   264→    }
+   265→
+   266→    // --- Fase 8 — admin free-fly (U+I+O panel): WASD vuela, ESPACIO sube,
+   267→    //     E baja, MAYÚS acelera. Gravity, water and collisions are suspended. ---
+   268→    if (this.flying && !dialogueActive) {
+   269→      const spd = input.isDown('sprint') ? 46 : 17;
+   270→      this.velocity.set(moveX * spd, 0, moveZ * spd);
+   271→      let vy = 0;
+   272→      if (input.isDown('jump')) vy += spd * 0.62;
+   273→      if (input.isDown('interact')) vy -= spd * 0.62;
+   274→      this.verticalVel = damp(this.verticalVel, vy, 10, dt);
+   275→      this.position.x += this.velocity.x * dt;
+   276→      this.position.z += this.velocity.z * dt;
+   277→      this.position.y += this.verticalVel * dt;
+   278→      // soft floor at the terrain skin (free to skim the sea surface)
+   279→      const th = terrain.height(this.position.x, this.position.z);
+   280→      if (this.position.y < th + 0.4) {
+   281→        this.position.y = th + 0.4;
+   282→        this.verticalVel = Math.max(0, this.verticalVel);
+   283→      }
+   284→      this.position.x = clamp(this.position.x, -1010, 1010);
+   285→      this.position.z = clamp(this.position.z, -1010, 1010);
+   286→      this.grounded = false;
+   287→      this.swimming = false;
+   288→      this.wading = false;
+   289→      this.rollT = 0;
+   290→      this.stamina = this.stats.maxStamina;
+   291→      const hSpeed = Math.hypot(this.velocity.x, this.velocity.z);
+   292→      this.speedSm = damp(this.speedSm, hSpeed, 8, dt);
+   293→      if (hSpeed > 0.4) {
+   294→        this.yaw = dampAngle(this.yaw, Math.atan2(this.velocity.x, this.velocity.z), 12, dt);
+   295→      }
+   296→      this.group.rotation.y = this.yaw;
+   297→      // sky-diver lean
+   298→      this.model.root.rotation.x = damp(this.model.root.rotation.x, 0.32, 6, dt);
+   299→      this.model.root.position.y = damp(this.model.root.position.y, 0, 8, dt);
+   300→      this.model.update({
+   301→        dt, speed: this.speedSm, moving: inputLen > 0, grounded: false,
+   302→        swimming: false, attackT: 0, blockT: 0, rollT: 0, bowDraw: -1,
+   303→      });
+   304→      this.wasGrounded = false;
+   305→      return;
+   306→    }
+   307→
+   308→    const wantRun = input.isDown('sprint') && inputLen > 0 && this.stamina > 1 && !this.swimming && !this.wading;
+   309→    let speed = this.swimming ? this.stats.swimSpeed : wantRun ? this.stats.runSpeed : this.stats.walkSpeed;
+   310→    if (this.wading) speed = this.stats.walkSpeed * 0.62; // pushing through chest-deep water
+   311→    // Combat movement modifiers (Fase 3)
+   312→    if (this.rollT > 0) speed = 7.6;                 // dodge roll burst
+   313→    else speed *= this.moveMult;                     // block / bow-draw slow
+   314→
+   315→    // --- Stamina ---
+   316→    if (wantRun && inputLen > 0) this.stamina = Math.max(0, this.stamina - dt * 13);
+   317→    else if (this.swimming) this.stamina = Math.max(0, this.stamina - dt * 2.2);
+   318→    else if (inputLen > 0) this.stamina = Math.min(this.stats.maxStamina, this.stamina + dt * 9);
+   319→    else this.stamina = Math.min(this.stats.maxStamina, this.stamina + dt * 17);
+   320→
+   321→    // --- Horizontal velocity (smooth accel) ---
+   322→    let targetVX: number;
+   323→    let targetVZ: number;
+   324→    if (this.rollT > 0) {
+   325→      // Dodge roll: fixed burst along the roll direction, input ignored
+   326→      targetVX = this.rollDir.x * speed;
+   327→      targetVZ = this.rollDir.z * speed;
+   328→    } else {
+   329→      targetVX = moveX * speed;
+   330→      targetVZ = moveZ * speed;
+   331→    }
+   332→    const accel = this.vaultT > 0 ? 0.15 : this.grounded || this.swimming ? 12 : 4;
+   333→    if (this.vaultT > 0) this.vaultT = Math.max(0, this.vaultT - dt);
+   334→    // Fase 9 — hit knockback: brief impulse added on top of the movement
+   335→    if (this.knockT > 0) {
+   336→      this.knockT = Math.max(0, this.knockT - dt);
+   337→      const k = this.knockT / 0.22;
+   338→      targetVX += this.knockX * k;
+   339→      targetVZ += this.knockZ * k;
+   340→    }
+   341→    this.velocity.x = damp(this.velocity.x, targetVX, accel, dt);
+   342→    this.velocity.z = damp(this.velocity.z, targetVZ, accel, dt);
+   343→
+   344→    // --- Jump & gravity ---
+   345→    // Ground = terrain + walkable thin platforms (docks, ship decks)
+   346→    const terrainH = terrain.height(this.position.x, this.position.z);
+   347→    let groundH = terrainH;
+   348→    for (const c of colliders.query(this.position.x, this.position.z, 2)) {
+   349→      if (c.kind === 'box' && c.maxY - c.minY <= 0.5) {
+   350→        if (
+   351→          this.position.x >= c.minX - 0.2 && this.position.x <= c.maxX + 0.2 &&
+   352→          this.position.z >= c.minZ - 0.2 && this.position.z <= c.maxZ + 0.2 &&
+   353→          this.position.y >= c.maxY - 0.65
+   354→        ) {
+   355→          groundH = Math.max(groundH, c.maxY);
+   356→        }
+   357→      }
+   358→    }
+   359→    // Ship deck (oriented platform, evaluated exactly in ship-local space)
+   360→    if (this.platformProbe) {
+   361→      const deck = this.platformProbe(this.position.x, this.position.z);
+   362→      if (deck !== null && deck > groundH) groundH = deck;
+   363→    }
+   364→
+   365→    // --- Fase 4 water state machine (shore → wading → swimming → out) ---
+   366→    // The visible, waving surface is the one true reference (ships already
+   367→    // float on it via the shared waveHeightAt).
+   368→    const surfaceY = this.waterHeightAt
+   369→      ? this.waterHeightAt(this.position.x, this.position.z)
+   370→      : 0;
+   371→    const waterDepth = surfaceY - terrainH; // how deep the water column is
+   372→    // Standing on a dock / deck over deep water never counts: groundH then is
+   373→    // above the surface and the body never crosses it.
+   374→    const bodyInWater = this.position.y < surfaceY - 0.05;
+   375→    const deepEnough = waterDepth > 1.25;
+   376→    const wasSwimming = this.swimming;
+   377→    // The vault grace window keeps climbing players OUT of swim state while
+   378→    // their body is still momentarily below the surface.
+   379→    this.swimming = deepEnough && bodyInWater && groundH < surfaceY - 0.55 && this.vaultT <= 0;
+   380→    // Wading: feet still touch the bottom but the water slows you down
+   381→    this.wading = !this.swimming && waterDepth > 0.42 && bodyInWater;
+   382→
+   383→    if (this.swimming && !wasSwimming) {
+   384→      // Entry splash (bigger when diving from a height)
+   385→      const impact = clamp((-this.verticalVel + 2) / 10, 0.4, 1.6);
+   386→      this.onWaterEvent?.('enter', impact);
+   387→    } else if (!this.swimming && wasSwimming) {
+   388→      this.onWaterEvent?.('exit', 0.7);
+   389→    }
+   390→
+   391→    // Jump — only when the jump key is actually pressed this frame.
+   392→    // (Regression fix: this used to fire whenever grounded, making the
+   393→    // player hop endlessly without any input.)
+   394→    // Fase 10 — DOUBLE JUMP: a second press mid-air launches a marometa
+   395→    // (forward somersault). The flip itself is pure animation — the impulse
+   396→    // is a fresh vertical boost so it always feels responsive.
+   397→    if (!dialogueActive && input.pressed('jump') && !this.swimming && this.stamina > 10) {
+   398→      if (this.grounded && !this.wading) {
+   399→        this.verticalVel = 7.4;
+   400→        this.grounded = false;
+   401→        this.stamina -= 10;
+   402→        this.jumpsUsed = 1;
+   403→      } else if (!this.grounded && this.jumpsUsed === 1 && this.airTime < 1.5 && this.flipT === 0) {
+   404→        this.verticalVel = 7.0;
+   405→        this.stamina = Math.max(0, this.stamina - 12);
+   406→        this.jumpsUsed = 2;
+   407→        this.flipT = 0.0001;          // marometa! (progresses below)
+   408→        this.onDoubleJump?.();
+   409→      }
+   410→    }
+   411→
+   412→    if (this.swimming) {
+   413→      // --- Surface swimming: float ON the waving surface ---
+   414→      // Head & shoulders stay above water; the body bobs with the waves.
+   415→      const targetY = surfaceY - 0.52;
+   416→      this.verticalVel = damp(this.verticalVel, (targetY - this.position.y) * 4.2, 5.5, dt);
+   417→      this.position.y += this.verticalVel * dt;
+   418→      this.grounded = false;
+   419→      this.airTime = 0;
+   420→      // Climb out: when a shore/dock edge is within arm's reach, jump boosts
+   421→      // the player up onto it (no more being trapped in the water).
+   422→      if (!dialogueActive && input.pressed('jump')) {
+   423→        // The vault edge: highest walkable top near the swimmer — docks,
+   424→        // decks (platformProbe) and rising terrain all count. Unlike the
+   425→        // standing ground check, this scan has NO y-precondition: a dock
+   426→        // top 1 m above the water is exactly what we want to grab.
+   427→        let edge = groundH;
+   428→        let edgeDirX = 0;
+   429→        let edgeDirZ = 0;
+   430→        for (const c of colliders.query(this.position.x, this.position.z, 3)) {
+   431→          if (c.kind !== 'box' || c.maxY - c.minY > 0.5) continue; // walkable slabs only
+   432→          if (
+   433→            this.position.x >= c.minX - 1.4 && this.position.x <= c.maxX + 1.4 &&
+   434→            this.position.z >= c.minZ - 1.4 && this.position.z <= c.maxZ + 1.4 &&
+   435→            c.maxY > edge && c.maxY < this.position.y + 2.6 && c.maxY > this.position.y - 1.2
+   436→          ) {
+   437→            edge = c.maxY;
+   438→            // Direction toward the platform (the climb lands ON it, not beside it)
+   439→            edgeDirX = (c.minX + c.maxX) / 2 - this.position.x;
+   440→            edgeDirZ = (c.minZ + c.maxZ) / 2 - this.position.z;
+   441→            const dl = Math.hypot(edgeDirX, edgeDirZ) || 1;
+   442→            edgeDirX /= dl;
+   443→            edgeDirZ /= dl;
+   444→          }
+   445→        }
+   446→        if (this.platformProbe) {
+   447→          const deck = this.platformProbe(this.position.x, this.position.z);
+   448→          if (deck !== null && deck > edge && deck < this.position.y + 2.6 && deck > this.position.y - 1.2) {
+   449→            edge = deck;
+   450→            edgeDirX = 0;
+   451→            edgeDirZ = 0;
+   452→          }
+   453→        }
+   454→        if (edge > this.position.y - 0.6 && edge < this.position.y + 2.6) {
+   455→          // Vault out of the water toward the edge — a strong climbing boost
+   456→          // (reaches ~2.4 m above the feet) plus an undamped lunge ONTO it.
+   457→          this.swimming = false;
+   458→          this.verticalVel = 9.6;
+   459→          this.velocity.x = edgeDirX * 4.2;
+   460→          this.velocity.z = edgeDirZ * 4.2;
+   461→          this.vaultT = 0.5;
+   462→          this.stamina = Math.max(0, this.stamina - 8);
+   463→          this.position.y += 0.12;
+   464→        } else {
+   465→          // Just a paddle hop in deep water
+   466→          this.verticalVel = 2.4;
+   467→        }
+   468→      }
+   469→    } else {
+   470→      this.verticalVel -= 19 * dt;
+   471→      this.position.y += this.verticalVel * dt;
+   472→      const groundY = groundH;
+   473→      if (this.position.y <= groundY) {
+   474→        // Landing
+   475→        if (!this.wasGrounded && this.airTime > 0.35) {
+   476→          const fallSpeed = -this.verticalVel;
+   477→          if (fallSpeed > 13) {
+   478→            const dmg = Math.round((fallSpeed - 13) * 7);
+   479→            this.health = Math.max(0, this.health - dmg);
+   480→            this.onDamaged?.(dmg, 'caida');
+   481→          }
+   482→        }
+   483→        this.position.y = groundY;
+   484→        this.verticalVel = 0;
+   485→        this.grounded = true;
+   486→        this.airTime = 0;
+   487→        this.jumpsUsed = 0;
+   488→        // Landing mid-flip: the somersault snaps upright over a beat
+   489→        if (this.flipT > 0 && this.flipT < 1) this.flipT = Math.max(this.flipT, 0.82);
+   490→      } else {
+   491→        this.grounded = false;
+   492→        this.airTime += dt;
+   493→      }
+   494→    }
+   495→    this.wasGrounded = this.grounded;
+   496→
+   497→    // --- Collisions (XZ push-out against colliders) ---
+   498→    this.resolveCollisions(colliders, groundH);
+   499→
+   500→    // Integrate horizontal
+   501→    this.position.x += this.velocity.x * dt;
+   502→    this.position.z += this.velocity.z * dt;
+   503→    this.resolveCollisions(colliders, terrain.height(this.position.x, this.position.z));
+   504→
+   505→    // --- Facing ---
+   506→    const hSpeed = Math.hypot(this.velocity.x, this.velocity.z);
+   507→    this.speedSm = damp(this.speedSm, hSpeed, 8, dt);
+   508→    if (hSpeed > 0.4) {
+   509→      const targetYaw = Math.atan2(this.velocity.x, this.velocity.z);
+   510→      this.yaw = dampAngle(this.yaw, targetYaw, 12, dt);
+   511→    }
+   512→    this.group.rotation.y = this.yaw;
+   513→
+   514→    // --- Swim pitch (lean body forward in water) + whole-body spins ---
+   515→    // The dodge roll and the double-jump marometa rotate the model root a
+   516→    // full 2π forward; everything else eases back to the swim lean.
+   517→    const spinT = this.rollT > 0 ? this.rollT : this.flipT;
+   518→    if (spinT > 0) {
+   519→      this.model.root.rotation.x = spinT * Math.PI * 2;
+   520→    } else {
+   521→      this.model.root.rotation.x = damp(this.model.root.rotation.x, this.swimming ? 1.15 : 0, 8, dt);
+   522→    }
+   523→    this.model.root.position.y = damp(this.model.root.position.y, this.swimming ? 0.55 : 0, 8, dt);
+   524→
+   525→    // --- Combat timers (Fase 3) ---
+   526→    if (this.rollT > 0) {
+   527→      this.rollT += dt / 0.55;
+   528→      if (this.rollT >= 1) this.rollT = 0;
+   529→    }
+   530→    // Fase 10 — marometa progress (0.62 s full rotation)
+   531→    if (this.flipT > 0) {
+   532→      this.flipT += dt / 0.62;
+   533→      if (this.flipT >= 1) this.flipT = 0;
+   534→    }
+   535→    if (this.invulnT > 0) this.invulnT -= dt;
+   536→    if (this.attackRecovery > 0) this.attackRecovery -= dt;
+   537→    // Block pose blend
+   538→    const blockTarget = this.blocking && this.grounded && this.rollT === 0 && this.attackT === 0 ? 1 : 0;
+   539→    // Fase 9 — parry clock: time since the guard snapped up
+   540→    if (blockTarget === 1 && this.blockT > 0.5) {
+   541→      this.blockAge += dt;
+   542→    } else if (blockTarget === 0) {
+   543→      this.blockAge = 0;
+   544→    }
+   545→    // Parry flash decay
+   546→    if (this.parryT > 0) this.parryT = Math.max(0, this.parryT - dt);
+   547→    this.blockT = damp(this.blockT, blockTarget, 14, dt);
+   548→    // Movement multiplier from context
+   549→    let mm = 1;
+   550→    if (this.blockT > 0.1) mm *= 1 - 0.55 * this.blockT;
+   551→    if (this.bowDraw >= 0) mm *= 0.55;
+   552→    if (this.attackT > 0) mm *= 0.35;
+   553→    this.moveMult = mm;
+   554→
+   555→    // --- Animate ---
+   556→    this.model.update({
+   557→      dt,
+   558→      speed: this.speedSm,
+   559→      moving: inputLen > 0,
+   560→      grounded: this.grounded,
+   561→      swimming: this.swimming,
+   562→      attackT: this.attackT,
+   563→      attackKind: this.attackKind,
+   564→      blockT: this.blockT,
+   565→      // the marometa borrows the roll's tucked pose (limbs folded tight)
+   566→      rollT: this.rollT > 0 ? this.rollT : this.flipT,
+   567→      bowDraw: this.bowDraw,
+   568→    });
+   569→
+   570→    // --- Footsteps ---
+   571→    if (this.grounded && this.speedSm > 0.5) {
+   572→      this.stepTimer -= dt * this.speedSm;
+   573→      if (this.stepTimer <= 0) {
+   574→        this.stepTimer = 1.7;
+   575→        this.onFootstep?.(this.surfaceAt(terrain));
+   576→      }
+   577→    }
+   578→
+   579→    // Lantern flicker
+   580→    if (this.lanternOn) {
+   581→      this.lanternLight.intensity = 2.1 + Math.sin(performance.now() * 0.011) * 0.25;
+   582→    } else {
+   583→      this.lanternLight.intensity = 0;
+   584→    }
+   585→  }
+   586→
+   587→  private resolveCollisions(colliders: ColliderRegistry, groundH: number): void {
+   588→    const r = 0.36;
+   589→    const feetY = this.position.y;
+   590→    const headY = feetY + 1.72;
+   591→    for (const c of colliders.query(this.position.x, this.position.z, 3)) {
+   592→      if (c.kind === 'cylinder') {
+   593→        if (c.maxY <= feetY + 0.25 || c.minY >= headY) continue;
+   594→        const dx = this.position.x - c.x;
+   595→        const dz = this.position.z - c.z;
+   596→        const d = Math.hypot(dx, dz);
+   597→        const minD = c.r + r;
+   598→        if (d < minD && d > 0.0001) {
+   599→          const push = (minD - d);
+   600→          this.position.x += (dx / d) * push;
+   601→          this.position.z += (dz / d) * push;
+   602→        }
+   603→      } else {
+   604→        // Thin boxes are walkable platforms — never block horizontally
+   605→        if (c.maxY - c.minY <= 0.5) continue;
+   606→        if (c.maxY <= feetY + 0.25 || c.minY >= headY) continue;
+   607→        // Closest point on box to player center
+   608→        const px = clamp(this.position.x, c.minX, c.maxX);
+   609→        const pz = clamp(this.position.z, c.minZ, c.maxZ);
+   610→        const dx = this.position.x - px;
+   611→        const dz = this.position.z - pz;
+   612→        const d2 = dx * dx + dz * dz;
+   613→        if (d2 < r * r) {
+   614→          if (d2 > 0.00001) {
+   615→            const d = Math.sqrt(d2);
+   616→            const push = r - d;
+   617→            this.position.x += (dx / d) * push;
+   618→            this.position.z += (dz / d) * push;
+   619→          } else {
+   620→            // Center inside the box — push toward the nearest face
+   621→            const dists = [
+   622→              this.position.x - c.minX, c.maxX - this.position.x,
+   623→              this.position.z - c.minZ, c.maxZ - this.position.z,
+   624→            ];
+   625→            const min = Math.min(...dists);
+   626→            if (min === dists[0]) this.position.x = c.minX - r;
+   627→            else if (min === dists[1]) this.position.x = c.maxX + r;
+   628→            else if (min === dists[2]) this.position.z = c.minZ - r;
+   629→            else this.position.z = c.maxZ + r;
+   630→          }
+   631→        }
+   632→      }
+   633→    }
+   634→    void groundH;
+   635→  }
+   636→
+   637→  /** Detect surface material for footstep sounds. */
+   638→  private surfaceAt(terrain: TerrainHeight): FootstepSurface {
+   639→    const x = this.position.x;
+   640→    const z = this.position.z;
+   641→    const h = terrain.height(x, z);
+   642→    // Docks: over water near the pier area with planks below
+   643→    if (h < 0.4 && this.position.y > 1.0 && x > 12 && x < 28 && z > 225 && z < 260) return 'wood';
+   644→    if (h < 2.2) return 'sand';
+   645→    const slope = terrain.slope(x, z, h);
+   646→    if (slope > 0.55 || h > 55) return 'stone';
+   647→    return 'grass';
+   648→  }
+   649→
+   650→  serialize() {
+   651→    return {
+   652→      x: this.position.x, y: this.position.y, z: this.position.z,
+   653→      yaw: this.yaw, health: this.health, stamina: this.stamina,
+   654→    };
+   655→  }
+   656→
+   657→  deserialize(d: ReturnType<Player['serialize']>): void {
+   658→    this.teleport(d.x, d.y, d.z);
+   659→    this.yaw = d.yaw;
+   660→    this.health = d.health;
+   661→    this.stamina = d.stamina;
+   662→  }
+   663→
+   664→  /** Weapon visual hookup used by the game (item id → model kind). */
+   665→  setWeaponVisual(kind: WeaponKind): void {
+   666→    this.model.setWeapon(kind);
+   667→  }
+   668→
+   669→  setShieldVisual(visible: boolean): void {
+   670→    this.hasShieldEquipped = visible;
+   671→    this.model.setShield(visible);
+   672→  }
+   673→}
+   674→

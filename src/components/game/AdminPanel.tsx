@@ -19,12 +19,12 @@ import {
  */
 
 const DRAGON_SPECIES: Array<{ id: string; label: string; boss: boolean }> = [
-  { id: 'drake_stones', label: 'Drakeling de las Vigilias', boss: false },
-  { id: 'drake_grotto', label: 'Drakeling de la Gruta', boss: false },
-  { id: 'vaelthara', label: 'Vaelthara · Guardiana', boss: true },
+  { id: 'drake_stones', label: 'Drakeling of the Vigils', boss: false },
+  { id: 'drake_grotto', label: 'Drakeling of the Grotto', boss: false },
+  { id: 'vaelthara', label: 'Vaelthara · Warden', boss: true },
   { id: 'skarnvind', label: 'Skarnvind · Wyvern', boss: true },
-  { id: 'ancestro', label: 'Vaelyx · Ancestro', boss: true },
-  { id: 'kraivenn', label: 'Kraivenn · El Cuervo', boss: true },
+  { id: 'ancestro', label: 'Vaelyx · Ancestor', boss: true },
+  { id: 'kraivenn', label: 'Kraivenn · The Crow', boss: true },
 ];
 
 export default function AdminPanel() {
@@ -95,12 +95,12 @@ export default function AdminPanel() {
             {/* header */}
             <div className="mb-4 flex items-center justify-between">
               <p className="kotfs-title flex items-center gap-2 text-sm tracking-[0.3em] text-[color:#e8c96a]">
-                <Compass size={15} /> PANEL DEL ADMINISTRADOR
+                <Compass size={15} /> ADMIN PANEL
               </p>
               <button
                 className="flex h-7 w-7 items-center justify-center border border-[color:rgba(201,162,39,0.4)] text-[color:var(--kotfs-parchment-dim)] transition hover:border-[color:#e8c96a] hover:text-[color:#e8c96a]"
                 onClick={() => setOpen(false)}
-                title="Cerrar (U+I+O)"
+                title="Close (U+I+O)"
               >
                 <X size={13} />
               </button>
@@ -108,29 +108,29 @@ export default function AdminPanel() {
 
             {/* spawn row */}
             <p className="kotfs-title mb-2 text-[0.6rem] tracking-[0.25em] text-[color:var(--kotfs-parchment-dim)]">
-              INVOCAR FRENTE A TI
+              SUMMON BEFORE YOU
             </p>
             <div className="mb-4 grid grid-cols-3 gap-2">
               <button className="kfs-admin-btn" onClick={() => spawn('ship')}>
                 <Ship size={17} className="text-[color:#9cc168]" />
-                <span>BARCO</span>
-                <small>fondeado en el agua cercana</small>
+                <span>SHIP</span>
+                <small>anchored in the nearby water</small>
               </button>
               <button className="kfs-admin-btn" onClick={() => spawn('horse')}>
                 <Rabbit size={17} className="text-[color:#c9a227]" />
-                <span>CABALLO</span>
-                <small>montura aleatoria, ya domada</small>
+                <span>HORSE</span>
+                <small>random mount, already tamed</small>
               </button>
               <button className="kfs-admin-btn" onClick={() => spawn('dragon', 'drake_stones')}>
                 <Flame size={17} className="text-[color:#e07a4a]" />
                 <span>DRAKELING</span>
-                <small>dragón menor hostil</small>
+                <small>docile · ride with E · flies</small>
               </button>
             </div>
 
             {/* dragon species */}
             <p className="kotfs-title mb-2 flex items-center gap-1.5 text-[0.6rem] tracking-[0.25em] text-[color:var(--kotfs-parchment-dim)]">
-              <Swords size={11} /> DRAGONES CONCRETOS
+              <Swords size={11} /> NAMED DRAGONS · RIDEABLE
             </p>
             <div className="mb-4 grid grid-cols-2 gap-1.5">
               {DRAGON_SPECIES.map((d) => (
@@ -147,7 +147,7 @@ export default function AdminPanel() {
 
             {/* cinematics (Fase 10) */}
             <p className="kotfs-title mb-2 flex items-center gap-1.5 text-[0.6rem] tracking-[0.25em] text-[color:var(--kotfs-parchment-dim)]">
-              <Clapperboard size={11} /> VER CINEMÁTICAS
+              <Clapperboard size={11} /> VIEW CINEMATICS
             </p>
             <div className="mb-4 grid grid-cols-2 gap-1.5">
               {(gameApi.adminCinematics?.() ?? []).map((c) => (
@@ -171,13 +171,13 @@ export default function AdminPanel() {
                 onClick={toggleFly}
               >
                 <Wind size={16} />
-                <span>MODO VUELO: {flying ? 'ACTIVADO' : 'APAGADO'}</span>
-                <small>ESPACIO sube · E baja · MAYÚS acelera</small>
+                <span>FLIGHT MODE: {flying ? 'ON' : 'OFF'}</span>
+                <small>SPACE ascends · E descends · SHIFT accelerates</small>
               </button>
               <div>
                 <p className="kotfs-title mb-1 flex items-center gap-1.5 text-[0.6rem] tracking-[0.2em] text-[color:var(--kotfs-parchment-dim)]">
                   {timeSlider < 0.22 || timeSlider > 0.8 ? <Moon size={11} /> : <Sun size={11} />}
-                  HORA DEL DÍA
+                  TIME OF DAY
                 </p>
                 <input
                   type="range" min={0} max={0.999} step={0.002}
@@ -186,7 +186,7 @@ export default function AdminPanel() {
                   className="kfs-admin-range w-full"
                 />
                 <div className="mt-0.5 flex justify-between text-[0.55rem] text-[color:var(--kotfs-parchment-dim)] opacity-70">
-                  <span>medianoche</span><span>mediodía</span><span>medianoche</span>
+                  <span>midnight</span><span>noon</span><span>midnight</span>
                 </div>
               </div>
             </div>

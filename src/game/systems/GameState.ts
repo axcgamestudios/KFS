@@ -12,18 +12,18 @@ export interface SkillDef {
 }
 
 export const SKILLS: SkillDef[] = [
-  { id: 'comb_vigor', name: 'Aguante I', desc: 'Resistencia máxima +20.', tree: 'combate' },
-  { id: 'comb_vigor2', name: 'Aguante II', desc: 'Resistencia máxima +20 adicional.', tree: 'combate', requires: ['comb_vigor'] },
-  { id: 'comb_piel', name: 'Piel de Hierro', desc: 'Salud máxima +20.', tree: 'combate' },
-  { id: 'comb_aliento', name: 'Aliento de Batalla', desc: 'Recuperas resistencia un 40% más rápido.', tree: 'combate', requires: ['comb_vigor'] },
-  { id: 'comb_maestria', name: 'Maestría del Acero', desc: 'Daño cuerpo a cuerpo +15%.', tree: 'combate', requires: ['comb_piel'] },
-  { id: 'comb_punteria', name: 'Ojo del Arquero', desc: 'Daño de arco +30% y tensado más rápido.', tree: 'combate', requires: ['comb_aliento'] },
-  { id: 'sup_botanico', name: 'Botánico', desc: 'Cada pétalo de marfil recogido cuenta doble.', tree: 'supervivencia' },
-  { id: 'sup_zancada', name: 'Zancada del Explorador', desc: 'Velocidad de marcha y carrera +8%.', tree: 'supervivencia' },
-  { id: 'sup_corazon', name: 'Corazón de Roble', desc: 'Salud máxima +25 y lenta regeneración continua.', tree: 'supervivencia' },
-  { id: 'nav_marino', name: 'Marinería', desc: 'Velocidad máxima del Colibrí de Mar +12%.', tree: 'navegacion', locked: true },
-  { id: 'nav_viento', name: 'Viento a Favor', desc: 'El viento en contra apenas frena tu barco.', tree: 'navegacion', locked: true, requires: ['nav_marino'] },
-  { id: 'nav_bordo', name: 'Fuego de Bordada', desc: 'Los cañones recargan un 35% más rápido.', tree: 'navegacion', locked: true, requires: ['nav_marino'] },
+  { id: 'comb_vigor', name: 'Endurance I', desc: 'Maximum stamina +20.', tree: 'combate' },
+  { id: 'comb_vigor2', name: 'Endurance II', desc: 'Maximum stamina +20 more.', tree: 'combate', requires: ['comb_vigor'] },
+  { id: 'comb_piel', name: 'Iron Skin', desc: 'Maximum health +20.', tree: 'combate' },
+  { id: 'comb_aliento', name: 'Second Wind', desc: 'You recover stamina 40% faster.', tree: 'combate', requires: ['comb_vigor'] },
+  { id: 'comb_maestria', name: 'Mastery of Steel', desc: 'Melee damage +15%.', tree: 'combate', requires: ['comb_piel'] },
+  { id: 'comb_punteria', name: 'Archer’s Eye', desc: 'Bow damage +30% and faster drawing.', tree: 'combate', requires: ['comb_aliento'] },
+  { id: 'sup_botanico', name: 'Botanist', desc: 'Every ivory petal picked counts double.', tree: 'supervivencia' },
+  { id: 'sup_zancada', name: 'Explorer’s Stride', desc: 'Walking and sprinting speed +8%.', tree: 'supervivencia' },
+  { id: 'sup_corazon', name: 'Heart of Oak', desc: 'Maximum health +25 and slow, constant regeneration.', tree: 'supervivencia' },
+  { id: 'nav_marino', name: 'Seamanship', desc: 'The Sea Hummingbird’s top speed +20%.', tree: 'navegacion', locked: true },
+  { id: 'nav_viento', name: 'Fair Winds', desc: 'Headwinds barely slow your ship.', tree: 'navegacion', locked: true, requires: ['nav_marino'] },
+  { id: 'nav_bordo', name: 'Broadside Fire', desc: 'Cannons reload 35% faster.', tree: 'navegacion', locked: true, requires: ['nav_marino'] },
 ];
 
 export type QuestStatus = 'active' | 'completed';
@@ -111,12 +111,35 @@ export class GameState {
 
   equip(id: string): void {
     if (!ITEMS[id]?.equipable) return;
-    this.equippedWeapon = id;
+    // Fase 16 — route by item kind: weapons keep the classic slot, armor and
+    // wings get their own (a cuero chest does not replace your sword).
+    const kind = ITEMS[id]?.kind;
+    if (kind === 'armor') {
+      this.equippedArmor = id;
+    } else if (kind === 'wings') {
+      this.equippedWings = id;
+    } else {
+      this.equippedWeapon = id;
+    }
     this.emit('equipped');
   }
 
   unequip(): void {
     this.equippedWeapon = null;
+    this.emit('equipped');
+  }
+
+  /** Fase 16 — dedicated armor/wings slots (null = bare chest / no wings). */
+  equippedArmor: string | null = null;
+  equippedWings: string | null = null;
+
+  unequipArmor(): void {
+    this.equippedArmor = null;
+    this.emit('equipped');
+  }
+
+  unequipWings(): void {
+    this.equippedWings = null;
     this.emit('equipped');
   }
 
@@ -264,7 +287,7 @@ export class GameState {
           this.addJournal({
             id: `quest_done_${questId}`,
             kind: 'story',
-            title: `${def.title} — Completada`,
+            title: `${def.title} — Completed`,
             text: def.completionJournal,
           });
         }
@@ -318,6 +341,9 @@ export class GameState {
       flags: [...this.flags],
       inventory: [...this.inventory.entries()],
       equippedWeapon: this.equippedWeapon,
+      // Fase 16 — the smith's armor & wings survive saves/loads
+      equippedArmor: this.equippedArmor,
+      equippedWings: this.equippedWings,
       swordTier: this.swordTier,
       xp: this.xp,
       level: this.level,
@@ -339,6 +365,8 @@ export class GameState {
     this.flags = new Set(data.flags);
     this.inventory = new Map(data.inventory);
     this.equippedWeapon = data.equippedWeapon;
+    this.equippedArmor = (data as { equippedArmor?: string | null }).equippedArmor ?? null;
+    this.equippedWings = (data as { equippedWings?: string | null }).equippedWings ?? null;
     this.swordTier = data.swordTier ?? 0;
     this.xp = data.xp;
     this.level = data.level;
@@ -363,6 +391,8 @@ export class GameState {
     this.flags.clear();
     this.inventory.clear();
     this.equippedWeapon = null;
+    this.equippedArmor = null;
+    this.equippedWings = null;
     this.swordTier = 0;
     this.xp = 0;
     this.level = 1;

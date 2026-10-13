@@ -53,6 +53,8 @@ export class Ship {
   sunk = false;
   removable = false;       // fully sunk & faded → parent may recycle
   grappled = false;
+  /** Fase 15 — one hull-damage roll per grounding event (reset in deep water). */
+  private groundedHit = false;
 
   /** Cannon cooldowns (seconds remaining). */
   cdPort = 0;
@@ -442,7 +444,11 @@ export class Ship {
   }
 
   get maxSpeed(): number {
-    return (this.kind === 'caravel' ? 8.6 : 7.4) * (this.perks.speedMult ?? 1) * (this.crippled ? 0.55 : 1);
+    // Fase 16 — +40% on the base hull by player request (sailing felt
+    // glacial): caravel 8.6→12.0, raiders 7.4→9.2 so pursuit stays a race.
+    // The nav_marino skill then pushes it further (×1.2) — speed grows with
+    // the upgrades, exactly like the request asked.
+    return (this.kind === 'caravel' ? 12.0 : 9.2) * (this.perks.speedMult ?? 1) * (this.crippled ? 0.55 : 1);
   }
 
   update(
@@ -474,9 +480,23 @@ export class Ship {
     }
 
     // --- Grounding: caravels need ~1.8 m of water ---
+    // Fase 15 — hard grounding HURTS (speed → hull damage + recoil), and
+    // the keel can never dig through the beach: the hull is pushed back.
     const depth = terrain.height(this.pos.x, this.pos.z);
-    if (depth > -1.7 && this.speed > 0.1) {
-      this.speed = 0;
+    if (depth > -1.7) {
+      if (this.speed > 3.4 && !this.groundedHit) {
+        this.groundedHit = true;
+        this.applyDamage(this.speed * 2.1);
+        this.onCreak?.(this.group.position);
+      }
+      if (this.speed > 0.1) this.speed = 0;
+      // recoil: slide the keel back toward deeper water (stern-first)
+      if (!this.frozen) {
+        this.pos.x -= Math.sin(this.heading) * dt * 1.1;
+        this.pos.z -= Math.cos(this.heading) * dt * 1.1;
+      }
+    } else if (this.groundedHit && depth < -2.4) {
+      this.groundedHit = false; // back in deep water: the next ram can hurt
     }
 
     // --- Sails & wind ---

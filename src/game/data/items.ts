@@ -1,6 +1,6 @@
 /** Item registry — everything the player can carry. */
 
-export type ItemKind = 'material' | 'consumable' | 'weapon' | 'key' | 'readable' | 'treasure';
+export type ItemKind = 'material' | 'consumable' | 'weapon' | 'key' | 'readable' | 'treasure' | 'armor' | 'wings';
 
 export interface ItemDef {
   id: string;
@@ -15,182 +15,264 @@ export interface ItemDef {
   rarity?: 'common' | 'rare' | 'legendary';
   /** For readables: lore text shown when read. */
   lore?: string[];
+  /** Fase 16 — armor items: flat max-health bonus + fraction of damage
+   *  REDUCED from every unblocked hit that lands while equipped. */
+  armor?: { hp: number; reduce: number };
+  /** Fase 16 — wings: glide descent speed (m/s, negative) and the forward
+   *  glide speed (m/s) the wings sustain while falling. */
+  glide?: { sink: number; speed: number };
 }
 
 export const ITEMS: Record<string, ItemDef> = {
   coin: {
-    id: 'coin', name: 'Monedas de oro', kind: 'treasure',
-    desc: 'El oro de Eldoria. Sirve para comerciar con mercaderes y arreglar barcos.',
+    id: 'coin', name: 'Gold Coins', kind: 'treasure',
+    desc: 'The gold of Eldoria. Good for trading with merchants and fixing ships.',
     icon: 'Coins', stackable: true, rarity: 'common',
   },
   petalo: {
-    id: 'petalo', name: 'Pétalo de marfil', kind: 'material',
-    desc: 'Flor luminosa que crece en la umbría de las cascadas y entre ruinas antiguas. Maren lo necesita para sus remedios.',
+    id: 'petalo', name: 'Ivory Petal', kind: 'material',
+    desc: 'A luminous flower that grows in the shade of waterfalls and among ancient ruins. Maren needs it for her remedies.',
     icon: 'Flower2', stackable: true, rarity: 'common',
   },
   pocion: {
-    id: 'pocion', name: 'Poción de curación', kind: 'consumable',
-    desc: 'Tónico amargo de Maren. Restaura 45 puntos de salud.',
+    id: 'pocion', name: 'Healing Potion', kind: 'consumable',
+    desc: 'One of Maren\'s bitter tonics. Restores 45 health.',
     icon: 'FlaskConical', stackable: true, usable: true,
   },
   espada_acero: {
-    id: 'espada_acero', name: 'Espada de acero', kind: 'weapon',
-    desc: 'Tu primera espada: acero honesto de la herrería de Puerto Cuervo. Bram puede templarla y mejorarla en su forja cuando reúnas el oro.',
+    id: 'espada_acero', name: 'Steel Sword', kind: 'weapon',
+    desc: 'Your first sword: honest steel from a Crowhaven forge. Bram can temper and improve it at his smithy once you have gathered the gold.',
     icon: 'Sword', stackable: false, equipable: true, rarity: 'common',
   },
   espada_eirik: {
-    id: 'espada_eirik', name: 'Espada de Eirik', kind: 'weapon',
-    desc: 'El acero del capitán desaparecido. La empuñadura lleva grabada una serpiente marina enroscada. Ligera, letal, llena de recuerdos.',
+    id: 'espada_eirik', name: 'Eirik\'s Sword', kind: 'weapon',
+    desc: 'The vanished captain\'s steel. A sea serpent coils, etched into the grip. Light, lethal, laden with memories.',
     icon: 'Sword', stackable: false, equipable: true, rarity: 'legendary',
   },
   // ---- Fase 12 — ESPADAS ELEMENTALES: botín de los grandes jefes tardíos ----
   espada_fuego: {
-    id: 'espada_fuego', name: 'Colmillo Ígneo', kind: 'weapon',
-    desc: 'Forjada en el corazón mismo del aliento de Kraivenn. La hoja arde sin consumirse: cada tajo prende al enemigo. (+35% daño, ráfagas de brasas)',
+    id: 'espada_fuego', name: 'Ember Fang', kind: 'weapon',
+    desc: 'Forged in the very heart of Kraivenn\'s breath. The blade burns without being consumed: every stroke sets the enemy alight. (+35% damage, ember bursts)',
     icon: 'Sword', stackable: false, equipable: true, rarity: 'legendary',
   },
   espada_escarcha: {
-    id: 'espada_escarcha', name: 'Colmillo de Escarcha', kind: 'weapon',
-    desc: 'Arrancada del lecho de hielo del Ancestro Vaelyx. El filo congela la sangre allí donde muerde. (+25% daño, aliento gélido)',
+    id: 'espada_escarcha', name: 'Frost Fang', kind: 'weapon',
+    desc: 'Torn from the ice bed of Vaelyx the Ancestor. The edge freezes the blood wherever it bites. (+25% damage, freezing breath)',
     icon: 'Sword', stackable: false, equipable: true, rarity: 'legendary',
   },
   espada_tormenta: {
-    id: 'espada_tormenta', name: 'Relámpago del Abismo', kind: 'weapon',
-    desc: 'Templada con los rayos que la Wyvern de las Brumas escupía sobre el mar. Salta de un enemigo a otro como un trueno encadenado. (+30% daño, cadena eléctrica)',
+    id: 'espada_tormenta', name: 'Abyssal Lightning', kind: 'weapon',
+    desc: 'Tempered with the lightning the Mist-Wyvern once spat across the sea. It leaps from enemy to enemy like chained thunder. (+30% damage, lightning chain)',
     icon: 'Sword', stackable: false, equipable: true, rarity: 'legendary',
   },
   amuleto: {
-    id: 'amuleto', name: 'Amuleto de cobre', kind: 'key',
-    desc: 'Un amuleto con la marca de la Orden de la Marea. Encaja en el cierre del cofre de Eirik.',
+    id: 'amuleto', name: 'Copper Amulet', kind: 'key',
+    desc: 'An amulet bearing the mark of the Order of the Tide. It fits the lock of Eirik\'s chest.',
     icon: 'KeyRound', stackable: false, rarity: 'rare',
   },
   carta: {
-    id: 'carta', name: 'Carta de Eirik', kind: 'readable',
-    desc: 'Una carta escrita a mano, arrugada por la sal y el tiempo.',
+    id: 'carta', name: 'Eirik\'s Letter', kind: 'readable',
+    desc: 'A handwritten letter, creased by salt and time.',
     icon: 'ScrollText', stackable: false, lore: [
-      'Si lees esto, el mar me ha reclamado — o me ha llamado. Ambas cosas, quizá.',
-      'No fui un simple pescador. Fui Guardián de la Marea, como lo fueron mis ancestros. Custodiamos el pacto entre los reyes y los dragones: que jamás despertaran bajo las ciudades hundidas.',
-      'El Colibrí de Mar lleva grabado en la quilla el sello de la Orden. Cuidado con el cuervo de tres cabezas: él también lo busca. Busca a la Orden. Busca el Mapa.',
-      'Termina lo que empecé. Zarpa hacia la Isla del Cuervo Viejo. Y recuerda: los dragones no son lo que dicen las canciones.',
-      '— Eirik, tu padre',
+      'If you are reading this, the sea has claimed me — or called me. Perhaps both.',
+      'I was no mere fisherman. I was a Warden of the Tide, as my forebears were before me. We kept the pact between kings and dragons: that they should never wake beneath the sunken cities.',
+      'The Sea Hummingbird carries the Order\'s seal carved in her keel. Beware the three-headed crow: he seeks it too. He seeks the Order. He seeks the Map.',
+      'Finish what I began. Set sail for Old Crow Isle. And remember: dragons are not what the songs say.',
+      '— Eirik, your father',
     ],
   },
   mapa: {
-    id: 'mapa', name: 'Mapa antiguo', kind: 'readable',
-    desc: 'Un mapa de los mares de Eldoria con anotaciones en un idioma que casi nadie recuerda. Marca una isla al noroeste: el Cuervo Viejo.',
+    id: 'mapa', name: 'Ancient Map', kind: 'readable',
+    desc: 'A map of Eldoria\'s seas, annotated in a tongue almost no one remembers. It marks an island to the northwest: Old Crow Isle.',
     icon: 'Map', stackable: false, rarity: 'legendary', lore: [
-      'El pergamino muestra costas que no aparecen en ningún mapa moderno.',
-      'Una isla al noroeste está rodeada por un círculo de tinta roja con una nota: «Donde duerme la marea».',
-      'En el reverso, con letra de Eirik: «No vayas sin la Orden. No vayas sin el acero.»',
+      'The parchment shows coastlines that appear on no modern chart.',
+      'An island to the northwest is ringed by a circle of red ink with a note: "Where the tide sleeps."',
+      'On the back, in Eirik\'s hand: "Do not go without the Order. Do not go without steel."',
     ],
   },
   cargamento: {
-    id: 'cargamento', name: 'Cargamento de Rosa', kind: 'key',
-    desc: 'Una caja de especias rescatada del naufragio de la costa oeste. Lleva la marca de la taberna El Ancla Rota.',
+    id: 'cargamento', name: 'Rosa\'s Shipment', kind: 'key',
+    desc: 'A crate of spices rescued from the wreck off the west coast. It bears the mark of the Broken Anchor tavern.',
     icon: 'Package', stackable: false,
   },
   colmillo: {
-    id: 'colmillo', name: 'Colmillo tallado', kind: 'treasure',
-    desc: 'Un colmillo antiguo tallado con espirales de agua. Quizá valga algo… o quizá sea algo más.',
+    id: 'colmillo', name: 'Carved Fang', kind: 'treasure',
+    desc: 'An ancient fang carved with water spirals. Perhaps it is worth something… or perhaps it is something more.',
     icon: 'Gem', stackable: false, rarity: 'rare',
   },
   madera: {
-    id: 'madera', name: 'Madera de roble', kind: 'material',
-    desc: 'Roble curado de los almacenes de Puerto Cuervo. Bram lo necesita para el casco del Colibrí.',
+    id: 'madera', name: 'Oak Planks', kind: 'material',
+    desc: 'Cured oak from the warehouses of Crowhaven. Bram needs it for the Sea Hummingbird\'s hull.',
     icon: 'TreePine', stackable: true,
   },
   lona: {
-    id: 'lona', name: 'Lona de vela', kind: 'material',
-    desc: 'Tela encerada y resistente a la sal. Rosa la tiñe con un baño de pétalo que además laconsolida las fibras.',
+    id: 'lona', name: 'Sailcloth', kind: 'material',
+    desc: 'Waxed cloth that stands up to salt. Rosa dyes it in a petal bath that strengthens the fibers as well.',
     icon: 'Layers', stackable: true,
   },
   cuerda: {
-    id: 'cuerda', name: 'Cuerda de cáñamo', kind: 'material',
-    desc: 'Cáñamo trenzado al estilo de los pescadores de Aldmor. Aguanta un mástil o un puerto entero.',
+    id: 'cuerda', name: 'Hemp Rope', kind: 'material',
+    desc: 'Hemp braided in the style of Aldmor\'s fishermen. It will hold a mast — or an entire harbor.',
     icon: 'Cable', stackable: true,
   },
   sello: {
-    id: 'sello', name: 'Sello de la Orden de la Marea', kind: 'key',
-    desc: 'Un sello de bronce con el círculo de mareas y la llama de los Guardianes. Morwen lo arrebató a un navío de la Orden. Ahora vuelve a manos de un Guardián.',
+    id: 'sello', name: 'Seal of the Order of the Tide', kind: 'key',
+    desc: 'A bronze seal bearing the circle of tides and the flame of the Wardens. Morwen tore it from a ship of the Order. Now it returns to the hands of a Warden.',
     icon: 'Award', stackable: false, rarity: 'legendary', lore: [
-      'El sello pesa más de lo que promete su tamaño, como si el metal recordara el peso de los juramentos.',
-      'En el reverso, una inscripción casi borrada: «Donde la marea duerme, la guardia despierta.»',
-      'La carta de tu padre mencionaba la Isla del Cuervo Viejo... pero el sello dibuja otra cosa: un archipiélago de dragones dormidos al que ningún mapa vivo señala.',
+      'The seal weighs more than its size promises, as if the metal remembered the weight of oaths.',
+      'On the reverse, an inscription nearly worn away: "Where the tide sleeps, the watch wakes."',
+      'Your father\'s letter spoke of Old Crow Isle... but the seal draws something else: an archipelago of sleeping dragons that no living chart points to.',
     ],
   },
   botin: {
-    id: 'botin', name: 'Botín del Cuervo', kind: 'treasure',
-    desc: 'Un cofre pequeño con el botín de la Fortaleza del Cuervo: monedas de media docena de reinos y gemas sin tallar.',
+    id: 'botin', name: 'Crow\'s Loot', kind: 'treasure',
+    desc: 'A small chest with the plunder of the Crow Fortress: coins of half a dozen kingdoms and uncut gems.',
     icon: 'Coins', stackable: false, rarity: 'rare',
   },
   espejo: {
-    id: 'espejo', name: 'Espejo de latón del faro', kind: 'treasure',
-    desc: 'El espejo que una vez multiplicó la llama del faro de la Orden. Nubes de sal lo han vuelto lechoso, pero el latón reluce como el primer día.',
+    id: 'espejo', name: 'Brass Mirror of the Lighthouse', kind: 'treasure',
+    desc: 'The mirror that once multiplied the flame of the Order\'s lighthouse. Clouds of salt have turned it milky, but the brass shines like the first day.',
     icon: 'Disc', stackable: false, rarity: 'rare',
   },
   escama: {
-    id: 'escama', name: 'Escama de dragón', kind: 'treasure',
-    desc: 'Ni fría ni caliente. Al sostenerla, late muy despacio... como si durmiera. Los dragones duermen — algo los está despertando.',
+    id: 'escama', name: 'Dragon Scale', kind: 'treasure',
+    desc: 'Neither cold nor hot. Held in the hand, it beats very slowly... as if it were sleeping. Dragons sleep — something is waking them.',
     icon: 'Shell', stackable: true, rarity: 'legendary', lore: [
-      'La escama es tan grande como tu palma y cambia de color según la luz: azul abismo, verde marea, gris tormenta.',
-      'Al acercarla al oído, juras oír respirar. Muy hondo. Muy despacio.',
-      'Alguien la dejó en este cofro a propósito: espirales de agua rodean el hueco donde descansaba, idénticas a las de las ruinas de Vaelthara.',
+      'The scale is as large as your palm and changes color with the light: abyss blue, tide green, storm gray.',
+      'Held to your ear, you swear you hear breathing. Very deep. Very slow.',
+      'Someone left it in this chest on purpose: water spirals ring the hollow where it rested, identical to those in the ruins of Vaelthara.',
     ],
   },
   hacha_orden: {
-    id: 'hacha_orden', name: 'Hacha de la Orden', kind: 'weapon',
-    desc: 'Hacha de guerra de la armería de la Orden de la Marea. Pesada como un juramento roto: los golpes pesados tambalean incluso a las bestias.',
+    id: 'hacha_orden', name: 'Axe of the Order', kind: 'weapon',
+    desc: 'A war axe from the armory of the Order of the Tide. Heavy as a broken oath: its heavy blows stagger even beasts.',
     icon: 'Axe', stackable: false, equipable: true, rarity: 'rare',
   },
   lanza_caza: {
-    id: 'lanza_caza', name: 'Lanza de Caza', kind: 'weapon',
-    desc: 'Lanza de fresno con punta ballenera, dejada por los vigías de la torre. Su alcance mantiene a las fauces a raya.',
+    id: 'lanza_caza', name: 'Hunting Spear', kind: 'weapon',
+    desc: 'An ash-shafted spear with a whaling head, left behind by the tower\'s watchmen. Its reach keeps jaws at bay.',
     icon: 'Navigation', stackable: false, equipable: true, rarity: 'rare',
   },
   arco_naufragio: {
-    id: 'arco_naufragio', name: 'Arco del Naufragio', kind: 'weapon',
-    desc: 'Un arco largo de tejo curado en sal, varado por la marea en las Islas de la Bruma. Mantén pulsado el clic para tensar; suelta para disparar.',
+    id: 'arco_naufragio', name: 'Wreck Bow', kind: 'weapon',
+    desc: 'A salt-cured yew longbow, stranded by the tide in the Mist Isles. Hold click to draw; release to loose.',
     icon: 'BowArrow', stackable: false, equipable: true, rarity: 'rare',
   },
   escudo_marea: {
-    id: 'escudo_marea', name: 'Escudo de Marea', kind: 'weapon',
-    desc: 'Bram lo forjó con escamas de Vaelthara sobre un corazón de roble. Se ciñe al brazo izquierdo: el bloqueo derecho se vuelve casi impenetrable.',
+    id: 'escudo_marea', name: 'Tide Shield', kind: 'weapon',
+    desc: 'Bram forged it from Vaelthara\'s scales over an oak heart. It straps to the left arm: the right-hand block becomes nearly impenetrable.',
     icon: 'Shield', stackable: false, equipable: false, rarity: 'legendary',
   },
   flecha: {
-    id: 'flecha', name: 'Flechas', kind: 'material',
-    desc: 'Saetas de corazón de pino con plumas de gaviota. Las que fallan quedan clavadas en la tierra: pasa cerca para recogerlas.',
+    id: 'flecha', name: 'Arrows', kind: 'material',
+    desc: 'Pine-heart shafts fletched with gull feathers. The ones that miss stay stuck in the ground: pass close by to pick them up.',
     icon: 'MoveUpRight', stackable: true,
   },
   corazon_marea: {
-    id: 'corazon_marea', name: 'Corazón de Marea', kind: 'key',
-    desc: 'Un rubí palpitante arrancado del pecho de Vaelthara. Late al ritmo de las olas. La Orden lo llamaba «el ancla de la guardiana».',
+    id: 'corazon_marea', name: 'Heart of the Tide', kind: 'key',
+    desc: 'A pulsing ruby torn from Vaelthara\'s breast. It beats to the rhythm of the waves. The Order called it "the warden\'s anchor."',
     icon: 'Droplets', stackable: false, rarity: 'legendary', lore: [
-      'La gema está tibia como una frente con fiebre y late una vez por cada tres olas que rompen en la costa.',
-      'Aldric dirá que los Guardianes usaban corazones así para sellar los pactos con los dragones.',
-      'En su base hay una inscripción: «Donde late la guardiana, duerme el ancestro».',
+      'The gem is warm as a fevered brow, and it beats once for every three waves that break on the coast.',
+      'Aldric will say the Wardens used hearts like this to seal their pacts with the dragons.',
+      'At its base, an inscription: "Where the warden\'s heart beats, the ancestor sleeps."',
     ],
   },
   garra_skarnvind: {
-    id: 'garra_skarnvind', name: 'Garra de Skarnvind', kind: 'key',
-    desc: 'La garra del wyvern de las brumas, negra como basalto y afilada como una vela cortante. Con ella, el Nido del Ancestro reconoce a un cazador.',
+    id: 'garra_skarnvind', name: 'Skarnvind\'s Claw', kind: 'key',
+    desc: 'The claw of the wyvern of the mists, black as basalt and sharp as a cutting sail. With it, the Ancestor\'s Nest knows a hunter.',
     icon: 'Grab', stackable: false, rarity: 'legendary', lore: [
-      'Mide un palmo. Skarnvind tenía seis así, y ninguna le sirvió contra tus bordadas.',
-      'Los pescadores tallan amuletos con garras así «para que el mar sepa quién eres».',
-      'Aldric juró que esta garra encaja en el cerradero del Nido de Garrahielo.',
+      'It measures a handspan. Skarnvind had six like it, and not one served him against your broadsides.',
+      'Fishermen carve amulets from claws like this "so the sea knows who you are."',
+      'Aldric swore this claw fits the lock of the Iceclaw Nest.',
     ],
   },
   colmillo_ancestro: {
-    id: 'colmillo_ancestro', name: 'Colmillo del Ancestro', kind: 'treasure',
-    desc: 'Un colmillo más largo que tu antebrazo, tan viejo que la luz se pierde dentro. El pacto de los dragones se firmó con sangre sobre este colmillo.',
+    id: 'colmillo_ancestro', name: 'Ancestor\'s Fang', kind: 'treasure',
+    desc: 'A fang longer than your forearm, so old the light gets lost inside it. The dragons\' pact was signed in blood upon this fang.',
     icon: 'Swords', stackable: false, rarity: 'legendary', lore: [
-      'El colmillo pesa como el remordimiento. Al girarlo, la luz dibuja espirales de agua y alas en su interior.',
-      'Los reinos hundidos pagaban reinos enteros por un colmillo así. Los Guardianes juraban nunca venderlos.',
-      'Con esto, la Orden de la Marea tiene de nuevo un Guardián… y los mares olvidados, una historia que contar.',
+      'The fang weighs like remorse. Turn it, and the light traces spirals of water and wings inside it.',
+      'The sunken kingdoms once paid whole kingdoms for a fang like this. The Wardens swore never to sell them.',
+      'With this, the Order of the Tide has a Warden again… and the forgotten seas, a story to tell.',
     ],
+  },
+
+  // ---- Fase 16 — LA HERRERÍA: armaduras, espadas y ALAS del Herrero ----
+  armadura_cuero: {
+    id: 'armadura_cuero', name: 'Leather Cuirass', kind: 'armor',
+    desc: 'Triple-layer cured leather, sewn with sinew. Light and quiet. (+20 max health, −10% damage taken)',
+    icon: 'Shirt', stackable: false, equipable: true, rarity: 'common',
+    armor: { hp: 20, reduce: 0.10 },
+  },
+  armadura_malla: {
+    id: 'armadura_malla', name: 'Chain Hauberk', kind: 'armor',
+    desc: 'Steel rings woven by hand: the edge stays caught in the rings. (+35 max health, −18% damage taken)',
+    icon: 'Layers', stackable: false, equipable: true, rarity: 'rare',
+    armor: { hp: 35, reduce: 0.18 },
+  },
+  armadura_placas: {
+    id: 'armadura_placas', name: 'Plate Armor', kind: 'armor',
+    desc: 'Blued steel plates over a leather harness. You feel the weight, never the edge. (+55 max health, −28% damage taken)',
+    icon: 'Shield', stackable: false, equipable: true, rarity: 'legendary',
+    armor: { hp: 55, reduce: 0.28 },
+  },
+  espada_plata: {
+    id: 'espada_plata', name: 'Silver Sword', kind: 'weapon',
+    desc: 'A silver blade tempered with a vein of steel. Cuts clean and never stains with salt. (+12% damage)',
+    icon: 'Sword', stackable: false, equipable: true, rarity: 'rare',
+  },
+  espada_almirante: {
+    id: 'espada_almirante', name: 'Admiral\'s Blade', kind: 'weapon',
+    desc: 'The greatsword of an admiral of the Order: perfect balance, an edge of three tempers. (+22% damage)',
+    icon: 'Sword', stackable: false, equipable: true, rarity: 'legendary',
+  },
+  alas: {
+    id: 'alas', name: 'Glider Wings', kind: 'wings',
+    desc: 'Wings of waxed canvas over whale ribs. Equip them and leap from on high to glide down: hold SPACE in the air to open the glide.',
+    icon: 'Feather', stackable: false, equipable: true, rarity: 'legendary',
+    glide: { sink: -2.6, speed: 10.5 },
+  },
+
+  // ---- Fase 16 — EL HERRERO ENANO: versiones "ROTAS" (rotas = OP) ----
+  armadura_cuero_rota: {
+    id: 'armadura_cuero_rota', name: 'Shattered Leather Cuirass', kind: 'armor',
+    desc: 'The version Borin "broke on purpose": drake leather, sewn with forge wire. Absurd. (+45 max health, −35% damage taken)',
+    icon: 'Shirt', stackable: false, equipable: true, rarity: 'rare',
+    armor: { hp: 45, reduce: 0.35 },
+  },
+  armadura_malla_rota: {
+    id: 'armadura_malla_rota', name: 'Shattered Chain Hauberk', kind: 'armor',
+    desc: 'A mail of Vaelthara scales: every ring is a living scale that closes on its own. (+80 max health, −50% damage taken)',
+    icon: 'Layers', stackable: false, equipable: true, rarity: 'legendary',
+    armor: { hp: 80, reduce: 0.50 },
+  },
+  armadura_placas_rota: {
+    id: 'armadura_placas_rota', name: 'Shattered Plate Armor', kind: 'armor',
+    desc: 'Plates of the very steel the pact was forged from. Borin laughs as he hangs it up: "no one will believe this exists." (+120 max health, −65% damage taken)',
+    icon: 'Shield', stackable: false, equipable: true, rarity: 'legendary',
+    armor: { hp: 120, reduce: 0.65 },
+  },
+  espada_plata_rota: {
+    id: 'espada_plata_rota', name: 'Shattered Silver Sword', kind: 'weapon',
+    desc: 'Silver tempered three nights running until it "broke right". The edge whistles. (+40% damage)',
+    icon: 'Sword', stackable: false, equipable: true, rarity: 'legendary',
+  },
+  espada_almirante_rota: {
+    id: 'espada_almirante_rota', name: 'Shattered Admiral\'s Blade', kind: 'weapon',
+    desc: 'Borin folded it the wrong way and re-tempered it in drake-coal breath. It should not work. It works. (+75% damage)',
+    icon: 'Sword', stackable: false, equipable: true, rarity: 'legendary',
+  },
+  alas_rotas: {
+    id: 'alas_rotas', name: 'Shattered Glider Wings', kind: 'wings',
+    desc: 'Sailcloth of the Sea Hummingbird over ribs cut from a whole claw. Broken gliding: they fall so slowly it seems the air is listening to them.',
+    icon: 'Feather', stackable: false, equipable: true, rarity: 'legendary',
+    glide: { sink: -1.8, speed: 13.5 },
   },
 };
 
 // ---- Fase 4 items (Chapter IV-V relics, trade goods, treasure hunt) ----
 import { ITEMS_F4 } from './itemsF4';
 Object.assign(ITEMS, ITEMS_F4);
+
+// ---- Fase 15 items (sea beasts, the Sea King and the naval economy) ----
+import { ITEMS_F15 } from './itemsF15';
+Object.assign(ITEMS, ITEMS_F15);

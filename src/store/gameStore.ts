@@ -117,13 +117,29 @@ interface GameStore {
   hurtFlash: number;
   /** Fase 4 — riding HUD (null when on foot). */
   mount: MountHud | null;
+  /** Fase 15 — true while the player's head is under the sea (dive overlay). */
+  submerged: boolean;
+  /** Fase 16 — open merchant panel (null = closed). */
+  shop: { vendor: string } | null;
+  /** Fase 15 — pirate toll negotiation (null = none deployed). Set while
+   *  the ambush corsairs have the player at their mercy. */
+  negotiation: { reason: 'death' | 'ship'; coins: number; canAfford: boolean; hasItems: boolean } | null;
+  /** Fase 17 — SEA FURY (Valor): 0..300, one segment = 100. Spent on the
+   *  Sea Tonic (R) and cinematic finishers (V / Shift+Space). */
+  valor: number;
+  /** Fase 17 — transient danger cue over the combat reticle: which defense
+   *  the incoming attack demands (null = no cue). */
+  dangerCue: 'parry' | 'dodge' | null;
+  /** Fase 17 — true while a FINISHER target is in reach with a segment
+   *  banked (the HUD shows the execution prompt). */
+  finisherReady: boolean;
   /** Fase 4 — ending cinematic state. */
   endingActive: boolean;
   endingCard: EndingCard | null;
   /** Fase 9 — in-game narrative cinematic (letterbox + cards). */
   cinematic: { title: string; subtitle: string; progress: number; shot: number; total: number; text?: string } | null;
   /** Fase 9 — melee combo chain indicator (null when no chain).
-   *  Fase 11 adds `label` — the fight moments (GIRO 360°, ¡CONTRAATAQUE!...). */
+   *  Fase 11 adds `label` — the fight moments (360 SPIN, COUNTER!...). */
   combo: { step: number; counter: boolean; label?: string } | null;
   // Progression
   level: number;
@@ -147,7 +163,7 @@ interface GameStore {
   setPhase: (p: GamePhase) => void;
   openOverlay: (o: OverlayKind) => void;
   closeOverlay: () => void;
-  setHud: (h: Partial<Pick<GameStore, 'health' | 'maxHealth' | 'stamina' | 'maxStamina' | 'clock' | 'dayCount' | 'prompt' | 'questTracker' | 'fps' | 'sailing' | 'atHelm'>>) => void;
+  setHud: (h: Partial<Pick<GameStore, 'health' | 'maxHealth' | 'stamina' | 'maxStamina' | 'clock' | 'dayCount' | 'prompt' | 'questTracker' | 'fps' | 'sailing' | 'atHelm' | 'submerged' | 'negotiation'>>) => void;
   setBoss: (b: BossHud | null) => void;
   setWeaponSlots: (s: WeaponSlotHud[]) => void;
   setBowDraw: (v: number) => void;
@@ -159,6 +175,12 @@ interface GameStore {
   triggerHurtFlash: () => void;
   setDialogue: (d: DialogueState | null) => void;
   setDiscovery: (d: { title: string; sub: string } | null) => void;
+  /** Fase 16 — merchant panel state (null closes it). */
+  setShop: (s: { vendor: string } | null) => void;
+  /** Fase 17 — Sea Fury bar (0..300) + combat cue state. */
+  setValor: (v: number) => void;
+  setDangerCue: (c: 'parry' | 'dodge' | null) => void;
+  setFinisherReady: (v: boolean) => void;
   notify: (kind: Notification['kind'], title: string, body?: string) => void;
   dismissNotification: (id: number) => void;
   setProgress: (p: number, label: string) => void;
@@ -188,6 +210,12 @@ export const useGameStore = create<GameStore>((set) => ({
   sailing: null,
   boss: null,
   mount: null,
+  submerged: false,
+  shop: null,
+  negotiation: null,
+  valor: 0,
+  dangerCue: null,
+  finisherReady: false,
   endingActive: false,
   endingCard: null,
   cinematic: null,
@@ -202,7 +230,7 @@ export const useGameStore = create<GameStore>((set) => ({
   skillPoints: 0,
   inventoryVersion: 0,
   loadProgress: 0,
-  loadLabel: 'Despertando Eldoria…',
+  loadLabel: 'Awakening Eldoria…',
   hasSave: false,
   fps: 60,
   introActive: false,
@@ -226,6 +254,10 @@ export const useGameStore = create<GameStore>((set) => ({
   triggerHurtFlash: () => set((s) => ({ hurtFlash: s.hurtFlash + 1 })),
   setDialogue: (d) => set({ dialogue: d }),
   setDiscovery: (d) => set({ discovery: d }),
+  setShop: (s) => set({ shop: s }),
+  setValor: (v) => set((s) => (s.valor === v ? s : { valor: Math.max(0, Math.min(300, v)) })),
+  setDangerCue: (c) => set((s) => (s.dangerCue === c ? s : { dangerCue: c })),
+  setFinisherReady: (v) => set((s) => (s.finisherReady === v ? s : { finisherReady: v })),
   notify: (kind, title, body) =>
     set((s) => ({
       notifications: [...s.notifications.slice(-4), { id: notifSeq++, kind, title, body }],

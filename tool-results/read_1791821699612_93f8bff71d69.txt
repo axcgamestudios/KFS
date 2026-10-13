@@ -1,0 +1,826 @@
+     1→import * as THREE from 'three';
+     2→import { KnightModelGLB } from '../entities/KnightModelGLB';
+     3→import type { AssetSystem } from '../world/AssetSystem';
+     4→import type { TerrainHeight } from '../world/TerrainHeight';
+     5→import type { KitSystem } from '../world/KitSystem';
+     6→import { buildHeroSword } from '../world/HeroSword';
+     7→import { damp, dampAngle } from '../core/MathUtils';
+     8→
+     9→/**
+    10→ * Fase 10 — BanditSystem: RED KNIGHT bandits roaming set zones of the map.
+    11→ *
+    12→ * The Order's discipline gone rotten: deserters and road-wolves wearing
+    13→ * oxidised crimson plate. Every camp is 3 swords + 1 captain (taller, cloaked,
+    14→ * more health). They patrol their camp, spot the player at ~16 m, chase and
+    15→ * swing real melee attacks (dodgeable, blockable, parryable through the
+    16→ * player's own takeHit), and drop coins/potions. Camps respawn slowly so the
+    17→ * roads stay dangerous without ever becoming a grind.
+    18→ *
+    19→ * Fase 11 — CHOREOGRAPHED FIGHTS (the Spider-Man-grade combat spec):
+    20→ *  · ATTACK TOKENS: at most 2 bandits press the attack at once; everyone
+    21→ *    else holds a ring around the player and strafes for an opening —
+    22→ *    no more 4-on-1 blender
+    23→ *  · GUARD: when the hero's blade whistles past (a whiff), nearby bandits
+    24→ *    snap into a weapon-up guard that soaks light hits (sparks + clang);
+    25→ *    heavies smash it open
+    26→ *  · UNBLOCKABLE captain heavies: the guard does nothing — those MUST be
+    27→ *    dodged (Player.takeHit(opts.unblockable) breaks the stance)
+    28→ *  · PHYSICAL reactions: every landed hit shoves the bandit back a step
+    29→ *    (they stumble, they don't just flash)
+    30→ *  · REMATES: a bandit under 30% HP (captain 35%) can be executed with E —
+    31→ *    a short hit-stop, a heavy hero swing and a clean kill
+    32→ *  · first-contact help: the opening scrape of a fight prints the controls
+    33→ */
+    34→
+    35→export interface BanditHooks {
+    36→  playerDamage: (dmg: number, fromX?: number, fromZ?: number, reason?: string, opts?: { unblockable?: boolean }) => void;
+    37→  sound: (kind: 'swing' | 'damage' | 'hit_scale' | 'block' | 'stagger') => void;
+    38→  notify: (kind: 'info' | 'item' | 'quest', title: string, body?: string) => void;
+    39→  giveXp: (xp: number) => void;
+    40→  addCoins: (n: number) => void;
+    41→  weaponImpact: (pos: THREE.Vector3) => void;
+    42→  blockSparks: (pos: THREE.Vector3) => void;
+    43→  cameraShake: (i: number) => void;
+    44→  hitStop: (dur: number) => void;
+    45→  /** Fase 12 — a bandit died (kill streaks + bounty counters). */
+    46→  onBanditKilled?: (captain: boolean) => void;
+    47→}
+    48→
+    49→interface CampDef {
+    50→  id: string;
+    51→  name: string;
+    52→  x: number;
+    53→  z: number;
+    54→  radius: number;
+    55→}
+    56→
+    57→/** Four hand-placed camps guarding roads and POI approaches. */
+    58→const CAMPS: CampDef[] = [
+    59→  { id: 'camp_camino', name: 'Emboscada del Camino Real', x: 62, z: 58, radius: 10 },
+    60→  { id: 'camp_vaelthara', name: 'Lobos de Vaelthara', x: -206, z: -112, radius: 11 },
+    61→  { id: 'camp_vigilias', name: 'La Peña del Cuervo Rojo', x: -118, z: -232, radius: 10 },
+    62→  { id: 'camp_costa', name: 'Corsarios de la Costa Oeste', x: -286, z: 170, radius: 11 },
+    63→];
+    64→
+    65→/** HP fraction under which the REMATE prompt lights up. */
+    66→const FINISHER_HP_FRAC = 0.3;
+    67→const CAPTAIN_FINISHER_HP_FRAC = 0.35;
+    68→
+    69→type BanditState = 'patrol' | 'chase' | 'hold' | 'attack' | 'stagger' | 'dead';
+    70→
+    71→class Bandit {
+    72→  readonly group = new THREE.Group();
+    73→  model: KnightModelGLB | null = null;
+    74→  state: BanditState = 'patrol';
+    75→  hp: number;
+    76→  maxHp: number;
+    77→  readonly captain: boolean;
+    78→  readonly camp: CampDef;
+    79→  private campIndex: number;
+    80→  private angle = Math.random() * Math.PI * 2;
+    81→  private anchor = new THREE.Vector3();
+    82→  private target = new THREE.Vector3();
+    83→  private yaw = Math.random() * Math.PI * 2;
+    84→  private speedSm = 0;
+    85→  private phase = Math.random() * 8;
+    86→  private attackT = 0;
+    87→  private attackKind: 'light1' | 'light2' | 'heavy' = 'light1';
+    88→  private attackDur = 0.75;
+    89→  /** Post-swing cooldown (s) — the token system reads it (Fase 11). */
+    90→  attackCooldown = 0;
+    91→  private hitDone = false;
+    92→  private staggerT = 0;
+    93→  private deathT = 0;
+    94→  respawnT = 0;
+    95→  private moving = false;
+    96→  private aggro = false;
+    97→  private idlePause = 2 + Math.random() * 3;
+    98→  readonly pos = new THREE.Vector3();
+    99→
+   100→  // ---- Fase 11 — choreography state ----
+   101→  /** Weapon-up guard timer (raised after a hero whiff nearby). */
+   102→  guardT = 0;
+   103→  /** Hit knockback impulse (world), decays fast. */
+   104→  knockX = 0;
+   105→  knockZ = 0;
+   106→  knockT = 0;
+   107→  /** This bandit currently owns one of the attack slots. */
+   108→  hasToken = false;
+   109→  /** Orbit direction on the ring (+1/-1) — assigned per camp slot. */
+   110→  ringSide = 1;
+   111→  /** Feint timer: a fake lunge from the ring to keep the hero honest. */
+   112→  private feintT = 0;
+   113→  private feintCd = 3 + Math.random() * 5;
+   114→
+   115→  constructor(campIndex: number, camp: CampDef, captain: boolean, seed: number) {
+   116→    this.camp = camp;
+   117→    this.captain = captain;
+   118→    this.campIndex = campIndex;
+   119→    this.maxHp = captain ? 130 : 65;
+   120→    this.hp = this.maxHp;
+   121→    this.aggroRadius = captain ? 20 : 16;
+   122→    this.damage = captain ? 20 : 12;
+   123→    this.anchor.set(camp.x, 0, camp.z);
+   124→    void seed;
+   125→    this.ringSide = Math.random() < 0.5 ? 1 : -1;
+   126→    this.pickPatrolTarget();
+   127→  }
+   128→
+   129→  readonly aggroRadius: number;
+   130→  readonly damage: number;
+   131→
+   132→  get indexSeed(): number {
+   133→    return this.campIndex;
+   134→  }
+   135→
+   136→  private pickPatrolTarget(): void {
+   137→    this.angle += 0.6 + Math.random() * 1.4;
+   138→    const r = 2.5 + Math.random() * (this.camp.radius - 2);
+   139→    this.target.set(
+   140→      this.camp.x + Math.cos(this.angle) * r,
+   141→      0,
+   142→      this.camp.z + Math.sin(this.angle) * r,
+   143→    );
+   144→  }
+   145→
+   146→  get alive(): boolean {
+   147→    return this.state !== 'dead' || this.respawnT > 0;
+   148→  }
+   149→
+   150→  get dead(): boolean {
+   151→    return this.state === 'dead';
+   152→  }
+   153→
+   154→  /** Centre of the torso for hit tests. */
+   155→  center(): THREE.Vector3 {
+   156→    return new THREE.Vector3(this.pos.x, this.pos.y + 1.15, this.pos.z);
+   157→  }
+   158→
+   159→  get aggroed(): boolean {
+   160→    return this.aggro && !this.dead;
+   161→  }
+   162→
+   163→  /** Fase 12 — ambush spawns come in already hunting. */
+   164→  forceAggro(): void {
+   165→    this.aggro = true;
+   166→  }
+   167→
+   168→  /** Can the player execute a REMATE on this bandit right now? */
+   169→  get finisherable(): boolean {
+   170→    if (this.dead || this.respawnT > 0) return false;
+   171→    const frac = this.hp / this.maxHp;
+   172→    return frac <= (this.captain ? CAPTAIN_FINISHER_HP_FRAC : FINISHER_HP_FRAC);
+   173→  }
+   174→
+   175→  takeDamage(amount: number, heavy: boolean, fromX?: number, fromZ?: number): { died: boolean; guarded: boolean } {
+   176→    if (this.dead) return { died: false, guarded: false };
+   177→    let guarded = false;
+   178→    let dealt = amount;
+   179→    // Fase 11 — the guard soaks LIGHT hits (sparks + clang); heavies smash it
+   180→    if (this.guardT > 0 && !heavy) {
+   181→      guarded = true;
+   182→      dealt = amount * 0.35;
+   183→      this.guardT = Math.min(this.guardT, 0.3); // the guard buckles a little
+   184→    }
+   185→    this.hp -= dealt;
+   186→    this.aggro = true;
+   187→    // physical reaction: every landed hit shoves the bandit a step back
+   188→    if (fromX !== undefined && fromZ !== undefined) {
+   189→      const dx = this.pos.x - fromX;
+   190→      const dz = this.pos.z - fromZ;
+   191→      const len = Math.hypot(dx, dz);
+   192→      if (len > 0.01) {
+   193→        const power = heavy ? 3.6 : 2.4;
+   194→        this.knockX = (dx / len) * power;
+   195→        this.knockZ = (dz / len) * power;
+   196→        this.knockT = 0.24;
+   197→      }
+   198→    } else {
+   199→      this.knockX = this.knockZ = 0;
+   200→      this.knockT = 0.2;
+   201→    }
+   202→    if (this.hp <= 0) {
+   203→      this.state = 'dead';
+   204→      this.deathT = 0;
+   205→      this.respawnT = 360 + Math.random() * 120; // 6–8 min
+   206→      this.attackT = 0;
+   207→      return { died: true, guarded };
+   208→    }
+   209→    // captains have poise — light hits don't stagger them (guards neither)
+   210→    if ((heavy || !this.captain) && this.guardT <= 0) {
+   211→      this.state = 'stagger';
+   212→      this.staggerT = this.captain && heavy ? 0.55 : 0.42;
+   213→      this.attackT = 0;
+   214→    }
+   215→    return { died: false, guarded };
+   216→  }
+   217→
+   218→  /** Instant kill used by the REMATE (the blow itself is the hero's anim). */
+   219→  execute(hooks: BanditHooks): void {
+   220→    if (this.dead) return;
+   221→    this.hp = 0;
+   222→    this.state = 'dead';
+   223→    this.deathT = 0;
+   224→    this.respawnT = 360 + Math.random() * 120;
+   225→    this.attackT = 0;
+   226→    this.guardT = 0;
+   227→    hooks.sound('hit_scale');
+   228→    hooks.cameraShake(this.captain ? 0.55 : 0.35);
+   229→    hooks.hitStop(0.14);
+   230→  }
+   231→
+   232→  update(
+   233→    dt: number,
+   234→    playerPos: THREE.Vector3,
+   235→    terrain: TerrainHeight,
+   236→    playerVulnerable: boolean,
+   237→    hooks: BanditHooks,
+   238→  ): void {
+   239→    const g = this.group;
+   240→
+   241→    if (this.state === 'dead') {
+   242→      this.deathT += dt;
+   243→      this.respawnT -= dt;
+   244→      // fall over, then sink into the ground and free the slot
+   245→      if (this.deathT < 0.55) {
+   246→        g.rotation.x = -Math.PI / 2 * Math.min(1, this.deathT / 0.55);
+   247→        this.model?.update({ dt, speed: 0, moving: false, grounded: true, swimming: false, attackT: 0, blockT: 0, rollT: 0, bowDraw: -1 });
+   248→      } else if (this.deathT > 6) {
+   249→        const s = Math.max(0, 1 - (this.deathT - 6) / 2.2);
+   250→        g.position.y -= dt * 0.22;
+   251→        g.scale.setScalar(Math.max(0.01, s));
+   252→        if (this.deathT > 8.5) g.visible = false;
+   253→      }
+   254→      return;
+   255→    }
+   256→
+   257→    const dx = playerPos.x - this.pos.x;
+   258→    const dz = playerPos.z - this.pos.z;
+   259→    const dist = Math.hypot(dx, dz);
+   260→
+   261→    // --- perception ---
+   262→    if (!this.aggro && dist < this.aggroRadius && Math.abs(playerPos.y - this.pos.y) < 6) {
+   263→      this.aggro = true;
+   264→      hooks.sound('swing'); // a bark as they draw steel
+   265→    }
+   266→    // leash: far from camp or player dead/dialog -> back to patrol
+   267→    if (this.aggro && (dist > 34 || Math.hypot(this.pos.x - this.camp.x, this.pos.z - this.camp.z) > 46)) {
+   268→      this.aggro = false;
+   269→      this.hasToken = false;
+   270→      this.pickPatrolTarget();
+   271→    }
+   272→
+   273→    // --- timers (Fase 11) ---
+   274→    if (this.guardT > 0) this.guardT -= dt;
+   275→    if (this.attackCooldown > 0) this.attackCooldown -= dt;
+   276→    if (this.knockT > 0) this.knockT = Math.max(0, this.knockT - dt);
+   277→
+   278→    // --- state logic ---
+   279→    let targetSpeed = 0;
+   280→    this.moving = false;
+   281→
+   282→    if (this.state === 'stagger') {
+   283→      this.staggerT -= dt;
+   284→      if (this.staggerT <= 0) this.state = 'chase';
+   285→    } else if (this.state === 'attack') {
+   286→      this.attackT += dt / this.attackDur;
+   287→      // damage lands mid-swing if the player is still in range
+   288→      if (!this.hitDone && this.attackT >= (this.attackKind === 'heavy' ? 0.55 : 0.45)) {
+   289→        this.hitDone = true;
+   290→        if (playerVulnerable && dist < 2.6) {
+   291→          const facing = Math.sin(this.yaw) * dx + Math.cos(this.yaw) * dz;
+   292→          if (facing > 0) {
+   293→            // Fase 11 — the captain's overhead is UNBLOCKABLE: it must be dodged
+   294→            const unblockable = this.captain && this.attackKind === 'heavy';
+   295→            hooks.playerDamage(this.damage, this.pos.x, this.pos.z, 'bandit', { unblockable });
+   296→          }
+   297→        }
+   298→      }
+   299→      if (this.attackT >= 1) {
+   300→        this.attackT = 0;
+   301→        this.state = 'chase';
+   302→        this.hasToken = false; // the slot frees up the moment the swing ends
+   303→        this.attackCooldown = this.captain ? 0.9 + Math.random() * 0.5 : 1.25 + Math.random() * 0.75;
+   304→      }
+   305→    } else if (this.aggro && this.guardT <= 0) {
+   306→      this.state = 'chase';
+   307→      if (this.hasToken) {
+   308→        // ---- ATTACKER: close the distance and swing ----
+   309→        if (dist < 2.05) {
+   310→          if (this.attackCooldown <= 0) {
+   311→            this.state = 'attack';
+   312→            this.hitDone = false;
+   313→            this.attackT = 0.001;
+   314→            const roll = Math.random();
+   315→            this.attackKind = this.captain && roll < 0.35 ? 'heavy' : roll < 0.55 ? 'light2' : 'light1';
+   316→            this.attackDur = this.attackKind === 'heavy' ? 0.95 : 0.7;
+   317→            hooks.sound('swing');
+   318→            this.yaw = Math.atan2(dx, dz); // square up for the blow
+   319→          } else {
+   320→            // token holder waiting on cooldown: circle menacingly
+   321→            this.state = 'hold';
+   322→          }
+   323→        } else {
+   324→          this.target.set(playerPos.x, 0, playerPos.z);
+   325→          targetSpeed = this.captain ? 3.9 : 4.3;
+   326→          this.moving = true;
+   327→        }
+   328→      } else {
+   329→        // ---- HOLDER: the ring. No token -> orbit the player at ~3.1 m,
+   330→        // shifting with your ring side, feinting now and then. The pack
+   331→        // reads like it is taking turns — because it is. ----
+   332→        this.state = 'hold';
+   333→        const ringR = 3.1;
+   334→        const nx = -dx / Math.max(0.001, dist);
+   335→        const nz = -dz / Math.max(0.001, dist);
+   336→        // tangential direction * ringSide
+   337→        const tx = -nz * this.ringSide;
+   338→        const tz = nx * this.ringSide;
+   339→        if (dist > ringR + 0.45) {
+   340→          this.target.set(playerPos.x + nx * ringR + tx * 0.8, 0, playerPos.z + nz * ringR + tz * 0.8);
+   341→          targetSpeed = 2.6;
+   342→          this.moving = true;
+   343→        } else if (dist < ringR - 0.5) {
+   344→          this.target.set(playerPos.x + nx * (ringR + 0.6) + tx * 0.8, 0, playerPos.z + nz * (ringR + 0.6) + tz * 0.8);
+   345→          targetSpeed = 2.4;
+   346→          this.moving = true;
+   347→        } else {
+   348→          // on the ring: sidestep along it
+   349→          this.target.set(this.pos.x + tx * 2.2, 0, this.pos.z + tz * 2.2);
+   350→          targetSpeed = 1.7;
+   351→          this.moving = true;
+   352→          // occasional feint — half a lunge, then back
+   353→          this.feintT -= dt;
+   354→          if (this.feintT <= 0 && this.feintCd <= 0) {
+   355→            this.feintT = 0.32;
+   356→            this.feintCd = 3 + Math.random() * 5;
+   357→          }
+   358→          if (this.feintT > 0) {
+   359→            this.target.set(playerPos.x, 0, playerPos.z);
+   360→            targetSpeed = 4.4;
+   361→          }
+   362→          this.feintCd -= dt;
+   363→        }
+   364→      }
+   365→    } else if (this.aggro && this.guardT > 0) {
+   366→      // guarding in place: face the hero, weapon up
+   367→      this.state = 'hold';
+   368→      this.yaw = dampAngle(this.yaw, Math.atan2(dx, dz), 10, dt);
+   369→    } else {
+   370→      // patrol the camp
+   371→      this.state = 'patrol';
+   372→      const tdx = this.target.x - this.pos.x;
+   373→      const tdz = this.target.z - this.pos.z;
+   374→      const td = Math.hypot(tdx, tdz);
+   375→      if (td < 0.6) {
+   376→        this.idlePause -= dt;
+   377→        this.moving = false;
+   378→        if (this.idlePause <= 0) {
+   379→          this.idlePause = 1.5 + Math.random() * 3.5;
+   380→          this.pickPatrolTarget();
+   381→        }
+   382→      } else {
+   383→        this.moving = true;
+   384→        targetSpeed = 1.25;
+   385→      }
+   386→    }
+   387→
+   388→    // --- steering + terrain ---
+   389→    const tdx = this.target.x - this.pos.x;
+   390→    const tdz = this.target.z - this.pos.z;
+   391→    const tdl = Math.hypot(tdx, tdz);
+   392→    if (this.moving && tdl > 0.01 && this.state !== 'attack' && this.state !== 'stagger') {
+   393→      const nx = tdx / tdl;
+   394→      const nz = tdz / tdl;
+   395→      this.speedSm = damp(this.speedSm, targetSpeed, 6, dt);
+   396→      this.pos.x += nx * this.speedSm * dt;
+   397→      this.pos.z += nz * this.speedSm * dt;
+   398→      this.yaw = dampAngle(this.yaw, Math.atan2(nx, nz), 8, dt);
+   399→    } else {
+   400→      this.speedSm = damp(this.speedSm, 0, 8, dt);
+   401→      if (this.aggro && dist < 7) {
+   402→        this.yaw = dampAngle(this.yaw, Math.atan2(dx, dz), 10, dt);
+   403→      }
+   404→    }
+   405→    // hit knockback: a physical shove on top of the steering
+   406→    if (this.knockT > 0) {
+   407→      const k = this.knockT / 0.24;
+   408→      this.pos.x += this.knockX * k * dt * 4.2;
+   409→      this.pos.z += this.knockZ * k * dt * 4.2;
+   410→    }
+   411→    this.pos.x = THREE.MathUtils.clamp(this.pos.x, -1005, 1005);
+   412→    this.pos.z = THREE.MathUtils.clamp(this.pos.z, -1005, 1005);
+   413→    this.pos.y = terrain.height(this.pos.x, this.pos.z);
+   414→    g.position.copy(this.pos);
+   415→    g.rotation.y = this.yaw;
+   416→    g.rotation.x = damp(g.rotation.x, 0, 10, dt);
+   417→
+   418→    // --- animation ---
+   419→    this.phase += dt * (this.speedSm > 3.2 ? 8.6 : 5.4) * (this.moving ? 1 : 0);
+   420→    this.model?.update({
+   421→      dt,
+   422→      speed: this.speedSm,
+   423→      moving: this.moving,
+   424→      grounded: true,
+   425→      swimming: false,
+   426→      attackT: this.attackT,
+   427→      attackKind: this.attackKind,
+   428→      // Fase 11 — the guard is a real weapon-up stance (block pose layer)
+   429→      blockT: this.guardT > 0 ? Math.min(1, this.guardT * 4) : 0,
+   430→      rollT: 0,
+   431→      bowDraw: -1,
+   432→    });
+   433→  }
+   434→
+   435→  /** The hero's blade just cut air near this bandit — snap to guard. */
+   436→  onPlayerWhiff(playerPos: THREE.Vector3): void {
+   437→    if (this.dead || !this.aggro) return;
+   438→    const d = Math.hypot(this.pos.x - playerPos.x, this.pos.z - playerPos.z);
+   439→    if (d < 4.2 && this.state !== 'attack') {
+   440→      this.guardT = Math.max(this.guardT, 0.85);
+   441→    }
+   442→  }
+   443→
+   444→  respawn(terrain: TerrainHeight): void {
+   445→    this.hp = this.maxHp;
+   446→    this.state = 'patrol';
+   447→    this.aggro = false;
+   448→    this.deathT = 0;
+   449→    this.attackT = 0;
+   450→    this.staggerT = 0;
+   451→    this.guardT = 0;
+   452→    this.hasToken = false;
+   453→    this.group.visible = true;
+   454→    this.group.rotation.set(0, 0, 0);
+   455→    this.group.scale.setScalar(1);
+   456→    this.angle = Math.random() * Math.PI * 2;
+   457→    this.pickPatrolTarget();
+   458→    this.pos.set(this.camp.x, 0, this.camp.z);
+   459→    this.pos.y = terrain.height(this.pos.x, this.pos.z);
+   460→    this.group.position.copy(this.pos);
+   461→  }
+   462→}
+   463→
+   464→export class BanditSystem {
+   465→  private bandits: Bandit[] = [];
+   466→  private scene: THREE.Scene;
+   467→  private terrain: TerrainHeight;
+   468→  private assets: AssetSystem;
+   469→  private kits: KitSystem | null;
+   470→  private hooks: BanditHooks;
+   471→  /** Alive bandits near a point (for the melee hook). */
+   472→  private tmpV = new THREE.Vector3();
+   473→  /** Fase 11 — one-time first-contact help (controls of the trade). */
+   474→  private helpShown = false;
+   475→
+   476→  constructor(
+   477→    scene: THREE.Scene,
+   478→    terrain: TerrainHeight,
+   479→    assets: AssetSystem,
+   480→    kits: KitSystem | null,
+   481→    hooks: BanditHooks,
+   482→  ) {
+   483→    this.scene = scene;
+   484→    this.terrain = terrain;
+   485→    this.assets = assets;
+   486→    this.kits = kits;
+   487→    this.hooks = hooks;
+   488→    this.spawnAll();
+   489→  }
+   490→
+   491→  private spawnAll(): void {
+   492→    let n = 0;
+   493→    for (let c = 0; c < CAMPS.length; c++) {
+   494→      const camp = CAMPS[c];
+   495→      const crew = 4; // 3 swords + captain
+   496→      for (let i = 0; i < crew; i++) {
+   497→        const captain = i === 0;
+   498→        const bandit = new Bandit(c, camp, captain, c * 31 + i * 7);
+   499→        const angle = (i / crew) * Math.PI * 2;
+   500→        bandit.pos.set(
+   501→          camp.x + Math.cos(angle) * 3.2,
+   502→          0,
+   503→          camp.z + Math.sin(angle) * 3.2,
+   504→        );
+   505→        bandit.pos.y = this.terrain.height(bandit.pos.x, bandit.pos.z);
+   506→        bandit.group.position.copy(bandit.pos);
+   507→        this.scene.add(bandit.group);
+   508→        this.bandits.push(bandit);
+   509→        this.attachVisual(bandit, captain);
+   510→        n++;
+   511→      }
+   512→    }
+   513→    void n;
+   514→  }
+   515→
+   516→  /** Fase 12 — living red knights (E2E/admin). */
+   517→  aliveCount(): number {
+   518→    return this.bandits.filter((b) => !b.dead).length;
+   519→  }
+   520→
+   521→  /**
+   522→   * Fase 12 — AMBUSH: a surprise squad of red knights materialises around a
+   523→   * point (collection pickups triggering action). They spawn ALERTED and
+   524→   * charge straight in — the player can never gather in peace.
+   525→   */
+   526→  spawnAmbush(x: number, z: number, count = 3): number {
+   527→    let spawned = 0;
+   528→    const camp = { ...CAMPS[0], x, z, radius: 4 };
+   529→    for (let i = 0; i < count; i++) {
+   530→      const captain = i === 0 && count >= 3;
+   531→      const bandit = new Bandit(0, camp as CampDef, captain, 9000 + this.bandits.length * 13 + i);
+   532→      const a = (i / count) * Math.PI * 2 + Math.random();
+   533→      const r = 13 + Math.random() * 5;
+   534→      bandit.pos.set(x + Math.cos(a) * r, 0, z + Math.sin(a) * r);
+   535→      bandit.pos.y = this.terrain.height(bandit.pos.x, bandit.pos.z);
+   536→      bandit.group.position.copy(bandit.pos);
+   537→      bandit.forceAggro();          // they come in swinging
+   538→      this.scene.add(bandit.group);
+   539→      this.bandits.push(bandit);
+   540→      this.attachVisual(bandit, captain);
+   541→      spawned++;
+   542→    }
+   543→    return spawned;
+   544→  }
+   545→
+   546→  private attachVisual(bandit: Bandit, captain: boolean): void {
+   547→    this.assets.loadModel('knight_rigged.glb').then((scene) => {
+   548→      if (bandit.dead) return; // died before the model arrived
+   549→      const model = new KnightModelGLB({
+   550→        scene,
+   551→        bandit: { seed: bandit.pos.x * 3.1 + bandit.pos.z, captain },
+   552→        // Fase 11 — bandits carry the rusted variant of the master-forged
+   553→        // sword (red-black steel, plain pommel); captains get a garnet.
+   554→        weaponFactory: (kind) => (kind === 'sword'
+   555→          ? buildHeroSword({ rusted: true, captain })
+   556→          : this.kits ? this.kits.weapon(kind) : null),
+   557→      });
+   558→      model.setWeapon('sword');
+   559→      model.setShield(false);
+   560→      bandit.model = model;
+   561→      bandit.group.add(model.root);
+   562→    }).catch(() => {
+   563→      // GLB unavailable — leave an empty group (bandits simply don't spawn)
+   564→      bandit.group.visible = false;
+   565→      bandit.takeDamage(99999, true);
+   566→    });
+   567→  }
+   568→
+   569→  // ------------------------------------------------------------ combat API
+   570→
+   571→  /** Player melee swing: nearest bandit inside reach+arc from origin/yaw. */
+   572→  meleeHitCheck(
+   573→    origin: THREE.Vector3,
+   574→    yaw: number,
+   575→    reach: number,
+   576→    arc: number,
+   577→  ): { bandit: Bandit; point: THREE.Vector3 } | null {
+   578→    let best: Bandit | null = null;
+   579→    let bestD = Infinity;
+   580→    for (const b of this.bandits) {
+   581→      if (b.dead || !b.group.visible) continue;
+   582→      const dx = b.pos.x - origin.x;
+   583→      const dz = b.pos.z - origin.z;
+   584→      const d = Math.hypot(dx, dz);
+   585→      if (d > reach + 0.55) continue;
+   586→      const facing = Math.sin(yaw) * dx + Math.cos(yaw) * dz;
+   587→      const ang = Math.atan2(dx, dz) - yaw;
+   588→      const wrapped = Math.abs(Math.atan2(Math.sin(ang), Math.cos(ang)));
+   589→      if (facing > 0 && wrapped < arc * 0.5 && d < bestD) {
+   590→        best = b;
+   591→        bestD = d;
+   592→      }
+   593→    }
+   594→    if (!best) return null;
+   595→    const c = best.center();
+   596→    return {
+   597→      bandit: best,
+   598→      point: this.tmpV.set(
+   599→        best.pos.x,
+   600→        c.y,
+   601→        best.pos.z,
+   602→      ).clone(),
+   603→    };
+   604→  }
+   605→
+   606→  /** Fase 11 — multi-target sweep (spin finishers): up to `max` victims. */
+   607→  meleeHitCheckMulti(
+   608→    origin: THREE.Vector3,
+   609→    yaw: number,
+   610→    reach: number,
+   611→    arc: number,
+   612→    max: number,
+   613→  ): Array<{ bandit: Bandit; point: THREE.Vector3 }> {
+   614→    const found: Array<{ bandit: Bandit; d: number }> = [];
+   615→    for (const b of this.bandits) {
+   616→      if (b.dead || !b.group.visible) continue;
+   617→      const dx = b.pos.x - origin.x;
+   618→      const dz = b.pos.z - origin.z;
+   619→      const d = Math.hypot(dx, dz);
+   620→      if (d > reach + 0.55) continue;
+   621→      const facing = Math.sin(yaw) * dx + Math.cos(yaw) * dz;
+   622→      const ang = Math.atan2(dx, dz) - yaw;
+   623→      const wrapped = Math.abs(Math.atan2(Math.sin(ang), Math.cos(ang)));
+   624→      if (facing > 0 && wrapped < arc * 0.5) found.push({ bandit: b, d });
+   625→    }
+   626→    found.sort((a, z) => a.d - z.d);
+   627→    return found.slice(0, max).map((f) => ({
+   628→      bandit: f.bandit,
+   629→      point: f.bandit.center(),
+   630→    }));
+   631→  }
+   632→
+   633→  /** Fase 11 — radial AoE (plunge landing): everyone in the ring. */
+   634→  meleeHitCheckRadius(
+   635→    center: THREE.Vector3,
+   636→    radius: number,
+   637→    max: number,
+   638→  ): Array<{ bandit: Bandit; point: THREE.Vector3 }> {
+   639→    const found: Array<{ bandit: Bandit; d: number }> = [];
+   640→    for (const b of this.bandits) {
+   641→      if (b.dead || !b.group.visible) continue;
+   642→      const d = Math.hypot(b.pos.x - center.x, b.pos.z - center.z);
+   643→      if (Math.abs(b.pos.y - center.y) < 2.6 && d < radius) found.push({ bandit: b, d });
+   644→    }
+   645→    found.sort((a, z) => a.d - z.d);
+   646→    return found.slice(0, max).map((f) => ({
+   647→      bandit: f.bandit,
+   648→      point: f.bandit.center(),
+   649→    }));
+   650→  }
+   651→
+   652→  /** Arrow/projectile sweep: bandit whose capsule contains the point. */
+   653→  projectileHitTest(pos: THREE.Vector3, radius: number): Bandit | null {
+   654→    for (const b of this.bandits) {
+   655→      if (b.dead || !b.group.visible) continue;
+   656→      const dx = pos.x - b.pos.x;
+   657→      const dz = pos.z - b.pos.z;
+   658→      const dy = pos.y - (b.pos.y + 0.95);
+   659→      if (dx * dx + dz * dz < (radius + 0.45) ** 2 && Math.abs(dy) < 1.05) return b;
+   660→    }
+   661→    return null;
+   662→  }
+   663→
+   664→  /** Apply player damage to a bandit; handles loot/XP on death. */
+   665→  damage(bandit: unknown, amount: number, heavy: boolean): void {
+   666→    const b = bandit as Bandit;
+   667→    const p = this.playerPos();
+   668→    const res = b.takeDamage(amount, heavy, p?.x, p?.z);
+   669→    if (res.guarded) {
+   670→      // light hit into a raised weapon: sparks + clang, no real harm
+   671→      this.hooks.blockSparks(b.center());
+   672→      this.hooks.sound('block');
+   673→      this.hooks.weaponImpact(b.center());
+   674→      return;
+   675→    }
+   676→    this.hooks.weaponImpact(b.center());
+   677→    if (res.died) {
+   678→      const coins = b.captain ? 25 + Math.floor(Math.random() * 35) : 8 + Math.floor(Math.random() * 14);
+   679→      this.hooks.addCoins(coins);
+   680→      this.hooks.giveXp(b.captain ? 60 : 18);
+   681→      this.hooks.sound('hit_scale');
+   682→      this.hooks.cameraShake(b.captain ? 0.5 : 0.25);
+   683→      this.hooks.hitStop(b.captain ? 0.12 : 0.07);
+   684→      this.hooks.onBanditKilled?.(b.captain);
+   685→      this.hooks.notify(
+   686→        'item',
+   687→        b.captain ? '¡Capitán bandido derrotado!' : 'Bandido abatido',
+   688→        `Botín: ${coins} monedas de oro.`,
+   689→      );
+   690→    } else {
+   691→      this.hooks.sound('damage');
+   692→    }
+   693→  }
+   694→
+   695→  /** Best-known player position (kept fresh by update()). */
+   696→  private lastPlayer = new THREE.Vector3();
+   697→  private playerPos(): THREE.Vector3 | undefined {
+   698→    return this.lastPlayerDefined ? this.lastPlayer : undefined;
+   699→  }
+   700→  private lastPlayerDefined = false;
+   701→
+   702→  // ------------------------------------------------------------ remates
+   703→
+   704→  /** A finisherable bandit within reach of the player (for the E prompt). */
+   705→  finisherTarget(playerPos: THREE.Vector3): Bandit | null {
+   706→    let best: Bandit | null = null;
+   707→    let bestD = Infinity;
+   708→    for (const b of this.bandits) {
+   709→      if (!b.finisherable || !b.group.visible) continue;
+   710→      const d = Math.hypot(b.pos.x - playerPos.x, b.pos.z - playerPos.z);
+   711→      if (d < 2.5 && d < bestD) {
+   712→        best = b;
+   713→        bestD = d;
+   714→      }
+   715→    }
+   716→    return best;
+   717→  }
+   718→
+   719→  /** RUN the remate: the hero's heavy (Game plays the anim) + the kill. */
+   720→  executeFinisher(bandit: unknown): void {
+   721→    const b = bandit as Bandit;
+   722→    if (!b || b.dead) return;
+   723→    b.execute(this.hooks);
+   724→    const coins = b.captain ? 30 + Math.floor(Math.random() * 40) : 10 + Math.floor(Math.random() * 16);
+   725→    this.hooks.addCoins(coins);
+   726→    this.hooks.giveXp(b.captain ? 70 : 22);
+   727→    this.hooks.notify(
+   728→      'quest',
+   729→      '¡REMATE!',
+   730→      b.captain
+   731→        ? 'El capitán cae de rodillas. El camino vuelve a ser de los viajeros.'
+   732→        : 'Limpio y sin drama. Los cuervos rojos aprenderán a temerte.',
+   733→    );
+   734→  }
+   735→
+   736→  /** The hero's swing cut only air — nearby bandits snap to guard. */
+   737→  onPlayerWhiff(playerPos: THREE.Vector3): void {
+   738→    for (const b of this.bandits) {
+   739→      if (b.dead) continue;
+   740→      b.onPlayerWhiff(playerPos);
+   741→    }
+   742→  }
+   743→
+   744→  /** Is anyone hot on the player right now (for the combat camera framing)? */
+   745→  combatHeat(playerPos: THREE.Vector3): number {
+   746→    let n = 0;
+   747→    for (const b of this.bandits) {
+   748→      if (!b.aggroed) continue;
+   749→      if (Math.hypot(b.pos.x - playerPos.x, b.pos.z - playerPos.z) < 16) n++;
+   750→    }
+   751→    return n;
+   752→  }
+   753→
+   754→  // ------------------------------------------------------------ frame
+   755→
+   756→  update(dt: number, playerPos: THREE.Vector3, playerVulnerable: boolean): void {
+   757→    this.lastPlayer.copy(playerPos);
+   758→    this.lastPlayerDefined = true;
+   759→
+   760→    // ---- Fase 11: attack tokens — at most 2 press at once ----
+   761→    let attackers = 0;
+   762→    const engaged: Bandit[] = [];
+   763→    for (const b of this.bandits) {
+   764→      if (b.aggroed && !b.dead) engaged.push(b);
+   765→    }
+   766→    for (const b of engaged) {
+   767→      if (b.state === 'attack') attackers++;
+   768→    }
+   769→    const maxAttackers = Math.max(1, Math.min(2, Math.ceil(engaged.length / 2)));
+   770→    for (const b of engaged) {
+   771→      if (b.state === 'attack') {
+   772→        b.hasToken = true; // keep it until the swing ends
+   773→        continue;
+   774→      }
+   775→      if (!b.hasToken && attackers < maxAttackers && b.attackCooldown <= 0 && b.guardT <= 0) {
+   776→        b.hasToken = true;
+   777→        attackers++;
+   778→      }
+   779→    }
+   780→
+   781→    // first-contact help (once per session)
+   782→    if (!this.helpShown && engaged.length > 0) {
+   783→      this.helpShown = true;
+   784→      this.hooks.notify(
+   785→        'info',
+   786→        'Primera escaramuza',
+   787→        'Clic con ritmo: combos · mantener clic: golpe pesado · C: esquivar · clic derecho: bloqueo — justo antes del golpe = parada perfecta · en el aire, mantener: colapso · 1-4: cambiar de arma',
+   788→      );
+   789→    }
+   790→
+   791→    for (const b of this.bandits) {
+   792→      if (b.dead && b.respawnT <= 0 && !b.group.visible) continue; // already despawned
+   793→      if (b.dead && b.respawnT <= 0) {
+   794→        b.respawn(this.terrain);
+   795→        this.attachVisual(b, b.captain);
+   796→        continue;
+   797→      }
+   798→      // culling: far camps animate cheap (pose frozen, schedules continue)
+   799→      const d2 = (b.pos.x - playerPos.x) ** 2 + (b.pos.z - playerPos.z) ** 2;
+   800→      if (d2 > 210 * 210) continue;
+   801→      b.update(dt, playerPos, this.terrain, playerVulnerable, this.hooks);
+   802→    }
+   803→  }
+   804→
+   805→  /** Debug/test surface. */
+   806→  stats(): { total: number; alive: number; camps: number } {
+   807→    return {
+   808→      total: this.bandits.length,
+   809→      alive: this.bandits.filter((b) => !b.dead).length,
+   810→      camps: CAMPS.length,
+   811→    };
+   812→  }
+   813→
+   814→  campList(): Array<{ id: string; name: string; x: number; z: number }> {
+   815→    return CAMPS.map((c) => ({ id: c.id, name: c.name, x: c.x, z: c.z }));
+   816→  }
+   817→
+   818→  dispose(): void {
+   819→    for (const b of this.bandits) {
+   820→      this.scene.remove(b.group);
+   821→      b.model?.dispose();
+   822→    }
+   823→    this.bandits.length = 0;
+   824→  }
+   825→}
+   826→

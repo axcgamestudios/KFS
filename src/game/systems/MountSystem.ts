@@ -28,6 +28,9 @@ export interface MountHooks {
 interface HorseUnit {
   id: string;
   name: string;
+  /** Palette key the horse was spawned with (saved so a fresh session can
+   *  rebuild admin horses exactly — Fase 16). */
+  coat: string;
   model: HorseModel;
   pos: THREE.Vector3;
   yaw: number;
@@ -83,7 +86,7 @@ export class MountSystem {
     model.root.position.set(x, y, z);
     this.scene.add(model.root);
     this.horses.push({
-      id, name, model,
+      id, name, coat: paletteKey, model,
       pos: model.root.position,
       yaw: 0,
       speed: 0,
@@ -141,7 +144,7 @@ export class MountSystem {
         const d = Math.hypot(this.cart.pos.x - playerPos.x, this.cart.pos.z - playerPos.z);
         if (d < 4.2) {
           return {
-            prompt: 'Enganchar la carreta',
+            prompt: 'Hitch the cart',
             run: () => this.hitchCart(),
           };
         }
@@ -152,19 +155,19 @@ export class MountSystem {
     if (horse) {
       if (!horse.owned) {
         return {
-          prompt: `Comprar ${horse.name} (${horse.price} monedas)`,
+          prompt: `Buy ${horse.name} (${horse.price} coins)`,
           run: () => this.tryBuy(horse),
         };
       }
       return {
-        prompt: `Montar a ${horse.name}`,
+        prompt: `Mount ${horse.name}`,
         run: () => this.mount(horse.id),
       };
     }
     if (this.cart && this.cart.hitchedTo) {
       const d = Math.hypot(this.cart.pos.x - playerPos.x, this.cart.pos.z - playerPos.z);
       if (d < 4.5) {
-        return { prompt: 'Desenganchar la carreta', run: () => this.unhitchCart() };
+        return { prompt: 'Unhitch the cart', run: () => this.unhitchCart() };
       }
     }
     return null;
@@ -178,22 +181,22 @@ export class MountSystem {
         this.hooks.sound('unlock');
         this.hooks.notify(
           'quest',
-          `¡${horse.name} es tuyo!`,
-          'Halvard entrega las riendas. Pulsa E para montar y H para llamarlo cuando esté lejos.',
+          `${horse.name} is yours!`,
+          'Halvard hands over the reins. Press E to mount and H to call him when he’s far away.',
         );
         return;
       }
       this.hooks.notify(
         'info',
-        `${horse.name} — ${horse.price} monedas`,
-        'Halvard crujé los dedos: «Sin oro no hay monta. Vuelve con la bolsa llena».',
+        `${horse.name} — ${horse.price} coins`,
+        'Halvard cracks his knuckles: “No gold, no ride. Come back with a full purse.”',
       );
       return;
     }
     this.hooks.notify(
       'info',
       horse.name,
-      `Halvard pide ${horse.price} monedas por esta montura.`,
+      `Halvard wants ${horse.price} coins for this mount.`,
     );
   }
 
@@ -214,8 +217,8 @@ export class MountSystem {
       this.hooks.setFlag('tut_horse');
       this.hooks.notify(
         'info',
-        `Montado en ${h.name}`,
-        'W avanzar (trote al mantener) · Mayús galope · A/D girar · Espacio saltar · E desmontar · H silbar al caballo',
+        `Mounted on ${h.name}`,
+        'W move (hold for trot) · Shift canter · A/D turn · Space jump · E dismount · H whistle for your horse',
       );
     }
     return true;
@@ -255,7 +258,7 @@ export class MountSystem {
       const bz = playerPos.z - Math.cos(0) * 6;
       h.pos.set(bx, this.terrain.height(bx, bz), bz);
       this.hooks.dust(h.pos.clone(), 1.4);
-      this.hooks.notify('info', `${h.name} acude a tu llamada`, 'El caballo llega al trote desde la distancia.');
+      this.hooks.notify('info', `${h.name} answers your call`, 'The horse trots in from the distance.');
     }
     h.ai = 'coming';
     this.hooks.sound('horse_neigh');
@@ -267,19 +270,19 @@ export class MountSystem {
     if (!this.cart || this.cart.hitchedTo) return;
     const h = this.mounted ?? this.horses.find((x) => x.owned);
     if (!h) {
-      this.hooks.notify('info', 'Carreta sin tiro', 'Necesitas un caballo para enganchar la carreta.');
+      this.hooks.notify('info', 'Cart needs a horse', 'You need a horse to hitch the cart.');
       return;
     }
     this.cart.hitchedTo = h.id;
     this.hooks.sound('chain');
-    this.hooks.notify('item', 'Carreta enganchada', `La carreta sigue a ${h.name}. El peso limita el paso: no podrás galopar.`);
+    this.hooks.notify('item', 'Cart hitched', `The cart follows ${h.name}. The weight limits your pace: no cantering.`);
   }
 
   unhitchCart(): void {
     if (!this.cart || !this.cart.hitchedTo) return;
     this.cart.hitchedTo = null;
     this.hooks.sound('chain');
-    this.hooks.notify('item', 'Carreta desenganchada', 'La carreta queda aparcada donde está.');
+    this.hooks.notify('item', 'Cart unhitched', 'The cart stays parked where it is.');
   }
 
   get isCartHitched(): boolean {
@@ -525,7 +528,7 @@ export class MountSystem {
   // ------------------------------------------------------------- save/load
 
   serialize(): {
-    horses: Array<{ id: string; x: number; z: number; yaw: number; owned: boolean }>;
+    horses: Array<{ id: string; x: number; z: number; yaw: number; owned: boolean; name?: string; coat?: string; price?: number }>;
     cart: { x: number; z: number; heading: number; hitchedTo: string | null } | null;
     riding: string | null;
   } {
@@ -533,6 +536,10 @@ export class MountSystem {
       horses: this.horses.map((h) => ({
         id: h.id, x: Math.round(h.pos.x * 10) / 10, z: Math.round(h.pos.z * 10) / 10,
         yaw: Math.round(h.yaw * 100) / 100, owned: h.owned,
+        // Fase 16 — enough to REBUILD the horse on a fresh session (admin
+        // horses used to vanish on load: the save had them but the herd
+        // only ever spawned the three predefined mounts).
+        name: h.name, coat: h.coat, price: h.price,
       })),
       cart: this.cart
         ? {
@@ -549,8 +556,18 @@ export class MountSystem {
   deserialize(d: ReturnType<MountSystem['serialize']> | undefined): void {
     if (!d) return;
     for (const hs of d.horses ?? []) {
-      const h = this.horses.find((x) => x.id === hs.id);
-      if (!h) continue;
+      let h = this.horses.find((x) => x.id === hs.id);
+      if (!h) {
+        // Fase 16 — a saved horse the current herd doesn't have (an admin
+        // mount after a page reload): rebuild it right where it was saved.
+        if (!hs.owned) continue; // never respawn shop horses the player never bought
+        this.spawnHorse(
+          hs.id, hs.name ?? 'Steed', (hs.coat ?? 'bay') as keyof typeof HORSE_PALETTES,
+          hs.x, hs.z, hs.owned, hs.price ?? 0,
+        );
+        h = this.horses.find((x) => x.id === hs.id);
+        if (!h) continue;
+      }
       h.pos.set(hs.x, this.terrain.height(hs.x, hs.z), hs.z);
       h.yaw = hs.yaw;
       h.owned = hs.owned;

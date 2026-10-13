@@ -1,0 +1,872 @@
+     1→import * as THREE from 'three';
+     2→import { type AnimParams, type CharacterVisual, type WeaponKind } from './CharacterModel';
+     3→import { damp } from '../core/MathUtils';
+     4→import { getFlameFX, type PersistentFlameHandle } from '../world/FlameFX';
+     5→
+     6→/**
+     7→ * Fase 5 — KnightModelGLB.
+     8→ * The player's body: the repository's medieval knight, rigged offline into
+     9→ * knight_rigged.glb (real glTF skin + 15 landmark bones + the statue sword
+    10→ * and shield as hideable rigid props hanging from the wrists).
+    11→ *
+    12→ * This class drives the skeleton procedurally — a full animation layer:
+    13→ *   locomotion (idle / walk / run with counter-rotation, bob and knee
+    14→ *   extension), jump / fall / landing absorb, dodge roll (full somersault),
+    15→ *   surface swim, horse riding, block (shield brace), bow aim + release,
+    16→ *   five attack curves (diagonal, backhand, overhead smash, thrust, bow
+    17→ *   snap) and a hit-reaction recoil. The statue sword rests in the right
+    18→ *   hand; when the game equips a weapon it swaps for the kit model, and the
+    19→ *   statue shield yields to the kit shield on the left forearm.
+    20→ *
+    21→ * Convention: character faces +Z. RIGHT side = -X (sword arm, j_*R bones),
+    22→ * LEFT side = +X (shield arm, j_*L bones). Limb rotation about +X moves a
+    23→ * hanging limb backward (-Z); about -Z the right arm raises outward.
+    24→ */
+    25→export interface KnightVisualDeps {
+    26→  scene: THREE.Object3D;
+    27→  weaponFactory?: (kind: Exclude<WeaponKind, 'none'>) => THREE.Object3D | null;
+    28→  shieldFactory?: () => THREE.Object3D | null;
+    29→  /** Villager variant: re-tints the armour into clothes + headwear variety.
+    30→   *  When set, the statue sword & shield NEVER show. */
+    31→  villager?: { palette: import('./CharacterModel').CharacterPalette; seed: number; role?: string };
+    32→}
+    33→
+    34→type Euler3 = [number, number, number];
+    35→interface PoseTarget { [bone: string]: Euler3 }
+    36→
+    37→const BONE_NAMES = [
+    38→  'j_root', 'j_torso', 'j_head',
+    39→  'j_shoulderR', 'j_elbowR', 'j_wristR',
+    40→  'j_shoulderL', 'j_elbowL', 'j_wristL',
+    41→  'j_hipR', 'j_kneeR', 'j_ankleR',
+    42→  'j_hipL', 'j_kneeL', 'j_ankleL',
+    43→] as const;
+    44→
+    45→export class KnightModelGLB implements CharacterVisual {
+    46→  readonly root = new THREE.Group();
+    47→  private bones = new Map<string, THREE.Object3D>();
+    48→  private inner = new THREE.Group();       // bob / pitch wrapper inside root
+    49→  private flashMats: THREE.MeshStandardMaterial[] = [];
+    50→  private swordProp: THREE.Object3D | null = null;
+    51→  private shieldProp: THREE.Object3D | null = null;
+    52→  private handSlot = new THREE.Group();    // active weapon — right wrist
+    53→  private armSlot = new THREE.Group();     // active shield — left forearm
+    54→
+    55→  private weaponKind: WeaponKind = 'none';
+    56→  private activeWeapon: THREE.Object3D | null = null;
+    57→  private activeShield: THREE.Object3D | null = null;
+    58→  private wantsShield = false;
+    59→  private isVillager = false;
+    60→  private blockHitT = 0;   // shield impact recoil (0..1)
+    61→  private blockHitDir = 1;
+    62→  // Fase 8 — night torch: replaces the shield after dusk (light source)
+    63→  private torchProp: THREE.Group | null = null;
+    64→  private torchFlame: PersistentFlameHandle | null = null;
+    65→  private torchLight: THREE.PointLight | null = null;
+    66→  private torchOn = false;
+    67→  private torchT = 0;
+    68→
+    69→  private t = 0;
+    70→  private phase = Math.random() * 8;
+    71→  private flashT = 0;
+    72→  private hitT = 0;
+    73→  private landT = 0;
+    74→  private wasGrounded = true;
+    75→  private airT = 0;
+    76→  private speedSm = 0;
+    77→  private cur: PoseTarget = {};
+    78→  private weaponFactory?: KnightVisualDeps['weaponFactory'];
+    79→  private shieldFactory?: KnightVisualDeps['shieldFactory'];
+    80→
+    81→  constructor(deps: KnightVisualDeps) {
+    82→    this.weaponFactory = deps.weaponFactory;
+    83→    this.shieldFactory = deps.shieldFactory;
+    84→    const scene = deps.scene;
+    85→    this.isVillager = !!deps.villager;
+    86→
+    87→    // collect bones + meshes
+    88→    for (const name of BONE_NAMES) {
+    89→      const b = scene.getObjectByName(name);
+    90→      if (b) this.bones.set(name, b);
+    91→    }
+    92→    this.swordProp = scene.getObjectByName('j_sword_held') ?? null;
+    93→    this.shieldProp = scene.getObjectByName('j_shield_held') ?? null;
+    94→
+    95→    if (deps.villager) this.dressAsVillager(scene, deps.villager);
+    96→
+    97→    scene.traverse((o) => {
+    98→      const mesh = o as THREE.Mesh;
+    99→      if (mesh.isMesh) {
+   100→        mesh.castShadow = true;
+   101→        mesh.receiveShadow = true;
+   102→        mesh.frustumCulled = false; // skeleton moves beyond the bind bbox
+   103→        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+   104→        for (const m of mats) {
+   105→          const std = m as THREE.MeshStandardMaterial;
+   106→          if (std.isMeshStandardMaterial && !this.flashMats.includes(std)) this.flashMats.push(std);
+   107→        }
+   108→      }
+   109→    });
+   110→
+   111→    // attach slots
+   112→    const wristR = this.bones.get('j_wristR');
+   113→    if (wristR) { wristR.add(this.handSlot); }
+   114→    const elbowL = this.bones.get('j_elbowL');
+   115→    if (elbowL) { elbowL.add(this.armSlot); this.armSlot.position.set(0, -0.12, 0.05); }
+   116→
+   117→    // The GLB clone root can arrive with visible=false (something in the boot
+   118→    // pipeline toggles loaded model roots); the knight must always render.
+   119→    // GLTF scene roots can arrive with visible=false after loader round-trips;
+   120→    // the player's body must always render.
+   121→    scene.visible = true;
+   122→
+   123→    this.inner.add(scene);
+   124→    this.root.add(this.inner);
+   125→    this.refreshProps();
+   126→  }
+   127→
+   128→  // ------------------------------------------------------------ state API
+   129→
+   130→  setWeapon(kind: WeaponKind): void {
+   131→    this.weaponKind = kind;
+   132→    this.refreshProps();
+   133→  }
+   134→
+   135→  setShield(visible: boolean): void {
+   136→    this.wantsShield = visible;
+   137→    this.refreshProps();
+   138→  }
+   139→
+   140→  get hasShieldVisible(): boolean {
+   141→    return this.wantsShield;
+   142→  }
+   143→
+   144→  /** Legacy API: sword shown at rest (used by boarding crews / menus). */
+   145→  setSwordEquipped(equipped: boolean): void {
+   146→    // naval-crew legacy call: sword shown at rest
+   147→    this.setEquippedState(equipped);
+   148→  }
+   149→
+   150→  /** Shield / guard just deflected a hit — recoil impulse on the arms. */
+   151→  blockImpact(): void {
+   152→    this.blockHitT = 1;
+   153→    this.blockHitDir = Math.random() < 0.5 ? -1 : 1;
+   154→  }
+   155→
+   156→  /**
+   157→   * Fase 8 — at dusk the shield gives way to a lit torch: a wooden brand
+   158→   * with a real FlameFX flame and a warm flickering light, riding the left
+   159→   * forearm slot. At dawn the torch goes out and the shield returns.
+   160→   */
+   161→  setNightTorch(on: boolean): void {
+   162→    if (on === this.torchOn || this.isVillager) return;
+   163→    this.torchOn = on;
+   164→    if (on) {
+   165→      const g = new THREE.Group();
+   166→      g.name = 'night_torch';
+   167→      const wood = new THREE.MeshStandardMaterial({ color: 0x5a4028, roughness: 0.9 });
+   168→      const stick = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.042, 0.52, 6), wood);
+   169→      stick.position.y = 0.16;
+   170→      stick.castShadow = true;
+   171→      g.add(stick);
+   172→      const wrap = new THREE.Mesh(
+   173→        new THREE.CylinderGeometry(0.062, 0.05, 0.15, 8),
+   174→        new THREE.MeshStandardMaterial({ color: 0x3a2c1c, roughness: 1 }),
+   175→      );
+   176→      wrap.position.y = 0.46;
+   177→      g.add(wrap);
+   178→      this.torchLight = new THREE.PointLight(0xff9a3c, 2.4, 20, 1.7);
+   179→      this.torchLight.position.y = 0.55;
+   180→      g.add(this.torchLight);
+   181→      this.armSlot.add(g);
+   182→      g.rotation.set(-0.35, 0, 0);
+   183→      g.position.set(-0.02, -0.05, 0.1);
+   184→      this.torchProp = g;
+   185→      // the flame mesh lives at the scene root (additive) — synced every frame
+   186→      this.torchFlame = getFlameFX().addFlame(new THREE.Vector3(0, -100, 0), {
+   187→        scale: 0.17, height: 0.42, heat: 0.5,
+   188→      });
+   189→      // the shield hides while the torch burns
+   190→      if (this.activeShield) this.activeShield.visible = false;
+   191→      if (this.shieldProp) this.shieldProp.visible = false;
+   192→    } else {
+   193→      if (this.torchProp) { this.armSlot.remove(this.torchProp); this.torchProp = null; }
+   194→      if (this.torchFlame) { this.torchFlame.dispose(); this.torchFlame = null; }
+   195→      this.torchLight = null;
+   196→      this.torchOn = false;
+   197→      // the shield returns with the sun
+   198→      this.refreshProps();
+   199→    }
+   200→  }
+   201→
+   202→  get nightTorchOn(): boolean {
+   203→    return this.torchOn;
+   204→  }
+   205→
+   206→  setEquippedState(equipped: boolean): void {
+   207→    if (!equipped && this.weaponKind !== 'none') {
+   208→      this.weaponKind = 'none'; // holster: statue sword returns to the hand
+   209→    } else if (equipped && this.weaponKind === 'none') {
+   210→      this.weaponKind = 'sword';
+   211→    }
+   212→    this.refreshProps();
+   213→  }
+   214→
+   215→  faceYaw(yaw: number): void {
+   216→    this.root.rotation.y = yaw;
+   217→  }
+   218→
+   219→  flash(): void {
+   220→    this.flashT = 1;
+   221→    this.hitT = 1;
+   222→  }
+   223→
+   224→  private refreshProps(): void {
+   225→    // Kit weapon in the right hand (detaches the previous one first)
+   226→    if (this.activeWeapon) {
+   227→      this.handSlot.remove(this.activeWeapon);
+   228→      if (this.activeWeapon.parent) this.activeWeapon.parent.remove(this.activeWeapon);
+   229→      this.activeWeapon = null;
+   230→    }
+   231→    const showKitWeapon = !this.isVillager && this.weaponKind !== 'none';
+   232→    if (showKitWeapon && this.weaponFactory) {
+   233→      const w = this.weaponFactory(this.weaponKind as Exclude<WeaponKind, 'none'>);
+   234→      if (w) {
+   235→        if (this.weaponKind === 'bow') {
+   236→          // bows live permanently in the LEFT hand (aim code extends the arm)
+   237→          const wristL = this.bones.get('j_wristL');
+   238→          if (wristL) {
+   239→            wristL.add(w);
+   240→            w.position.set(0.02, -0.08, 0.05);
+   241→            w.rotation.set(0, 0, 0.08);
+   242→          }
+   243→        } else {
+   244→          this.handSlot.add(w);
+   245→        }
+   246→        this.activeWeapon = w;
+   247→        this.tuneWeaponPose(this.weaponKind);
+   248→      }
+   249→    }
+   250→    // shields: the kit shield on the left forearm
+   251→    if (this.activeShield) {
+   252→      this.armSlot.remove(this.activeShield);
+   253→      this.activeShield = null;
+   254→    }
+   255→    if (this.wantsShield && !this.isVillager && this.shieldFactory) {
+   256→      const s = this.shieldFactory();
+   257→      if (s) {
+   258→        this.armSlot.add(s);
+   259→        this.activeShield = s;
+   260→        this.tuneShieldPose();
+   261→      }
+   262→    }
+   263→    // Fase 7 — NOTHING is shown until equipped:
+   264→    //   · bare hands → no statue sword, no statue shield
+   265→    //   · the statue props only appear as FALLBACKS when the matching kit
+   266→    //     object could not be produced (kit GLB missing)
+   267→    if (this.swordProp) {
+   268→      this.swordProp.visible = !this.isVillager
+   269→        && this.weaponKind !== 'none'
+   270→        && this.weaponKind !== 'bow'
+   271→        && !this.activeWeapon;
+   272→    }
+   273→    if (this.shieldProp) {
+   274→      this.shieldProp.visible = !this.isVillager && this.wantsShield && !this.activeShield;
+   275→    }
+   276→  }
+   277→
+   278→  /**
+   279→   * Fase 7 — villager variant: the repository knight's body re-dressed as a
+   280→   * commoner. Materials are CLONED first (the AssetSystem shares them with
+   281→   * the player), the armour is re-tinted to cloth/leather tones and each NPC
+   282→   * gets seeded headwear (hood / straw hat / cap) + a work tool by role.
+   283→   */
+   284→  private dressAsVillager(scene: THREE.Object3D, v: { palette: import('./CharacterModel').CharacterPalette; seed: number; role?: string }): void {
+   285→    const r = (k: number) => {
+   286→      const x = Math.sin(v.seed * 37.71 + k * 91.13) * 43758.5453;
+   287→      return x - Math.floor(x);
+   288→    };
+   289→    const tint = new THREE.Color();
+   290→    scene.traverse((o) => {
+   291→      const mesh = o as THREE.Mesh;
+   292→      if (!mesh.isMesh) return;
+   293→      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+   294→      const clones = mats.map((m) => (m as THREE.Material).clone());
+   295→      for (const m of clones) {
+   296→        const std = m as THREE.MeshStandardMaterial;
+   297→        if (!std.isMeshStandardMaterial) continue;
+   298→        const isUpper = /upper/i.test(std.name ?? '');
+   299→        const base = isUpper ? v.palette.tunic : v.palette.pants;
+   300→        tint.setHex(base);
+   301→        // seeded shade variety per NPC (avoid clone-army look)
+   302→        const shade = 0.82 + r(9) * 0.36;
+   303→        tint.multiplyScalar(shade);
+   304→        std.color.copy(tint);
+   305→        std.roughness = 0.92;
+   306→        std.metalness = 0.04;
+   307→        std.emissive?.setHex(0x000000);
+   308→        std.needsUpdate = true;
+   309→      }
+   310→      mesh.material = clones.length === 1 ? clones[0] : clones;
+   311→    });
+   312→
+   313→    // --- headwear on the head bone (rigid props ride the skeleton) ---
+   314→    const head = this.bones.get('j_head') ?? scene.getObjectByName('j_head');
+   315→    if (head) {
+   316→      const cloth = (c: number, rough = 0.95) =>
+   317→        new THREE.MeshStandardMaterial({ color: c, roughness: rough, metalness: 0.02 });
+   318→      const wear = r(2);
+   319→      if (wear < 0.34) {
+   320→        // hood
+   321→        const hood = new THREE.Mesh(new THREE.ConeGeometry(0.155, 0.3, 8, 1, true), cloth(v.palette.tunic));
+   322→        hood.position.y = 0.22;
+   323→        hood.rotation.x = -0.14;
+   324→        hood.castShadow = true;
+   325→        hood.userData.villagerProp = true;
+   326→        head.add(hood);
+   327→      } else if (wear < 0.64) {
+   328→        // straw hat (brim + crown)
+   329→        const g = new THREE.Group();
+   330→        const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.28, 0.025, 12), cloth(0xb59a58));
+   331→        const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.15, 0.13, 10), cloth(0xa8894a));
+   332→        crown.position.y = 0.07;
+   333→        brim.castShadow = crown.castShadow = true;
+   334→        g.add(brim, crown);
+   335→        g.userData.villagerProp = true;
+   336→        g.position.y = 0.26;
+   337→        g.rotation.z = (r(3) - 0.5) * 0.24;
+   338→        head.add(g);
+   339→      } else if (wear < 0.85) {
+   340→        // soft cap
+   341→        const cap = new THREE.Mesh(
+   342→          new THREE.SphereGeometry(0.15, 10, 8, 0, Math.PI * 2, 0, Math.PI * 0.52),
+   343→          cloth(v.palette.sleeves),
+   344→        );
+   345→        cap.position.y = 0.17;
+   346→        cap.castShadow = true;
+   347→        cap.userData.villagerProp = true;
+   348→        head.add(cap);
+   349→      }
+   350→    }
+   351→
+   352→    // --- role tool in the right hand ---
+   353→    const wristR = scene.getObjectByName('j_wristR');
+   354→    if (wristR && v.role) {
+   355→      const wood = new THREE.MeshStandardMaterial({ color: 0x6a4e2e, roughness: 0.9, metalness: 0.02 });
+   356→      const steel = new THREE.MeshStandardMaterial({ color: 0x767c82, roughness: 0.42, metalness: 0.78 });
+   357→      if (v.role === 'smith') {
+   358→        const hammer = new THREE.Group();
+   359→        const haft = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.02, 0.34, 6), wood);
+   360→        haft.position.y = 0.14;
+   361→        const hm = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.055, 0.05), steel);
+   362→        hm.position.y = 0.3;
+   363→        hammer.add(haft, hm);
+   364→        hammer.rotation.x = 1.35;
+   365→        hammer.userData.villagerProp = true;
+   366→        wristR.add(hammer);
+   367→      } else if (v.role === 'merchant') {
+   368→        const sack = new THREE.Mesh(
+   369→          new THREE.SphereGeometry(0.09, 8, 6),
+   370→          new THREE.MeshStandardMaterial({ color: 0x9a8a66, roughness: 0.98, metalness: 0.0 }),
+   371→        );
+   372→        sack.scale.y = 1.2;
+   373→        sack.position.set(0.02, -0.14, 0.05);
+   374→        sack.userData.villagerProp = true;
+   375→        wristR.add(sack);
+   376→      } else if (v.role === 'fisher') {
+   377→        const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.008, 0.85, 5), wood);
+   378→        rod.position.set(0, 0.3, 0.05);
+   379→        rod.rotation.x = 0.5;
+   380→        rod.userData.villagerProp = true;
+   381→        wristR.add(rod);
+   382→      }
+   383→    }
+   384→
+   385→    // --- per-NPC build variety ---
+   386→    const build = r(1);
+   387→    const s = 0.93 + r(5) * 0.1 + (build > 0.7 ? 0.05 : 0);
+   388→    this.root.scale.setScalar(s);
+   389→  }
+   390→
+   391→  /** Per-weapon grip orientation in the hand (tuned by eye). */
+   392→  private tuneWeaponPose(kind: WeaponKind): void {
+   393→    if (!this.activeWeapon) return;
+   394→    switch (kind) {
+   395→      case 'sword':
+   396→        this.activeWeapon.rotation.set(0.25, 0, 0.12);
+   397→        this.activeWeapon.position.set(0, -0.02, 0.04);
+   398→        break;
+   399→      case 'axe':
+   400→        this.activeWeapon.rotation.set(0.3, 0, 0.2);
+   401→        break;
+   402→      case 'spear':
+   403→        this.activeWeapon.rotation.set(0.12, 0, 0.06);
+   404→        break;
+   405→      case 'bow':
+   406→        // bow held vertically in the LEFT hand — moved at aim time
+   407→        this.activeWeapon.rotation.set(0, 0, 0);
+   408→        break;
+   409→      default:
+   410→        break;
+   411→    }
+   412→  }
+   413→
+   414→  private tuneShieldPose(): void {
+   415→    if (!this.activeShield) return;
+   416→    this.activeShield.rotation.set(-Math.PI / 2 + 0.35, 0, 0);
+   417→    this.activeShield.position.set(-0.02, 0, 0.1);
+   418→  }
+   419→
+   420→  // ------------------------------------------------------------ animation
+   421→
+   422→  private zero(): PoseTarget {
+   423→    const p: PoseTarget = {};
+   424→    for (const n of BONE_NAMES) p[n] = [0, 0, 0];
+   425→    return p;
+   426→  }
+   427→
+   428→  update(p: AnimParams): void {
+   429→    this.t += p.dt;
+   430→    const dt = Math.max(1e-4, p.dt);
+   431→    const target = this.zero();
+   432→
+   433→    // speed smoothing + phase
+   434→    this.speedSm = damp(this.speedSm, p.speed, 8, dt);
+   435→    const moving = p.moving && this.speedSm > 0.25;
+   436→    if (moving) this.phase += dt * (this.speedSm > 4.4 ? 9.4 : 6.6);
+   437→    const ph = this.phase;
+   438→
+   439→    // landing detection
+   440→    if (p.grounded && !this.wasGrounded) this.landT = p.attackT > 0 || (p.rollT ?? 0) > 0 ? 0 : 0.34;
+   441→    if (!p.grounded) this.airT += dt; else this.airT = 0;
+   442→    this.wasGrounded = p.grounded;
+   443→    if (this.landT > 0) this.landT = Math.max(0, this.landT - dt);
+   444→
+   445→    // ---- global overrides, in priority order ----
+   446→    const rollT = p.rollT ?? 0;
+   447→    if (rollT > 0) { this.poseRoll(target, rollT, moving, ph); this.apply(target, dt, true); this.post(p); return; }
+   448→    if (p.swimming) { this.poseSwim(target, ph, p); this.apply(target, dt, true); this.post(p); return; }
+   449→    if (p.riding) { this.poseRide(target, p); this.apply(target, dt, true); this.post(p); return; }
+   450→    if (!p.grounded) { this.poseAir(target, this.airT); this.apply(target, dt, true); this.post(p); return; }
+   451→
+   452→    // ---- base locomotion ----
+   453→    this.poseLocomotion(target, p, moving, ph);
+   454→
+   455→    // ---- landing absorb ----
+   456→    if (this.landT > 0) {
+   457→      const k = this.landT / 0.34;
+   458→      const e = k * k;
+   459→      target.j_kneeR = [target.j_kneeR[0] + 0.85 * e, 0, 0];
+   460→      target.j_kneeL = [target.j_kneeL[0] + 0.85 * e, 0, 0];
+   461→      target.j_hipR = [target.j_hipR[0] - 0.5 * e, 0, 0];
+   462→      target.j_hipL = [target.j_hipL[0] - 0.5 * e, 0, 0];
+   463→      target.j_torso = [target.j_torso[0] + 0.28 * e, target.j_torso[1], 0];
+   464→      this.inner.position.y = -0.09 * e;
+   465→    } else if (p.grounded && this.inner.position.y !== 0) {
+   466→      this.inner.position.y = damp(this.inner.position.y, 0, 10, dt);
+   467→    }
+   468→
+   469→    // ---- bow aim (overrides arms) ----
+   470→    const bowDraw = p.bowDraw ?? 0;
+   471→    if (bowDraw > 0) this.poseBowAim(target, p, bowDraw, moving, ph);
+   472→
+   473→    // ---- block overlay ----
+   474→    const blockT = p.blockT ?? 0;
+   475→    if (blockT > 0) this.poseBlock(target, blockT, this.activeShield !== null || (!!this.shieldProp && this.shieldProp.visible));
+   476→
+   477→    // ---- attack overlays (timed curves — applied directly) ----
+   478→    if (p.attackT > 0) {
+   479→      this.poseAttack(target, p.attackT, p.attackKind ?? 'light1', bowDraw);
+   480→      this.apply(target, dt, true);
+   481→      this.post(p);
+   482→      return;
+   483→    }
+   484→
+   485→    // ---- hit reaction ----
+   486→    if (this.hitT > 0) {
+   487→      const k = this.hitT;
+   488→      target.j_torso = [target.j_torso[0] - 0.22 * k, target.j_torso[1], 0];
+   489→      target.j_head = [target.j_head[0] - 0.18 * k, 0, 0];
+   490→    }
+   491→
+   492→    this.apply(target, dt, false);
+   493→    this.post(p);
+   494→  }
+   495→
+   496→  /** Per-frame post steps (flash decay, prop visibility by context). */
+   497→  private post(p: AnimParams): void {
+   498→    if (this.flashT > 0) {
+   499→      this.flashT = Math.max(0, this.flashT - p.dt * 3.2);
+   500→      const e = this.flashT * 0.6;
+   501→      for (const m of this.flashMats) m.emissive.setRGB(e, e * 0.12, e * 0.08);
+   502→    }
+   503→    if (this.hitT > 0) this.hitT = Math.max(0, this.hitT - p.dt * 2.6);
+   504→    // the statue shield (fallback only) tucks away while aiming a bow
+   505→    if (this.shieldProp && !this.isVillager) {
+   506→      this.shieldProp.visible = this.wantsShield && !this.activeShield && (p.bowDraw ?? 0) < 0;
+   507→    }
+   508→    // shield impact recoil decay
+   509→    if (this.blockHitT > 0) this.blockHitT = Math.max(0, this.blockHitT - p.dt * 4.2);
+   510→    // Fase 8 — the night torch rides the left forearm: sync the flame to the
+   511→    // brand head and flicker the light with the same rhythm
+   512→    if (this.torchOn && this.torchProp && this.torchFlame) {
+   513→      this.torchT += p.dt;
+   514→      this.torchProp.updateWorldMatrix(true, false);
+   515→      this.torchFlame.position.setFromMatrixPosition(this.torchProp.matrixWorld);
+   516→      this.torchFlame.position.y += 0.55;
+   517→      if (this.torchLight) {
+   518→        const fl = 0.8 + Math.sin(this.torchT * 11.3) * 0.14 + Math.sin(this.torchT * 23.7) * 0.07;
+   519→        this.torchLight.intensity = 2.4 * fl;
+   520→      }
+   521→    }
+   522→    // the kit weapon stays in the hand; while swimming it is shouldered up
+   523→    if (this.activeWeapon) {
+   524→      const swim = p.swimming;
+   525→      this.activeWeapon.rotation.x = damp(
+   526→        this.activeWeapon.rotation.x, swim ? -1.2 : this.activeWeapon.userData.baseRotX ?? this.activeWeapon.rotation.x, 6, Math.max(1e-4, p.dt),
+   527→      );
+   528→    }
+   529→  }
+   530→
+   531→  // ------------------------------------------------------------ pose blocks
+   532→
+   533→  private poseLocomotion(t: PoseTarget, p: AnimParams, moving: boolean, ph: number): void {
+   534→    const runK = Math.min(1, this.speedSm / 6.2);
+   535→    if (moving) {
+   536→      const amp = 0.52 + runK * 0.5;
+   537→      const legPhL = Math.sin(ph);
+   538→      const legPhR = Math.sin(ph + Math.PI);
+   539→      // right leg (x<0) — j_hipR: -X = forward
+   540→      t.j_hipR = [-legPhR * amp, 0, 0];
+   541→      t.j_kneeR = [Math.max(0, -Math.sin(ph + Math.PI - 0.7)) * (0.55 + runK * 0.75), 0, 0];
+   542→      t.j_ankleR = [-0.1 + legPhR * 0.18, 0, 0];
+   543→      // left leg
+   544→      t.j_hipL = [-legPhL * amp, 0, 0];
+   545→      t.j_kneeL = [Math.max(0, -Math.sin(ph - 0.7)) * (0.55 + runK * 0.75), 0, 0];
+   546→      t.j_ankleL = [-0.1 + legPhL * 0.18, 0, 0];
+   547→      // arms counter-swing; the sword arm (R) carries the relaxed sword
+   548→      const armAmp = 0.34 + runK * 0.5;
+   549→      t.j_shoulderR = [legPhR * armAmp, 0, -0.06];
+   550→      t.j_shoulderL = [legPhL * armAmp * 0.8, 0, 0.06];
+   551→      t.j_elbowR = [-0.18 - runK * 0.35, 0, 0];
+   552→      t.j_elbowL = [-0.25 - runK * 0.3, 0, 0];
+   553→      // torso: bob, forward lean, counter-rotation
+   554→      t.j_torso = [0.05 + runK * 0.17, Math.sin(ph) * (0.05 + runK * 0.06), 0];
+   555→      t.j_head = [-0.04 - runK * 0.08, -Math.sin(ph) * 0.04, 0];
+   556→      this.inner.position.y = Math.abs(Math.sin(ph)) * 0.028 * (0.5 + runK);
+   557→    } else {
+   558→      // idle: breathing, weight shift, relaxed sword arm
+   559→      const br = Math.sin(this.t * 1.7);
+   560→      t.j_torso = [0.02 + br * 0.012, Math.sin(this.t * 0.4) * 0.02, 0];
+   561→      t.j_head = [0.0, Math.sin(this.t * 0.5) * 0.13, Math.sin(this.t * 0.33) * 0.05];
+   562→      t.j_shoulderR = [br * 0.03 - 0.04, 0, -0.05];
+   563→      t.j_shoulderL = [-br * 0.03, 0, 0.06];
+   564→      t.j_elbowR = [-0.15, 0, 0];
+   565→      t.j_elbowL = [-0.22, 0, 0];
+   566→      t.j_kneeR = [-0.04, 0, 0];
+   567→      t.j_kneeL = [-0.06, 0, 0];
+   568→      this.inner.position.y = damp(this.inner.position.y, 0, 8, 1 / 60);
+   569→      if (p.talking) {
+   570→        t.j_head = [0, Math.sin(this.t * 2.1) * 0.07, 0];
+   571→        t.j_shoulderR = [Math.sin(this.t * 3.0) * 0.16 - 0.12, 0, -0.05];
+   572→        t.j_elbowR = [-0.5, 0, 0];
+   573→      }
+   574→    }
+   575→  }
+   576→
+   577→  private poseAir(t: PoseTarget, airT: number): void {
+   578→    // rising vs falling
+   579→    const fall = Math.min(1, airT / 0.45);
+   580→    t.j_shoulderR = [-0.55 - fall * 0.5, 0, -0.35 - fall * 0.2];
+   581→    t.j_shoulderL = [-0.4 - fall * 0.45, 0, 0.4 + fall * 0.2];
+   582→    t.j_elbowR = [-0.35, 0, 0];
+   583→    t.j_elbowL = [-0.3, 0, 0];
+   584→    t.j_hipR = [-0.45 + fall * 0.75, 0, 0];
+   585→    t.j_kneeR = [0.9 - fall * 0.35, 0, 0];
+   586→    t.j_hipL = [0.2 + fall * 0.35, 0, 0];
+   587→    t.j_kneeL = [0.5 + fall * 0.6, 0, 0];
+   588→    t.j_ankleR = [0.2, 0, 0];
+   589→    t.j_ankleL = [0.3, 0, 0];
+   590→    t.j_torso = [0.1 + fall * 0.1, 0, 0];
+   591→    t.j_head = [-0.12, 0, 0];
+   592→    this.inner.position.y = 0;
+   593→  }
+   594→
+   595→  private poseRoll(t: PoseTarget, rollT: number, moving: boolean, ph: number): void {
+   596→    // full-body somersault around the model root (Player adds the roll pose
+   597→    // through model.root — here we tuck the limbs)
+   598→    t.j_hipR = [-1.9, 0, 0];
+   599→    t.j_hipL = [-1.7, 0, 0];
+   600→    t.j_kneeR = [1.9, 0, 0];
+   601→    t.j_kneeL = [1.75, 0, 0];
+   602→    t.j_ankleR = [0.4, 0, 0];
+   603→    t.j_ankleL = [0.35, 0, 0];
+   604→    t.j_shoulderR = [-1.35, 0, -0.3];
+   605→    t.j_shoulderL = [-1.2, 0, 0.3];
+   606→    t.j_elbowR = [-1.6, 0, 0];
+   607→    t.j_elbowL = [-1.5, 0, 0];
+   608→    t.j_torso = [0.55, 0, 0];
+   609→    t.j_head = [0.35, 0, 0];
+   610→    this.inner.position.y = -0.18 * Math.sin(rollT * Math.PI);
+   611→  }
+   612→
+   613→  private poseSwim(t: PoseTarget, ph: number, p: AnimParams): void {
+   614→    // breaststroke: sweeping arms + flutter kick (body pitch handled by Player)
+   615→    const sweep = Math.sin(ph * 2.1);
+   616→    t.j_shoulderR = [-1.15 + sweep * 0.95, 0, -0.3];
+   617→    t.j_shoulderL = [-1.15 + sweep * 0.95, 0, 0.3];
+   618→    t.j_elbowR = [-0.45, 0, 0];
+   619→    t.j_elbowL = [-0.45, 0, 0];
+   620→    t.j_hipR = [0.22 + Math.sin(ph * 6) * 0.3, 0, 0];
+   621→    t.j_hipL = [0.22 + Math.sin(ph * 6 + Math.PI) * 0.3, 0, 0];
+   622→    t.j_kneeR = [-0.15, 0, 0];
+   623→    t.j_kneeL = [-0.15, 0, 0];
+   624→    t.j_ankleR = [0.35, 0, 0];
+   625→    t.j_ankleL = [0.35, 0, 0];
+   626→    t.j_torso = [0.06, 0, 0];
+   627→    t.j_head = [-0.55, 0, 0];
+   628→    this.inner.position.y = 0;
+   629→  }
+   630→
+   631→  private poseRide(t: PoseTarget, p: AnimParams): void {
+   632→    const bob = Math.sin((p.rideBounce ?? 0) * Math.PI * 2);
+   633→    // legs wrap the saddle
+   634→    t.j_hipR = [-0.8, 0, -0.3];
+   635→    t.j_hipL = [-0.8, 0, 0.3];
+   636→    t.j_kneeR = [1.3, 0, 0];
+   637→    t.j_kneeL = [1.3, 0, 0];
+   638→    t.j_ankleR = [0.25, 0, 0];
+   639→    t.j_ankleL = [0.25, 0, 0];
+   640→    // arms forward on the reins
+   641→    t.j_shoulderR = [-0.5 + bob * 0.05, 0, -0.12];
+   642→    t.j_shoulderL = [-0.5 + bob * 0.05, 0, 0.12];
+   643→    t.j_elbowR = [-0.5, 0, 0];
+   644→    t.j_elbowL = [-0.5, 0, 0];
+   645→    t.j_torso = [0.1 + bob * 0.03, 0, 0];
+   646→    t.j_head = [-0.08, 0, 0];
+   647→    this.inner.position.y = Math.abs(bob) * 0.03;
+   648→  }
+   649→
+   650→  private poseBowAim(t: PoseTarget, p: AnimParams, bowDraw: number, moving: boolean, ph: number): void {
+   651→    const sway = Math.sin(this.t * 1.9) * 0.014;
+   652→    // bow arm (LEFT — the kit bow sits on the hand slot at aim time)
+   653→    t.j_shoulderL = [-1.42 + sway, 0, 0.1];
+   654→    t.j_elbowL = [-0.08, 0, 0];
+   655→    // draw hand (RIGHT) pulls to the cheek as the draw completes
+   656→    t.j_shoulderR = [-1.18 + bowDraw * 0.22 + sway, 0, -0.28];
+   657→    t.j_elbowR = [-0.22 - bowDraw * 1.15, 0, 0];
+   658→    t.j_torso = [0.06, -0.24, 0];
+   659→    t.j_head = [0, 0.1, 0];
+   660→    if (moving) {
+   661→      t.j_hipR = [Math.sin(ph) * 0.26, 0, 0];
+   662→      t.j_hipL = [Math.sin(ph + Math.PI) * 0.26, 0, 0];
+   663→      t.j_kneeR = [0.2, 0, 0];
+   664→      t.j_kneeL = [0.24, 0, 0];
+   665→      this.inner.position.y = Math.abs(Math.sin(ph)) * 0.024;
+   666→    } else {
+   667→      t.j_kneeR = [-0.1, 0, 0];
+   668→      t.j_kneeL = [-0.18, 0, 0];
+   669→      this.inner.position.y = -bowDraw * 0.025;
+   670→    }
+   671→
+   672→  }
+   673→
+   674→  private poseBlock(t: PoseTarget, blockT: number, hasKitShield: boolean): void {
+   675→    const k = Math.min(1, blockT);
+   676→    const L = THREE.MathUtils.lerp;
+   677→    // impact recoil: quick pushback on the guard side
+   678→    const hit = this.blockHitT * this.blockHitT;
+   679→    const shake = hit * this.blockHitDir;
+   680→    if (hasKitShield) {
+   681→      // shield raised across the front, braced behind it
+   682→      t.j_shoulderL = [L(t.j_shoulderL[0], -1.02, k) + hit * 0.5, 0, L(t.j_shoulderL[1], 0.34, k) + shake * 0.12];
+   683→      t.j_elbowL = [L(t.j_elbowL[0], -0.78, k), 0, 0];
+   684→      t.j_shoulderR = [L(t.j_shoulderR[0], -0.3, k) + hit * 0.3, 0, L(t.j_shoulderR[1], -0.14, k)];
+   685→      t.j_elbowR = [L(t.j_elbowR[0], -1.45, k), 0, 0];
+   686→      t.j_head = [L(t.j_head[0], 0.12, k), 0, 0];
+   687→    } else {
+   688→      // no shield: weapon held vertical in a high guard
+   689→      t.j_shoulderR = [L(t.j_shoulderR[0], -1.0, k) + hit * 0.45, 0, L(t.j_shoulderR[1], -0.3, k) + shake * 0.1];
+   690→      t.j_elbowR = [L(t.j_elbowR[0], -1.32, k), 0, 0];
+   691→      t.j_shoulderL = [L(t.j_shoulderL[0], -0.55, k) + hit * 0.3, 0, L(t.j_shoulderL[1], 0.1, k)];
+   692→      t.j_elbowL = [L(t.j_elbowL[0], -1.05, k), 0, 0];
+   693→      t.j_head = [L(t.j_head[0], 0.1, k), 0, 0];
+   694→    }
+   695→    t.j_torso = [L(t.j_torso[0], 0.17, k) + hit * 0.2, (t.j_torso[1] ?? 0) + shake * 0.08, 0];
+   696→    t.j_kneeR = [t.j_kneeR[0] + 0.3 * k, 0, 0];
+   697→    t.j_kneeL = [t.j_kneeL[0] + 0.34 * k, 0, 0];
+   698→    this.inner.position.y -= 0.06 * k;
+   699→  }
+   700→
+   701→  /** Attack curves. attackT: 0→1 across the whole swing. */
+   702→  private poseAttack(t: PoseTarget, k: number, kind: string, bowDraw: number): void {
+   703→    const L = THREE.MathUtils.lerp;
+   704→    const ease = (u: number) => u * u * (3 - 2 * u);
+   705→    if (kind === 'heavy') {
+   706→      // overhead smash: windup up-back (0..0.42), slam (0.42..0.68), recover
+   707→      if (k < 0.42) {
+   708→        const u = ease(k / 0.42);
+   709→        t.j_shoulderR = [L(0, -0.4, u), 0, L(0, -2.75, u)];
+   710→        t.j_elbowR = [-0.6, 0, 0];
+   711→        t.j_torso = [0.1, L(0, -0.4, u), 0];
+   712→        t.j_head = [L(0, -0.25, u), 0, 0];
+   713→        this.inner.position.y = -0.07 * u;
+   714→      } else if (k < 0.68) {
+   715→        const u = ease((k - 0.42) / 0.26);
+   716→        t.j_shoulderR = [L(-0.4, 0.95, u), 0, L(-2.75, -0.35, u)];
+   717→        t.j_elbowR = [L(-0.6, -0.1, u), 0, 0];
+   718→        t.j_torso = [L(0.1, 0.42, u), L(-0.4, 0.42, u), 0];
+   719→        t.j_head = [L(-0.25, 0.3, u), 0, 0];
+   720→        t.j_kneeR = [0.5 * u, 0, 0];
+   721→        t.j_kneeL = [0.55 * u, 0, 0];
+   722→        this.inner.position.y = -0.07 * (1 - u) - 0.05 * u;
+   723→      } else {
+   724→        const u = (k - 0.68) / 0.32;
+   725→        t.j_shoulderR = [L(0.95, 0, u), 0, L(-0.35, -0.06, u)];
+   726→        t.j_elbowR = [L(-0.1, -0.25, u), 0, 0];
+   727→        t.j_torso = [L(0.42, 0.05, u), L(0.42, 0, u), 0];
+   728→        t.j_head = [L(0.3, 0, u), 0, 0];
+   729→        t.j_kneeR = [0.5 * (1 - u), 0, 0];
+   730→        t.j_kneeL = [0.55 * (1 - u), 0, 0];
+   731→        this.inner.position.y = -0.05 * (1 - u);
+   732→      }
+   733→      t.j_shoulderL = [-0.35, 0, 0.25];
+   734→      t.j_elbowL = [-0.9, 0, 0];
+   735→    } else if (kind === 'thrust') {
+   736→      if (k < 0.35) {
+   737→        const u = ease(k / 0.35);
+   738→        t.j_shoulderR = [L(0, -0.45, u), 0, L(0, -0.15, u)];
+   739→        t.j_elbowR = [L(0, -1.75, u), 0, 0];
+   740→        t.j_torso = [0.08, L(0, 0.4, u), 0];
+   741→        t.j_hipR = [L(0, 0.15, u), 0, 0];
+   742→        this.inner.position.y = -0.03 * u;
+   743→      } else if (k < 0.62) {
+   744→        const u = ease((k - 0.35) / 0.27);
+   745→        t.j_shoulderR = [L(-0.45, -1.55, u), 0, L(-0.15, -0.05, u)];
+   746→        t.j_elbowR = [L(-1.75, -0.05, u), 0, 0];
+   747→        t.j_torso = [0.16, L(0.4, -0.32, u), 0];
+   748→        t.j_hipR = [L(0.15, -0.4, u), 0, 0];
+   749→        t.j_kneeR = [0.25, 0, 0];
+   750→      } else {
+   751→        const u = (k - 0.62) / 0.38;
+   752→        t.j_shoulderR = [L(-1.55, 0, u), 0, -0.05 * (1 - u)];
+   753→        t.j_elbowR = [L(-0.05, -0.2, u), 0, 0];
+   754→        t.j_torso = [L(0.16, 0.04, u), L(-0.32, 0, u), 0];
+   755→        t.j_hipR = [L(-0.4, 0, u), 0, 0];
+   756→      }
+   757→      t.j_shoulderL = [-0.3, 0, 0.2];
+   758→      t.j_elbowL = [-0.85, 0, 0];
+   759→    } else if (kind === 'light2') {
+   760→      // backhand: windup right, sweep across left
+   761→      if (k < 0.35) {
+   762→        const u = ease(k / 0.35);
+   763→        t.j_shoulderR = [L(0, -1.85, u), 0, L(0, 0.6, u)];
+   764→        t.j_torso = [0.08, L(0, 0.42, u), 0];
+   765→        t.j_elbowR = [-0.3, 0, 0];
+   766→      } else if (k < 0.75) {
+   767→        const u = ease((k - 0.35) / 0.4);
+   768→        t.j_shoulderR = [L(-1.85, 0.5, u), 0, L(0.6, -0.9, u)];
+   769→        t.j_torso = [0.12, L(0.42, -0.5, u), 0];
+   770→        t.j_head = [0, L(0, -0.2, u), 0];
+   771→        t.j_hipR = [-0.2 * u, 0, 0];
+   772→      } else {
+   773→        const u = (k - 0.75) / 0.25;
+   774→        t.j_shoulderR = [L(0.5, 0, u), 0, L(-0.9, -0.06, u)];
+   775→        t.j_torso = [L(0.12, 0.03, u), L(-0.5, 0, u), 0];
+   776→        t.j_head = [0, L(-0.2, 0, u), 0];
+   777→      }
+   778→      t.j_elbowR = [-0.25, 0, 0];
+   779→      t.j_shoulderL = [-0.35, 0, 0.22];
+   780→      t.j_elbowL = [-0.9, 0, 0];
+   781→    } else if (kind === 'bowRelease') {
+   782→      // string snap: draw hand flies forward off the cheek
+   783→      const u = Math.min(1, k * 2.2);
+   784→      t.j_shoulderL = [-1.42, 0, 0.1];
+   785→      t.j_elbowL = [-0.08, 0, 0];
+   786→      t.j_shoulderR = [L(-1.4, -1.15, u), 0, -0.28];
+   787→      t.j_elbowR = [L(-1.35, -0.15, u), 0, 0];
+   788→      t.j_torso = [0.06, -0.24, 0];
+   789→    } else {
+   790→      // light1 — diagonal slash: windup up-right, cut down-left, recover
+   791→      if (k < 0.34) {
+   792→        const u = ease(k / 0.34);
+   793→        t.j_shoulderR = [L(0, -2.25, u), 0, L(0, -0.85, u)];
+   794→        t.j_torso = [0.08, L(0, -0.42, u), 0];
+   795→        t.j_elbowR = [-0.5, 0, 0];
+   796→        this.inner.position.y = -0.03 * u;
+   797→      } else if (k < 0.74) {
+   798→        const u = ease((k - 0.34) / 0.4);
+   799→        t.j_shoulderR = [L(-2.25, 0.55, u), 0, L(-0.85, 0.5, u)];
+   800→        t.j_torso = [L(0.08, 0.38, u), L(-0.42, 0.45, u), 0];
+   801→        t.j_head = [0, L(0, 0.15, u), 0];
+   802→        t.j_hipR = [-0.22 * u, 0, 0];
+   803→        t.j_kneeR = [0.3 * u, 0, 0];
+   804→        this.inner.position.y = -0.03 * (1 - u);
+   805→      } else {
+   806→        const u = (k - 0.74) / 0.26;
+   807→        t.j_shoulderR = [L(0.55, 0, u), 0, L(0.5, -0.06, u)];
+   808→        t.j_torso = [L(0.38, 0.04, u), L(0.45, 0, u), 0];
+   809→        t.j_head = [0, L(0.15, 0, u), 0];
+   810→        t.j_hipR = [-0.22 * (1 - u), 0, 0];
+   811→        t.j_kneeR = [0.3 * (1 - u), 0, 0];
+   812→      }
+   813→      t.j_elbowR = [-0.25, 0, 0];
+   814→      t.j_shoulderL = [-0.3, 0, 0.2];
+   815→      t.j_elbowL = [-0.85, 0, 0];
+   816→    }
+   817→    // free leg counter for balance on most attacks
+   818→    if (kind === 'light1' || kind === 'light2') {
+   819→      t.j_hipL = [0.1, 0, 0];
+   820→      t.j_kneeL = [0.12, 0, 0];
+   821→    }
+   822→  }
+   823→
+   824→  // ------------------------------------------------------------ apply
+   825→
+   826→  /** Write target eulers onto the bones. `direct` skips damping (attacks,
+   827→   * rolls, swims) so the curves stay crisp. */
+   828→  private apply(target: PoseTarget, dt: number, direct: boolean): void {
+   829→    for (const name of BONE_NAMES) {
+   830→      const b = this.bones.get(name);
+   831→      if (!b) continue;
+   832→      const tv = target[name];
+   833→      if (!tv) continue;
+   834→      if (direct) {
+   835→        b.rotation.set(tv[0], tv[1], tv[2]);
+   836→      } else {
+   837→        const c = this.cur[name] ?? [0, 0, 0] as Euler3;
+   838→        c[0] = damp(c[0], tv[0], 14, dt);
+   839→        c[1] = damp(c[1], tv[1], 14, dt);
+   840→        c[2] = damp(c[2], tv[2], 14, dt);
+   841→        this.cur[name] = c;
+   842→        b.rotation.set(c[0], c[1], c[2]);
+   843→      }
+   844→      if (direct) this.cur[name] = [tv[0], tv[1], tv[2]];
+   845→    }
+   846→  }
+   847→
+   848→  dispose(): void {
+   849→    if (this.isVillager) {
+   850→      // Villager clones SHARE geometry with the player's knight (SkeletonUtils
+   851→      // clone) — only the per-instance headwear may be freed.
+   852→      this.root.traverse((o) => {
+   853→        const mesh = o as THREE.Mesh;
+   854→        if (mesh.isMesh && mesh.userData.villagerProp) {
+   855→          mesh.geometry?.dispose();
+   856→          const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+   857→          for (const m of mats) (m as THREE.Material).dispose();
+   858→        }
+   859→      });
+   860→      return;
+   861→    }
+   862→    this.root.traverse((o) => {
+   863→      const mesh = o as THREE.Mesh;
+   864→      if (mesh.isMesh) {
+   865→        mesh.geometry?.dispose();
+   866→        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+   867→        for (const m of mats) (m as THREE.Material).dispose();
+   868→      }
+   869→    });
+   870→  }
+   871→}
+   872→

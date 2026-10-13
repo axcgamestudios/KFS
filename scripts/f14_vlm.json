@@ -1,0 +1,28 @@
+{
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "message": {
+        "content": "1) Se ve el cielo con nubes, no está roto ni negro.\n2) Sí se ve terreno verde (pasto), colinas y algunos árboles pequeños.\n3) Sí se ve agua/mar a ambos lados del muelle de madera.\n4) No hay glitch visual evidente; la imagen es estable y coherente.",
+        "role": "assistant"
+      }
+    }
+  ],
+  "created": 1791824671,
+  "id": "20261013010429ede3094cc36d418d",
+  "model": "glm-5v-turbo",
+  "object": "chat.completion",
+  "request_id": "20261013010429ede3094cc36d418d",
+  "usage": {
+    "completion_tokens": 75,
+    "completion_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "prompt_tokens": 996,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "total_tokens": 1071
+  }
+}

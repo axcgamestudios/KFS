@@ -289,34 +289,132 @@ export class DragonModelGLB {
 
     switch (s.mode) {
       case 'fly':
-      case 'glide':
-      case 'takeoff':
-      case 'land': {
-        // Wing flap: shoulders swing on Z (up/down) AND X (fore/aft sweep) so
-        // the wingtip traces an ELLIPSE like real flight — not a paddle line.
-        const flap = s.mode === 'glide' ? 0.18 : Math.sin(ph * Math.PI * 2);
-        const amp = s.mode === 'takeoff' ? 1.15 : s.mode === 'land' ? 0.55 : 0.8;
-        const sweep = -0.12 + flap * 0.3; // wings sweep forward on the downstroke
-        set(this.joints[WING_ARMS[0]], -0.15 + sweep, 0, 0.55 + flap * amp, 8 * dt);
-        set(this.joints[WING_ARMS[1]], -0.15 + sweep, 0, -0.55 - flap * amp, 8 * dt);
-        const fan = 0.25 + Math.max(0, flap) * 0.3;
+      case 'takeoff': {
+        // Fase 17 — CINEMATIC FLIGHT. Real wings don't pendulum: the
+        // DOWNSTROKE is a short, violent power stroke; the upstroke is a
+        // slow, folded recovery. A shaped phase curve buys both, and each
+        // finger trails the one before it — the wingtip whips like a sail.
+        const amp = s.mode === 'takeoff' ? 1.25 : 0.85;
+        const rate = s.mode === 'takeoff' ? 1.6 : 1.0;
+        const cyc = (ph * 0.55 * rate) % 1;
+        let flap: number;
+        if (cyc < 0.36) {
+          // power stroke: sharp, full extension
+          flap = Math.sin((cyc / 0.36) * Math.PI);
+        } else {
+          // recovery: long, gentle, slightly folded
+          const u = (cyc - 0.36) / 0.64;
+          flap = -Math.sin(u * Math.PI) * 0.72;
+        }
+        // wings sweep FORWARD on the downstroke (the ellipse real wings trace)
+        const sweep = -0.16 + flap * 0.34;
+        set(this.joints[WING_ARMS[0]], -0.14 + sweep, 0.06 * flap, 0.55 + flap * amp, 9 * dt);
+        set(this.joints[WING_ARMS[1]], -0.14 + sweep, -0.06 * flap, -0.55 - flap * amp, 9 * dt);
+        // finger fan: opens hard on the power stroke, folds on recovery —
+        // each finger lags a touch so the membrane WHIPS outward
         for (const arm of WING_ARMS) {
           WING_FINGERS[arm].forEach((f, i) => {
-            set(this.joints[f], flap * 0.22, 0, (i % 2 === 0 ? 1 : -1) * fan * 0.35, 6 * dt);
+            const lag = ((ph * 0.55 * rate - (i + 1) * 0.045) % 1 + 1) % 1;
+            const fFlap = lag < 0.36
+              ? Math.sin((lag / 0.36) * Math.PI)
+              : -Math.sin(((lag - 0.36) / 0.64) * Math.PI) * 0.72;
+            set(this.joints[f], fFlap * 0.2, 0, (i % 2 === 0 ? 1 : -1) * (0.22 + Math.max(0, fFlap) * 0.4), 7 * dt);
           });
         }
-        // Hind legs trail back, tail streams, neck forward
+        // the body rides the stroke: a breath of pitch with every beat
+        if (this.inner) {
+          this.inner.rotation.x = lerp(this.inner.rotation.x, -flap * 0.055, 5 * dt);
+          this.inner.position.y = lerp(this.inner.position.y, flap * 0.12, 6 * dt);
+        }
+        // hind legs trail & sway with the beat
         LEGS.forEach((l, i) => {
-          set(this.joints[l.hip], -0.75 + Math.sin(ph * 2 + i * 3) * 0.06, 0, 0);
-          set(this.joints[l.knee], 0.5, 0, 0);
+          set(this.joints[l.hip], -0.78 + flap * 0.1 + Math.sin(this.t * 2.2 + i * 3) * 0.05, 0, i === 0 ? 0.08 : -0.08);
+          set(this.joints[l.knee], 0.55 + Math.max(0, flap) * 0.18, 0, 0);
+        });
+        // tail: a travelling wave in both axes, whipping at the tip
+        TAIL_CHAIN.forEach((name, i) => {
+          const k = i / TAIL_CHAIN.length;
+          set(
+            this.joints[name],
+            Math.sin(this.t * 2.6 - i * 0.8) * 0.06 + flap * 0.05 * (1 - k),
+            Math.sin(ph * 3.4 - i * 0.85 + s.turn * 1.4) * (0.09 + k * 0.14),
+            -s.turn * 0.2 * (0.4 + k),
+            6 * dt,
+          );
+        });
+        // neck: S-curve counter-wave so the head stays locked on the prey
+        NECK_CHAIN.forEach((name, i) => {
+          set(
+            this.joints[name],
+            -0.07 - flap * 0.035 + Math.sin(ph * 1.1 - i * 0.6) * 0.045,
+            Math.sin(this.t * 1.6 - i * 0.7) * 0.03,
+            0,
+            5 * dt,
+          );
+        });
+        set(this.joints['head_022'], -0.05 + flap * 0.03, 0, 0);
+        break;
+      }
+      case 'glide': {
+        // Fase 17 — the glide: wings wide with a slight dihedral, membranes
+        // trembling in the wind, tail fanned as a rudder. Serene and lethal.
+        const tremble = Math.sin(this.t * 9.3) * 0.035 + Math.sin(this.t * 15.7) * 0.02;
+        const breath = Math.sin(this.t * 1.2) * 0.03;
+        set(this.joints[WING_ARMS[0]], -0.1 + breath, 0.08, 0.78 + tremble, 6 * dt);
+        set(this.joints[WING_ARMS[1]], -0.1 + breath, -0.08, -0.78 - tremble, 6 * dt);
+        for (const arm of WING_ARMS) {
+          WING_FINGERS[arm].forEach((f, i) => {
+            set(this.joints[f], tremble * 0.5, 0, (i % 2 === 0 ? 1 : -1) * (0.3 + tremble), 5 * dt);
+          });
+        }
+        if (this.inner) {
+          this.inner.rotation.x = lerp(this.inner.rotation.x, 0.02, 4 * dt);
+          this.inner.position.y = lerp(this.inner.position.y, 0, 5 * dt);
+        }
+        LEGS.forEach((l) => {
+          set(this.joints[l.hip], -0.85, 0, 0);
+          set(this.joints[l.knee], 0.72, 0, 0);
         });
         TAIL_CHAIN.forEach((name, i) => {
-          set(this.joints[name], 0.02, Math.sin(this.t * 2 - i * 0.6 + s.turn) * 0.1, -s.turn * 0.18, 5 * dt);
+          const k = i / TAIL_CHAIN.length;
+          set(
+            this.joints[name],
+            Math.sin(this.t * 1.8 - i * 0.7) * 0.04,
+            -s.turn * 0.3 * (0.35 + k) + Math.sin(this.t * 2.2 - i * 0.8) * 0.05,
+            -s.turn * 0.12,
+            5 * dt,
+          );
         });
         NECK_CHAIN.forEach((name, i) => {
-          set(this.joints[name], -0.06, 0, 0, 5 * dt);
+          set(this.joints[name], -0.05 + Math.sin(this.t * 1.3 - i * 0.5) * 0.03, 0, 0, 5 * dt);
         });
-        set(this.joints['head_022'], -0.04, 0, 0);
+        set(this.joints['head_022'], -0.03, 0, 0);
+        break;
+      }
+      case 'land': {
+        // wings flare wide & cup to brake, legs reach for the ground
+        const k = s.t;
+        const flare = 0.95 + k * 0.25;
+        set(this.joints[WING_ARMS[0]], -0.28 + k * 0.1, 0.1, 0.5 + flare, 10 * dt);
+        set(this.joints[WING_ARMS[1]], -0.28 + k * 0.1, -0.1, -0.5 - flare, 10 * dt);
+        for (const arm of WING_ARMS) {
+          WING_FINGERS[arm].forEach((f, i) => {
+            set(this.joints[f], 0.1, 0, (i % 2 === 0 ? 1 : -1) * (0.5 - k * 0.2), 8 * dt);
+          });
+        }
+        if (this.inner) {
+          this.inner.rotation.x = lerp(this.inner.rotation.x, 0.06, 6 * dt);
+          this.inner.position.y = lerp(this.inner.position.y, 0, 6 * dt);
+        }
+        LEGS.forEach((l, i) => {
+          set(this.joints[l.hip], -0.35 - k * 0.5 + Math.sin(this.t * 3 + i) * 0.04, 0, 0, 9 * dt);
+          set(this.joints[l.knee], 0.5 - k * 0.25, 0, 0, 9 * dt);
+        });
+        TAIL_CHAIN.forEach((name, i) => {
+          set(this.joints[name], 0.03, Math.sin(i * 0.6 + this.t * 2) * 0.08, 0, 6 * dt);
+        });
+        NECK_CHAIN.forEach((name) => set(this.joints[name], 0.04, 0, 0, 7 * dt));
+        set(this.joints['head_022'], 0.08, 0, 0);
         break;
       }
       case 'walk': {

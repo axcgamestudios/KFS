@@ -66,7 +66,7 @@ export default function CinematicOverlay() {
           className="text-[11px] tracking-[0.3em] text-[color:var(--kotfs-parchment)]/70 uppercase"
           style={{ textShadow: '0 1px 8px rgba(0,0,0,0.9)' }}
         >
-          ESPACIO · omitir
+          SPACE · skip
         </span>
         <div className="h-[3px] w-56 overflow-hidden rounded-full bg-white/15">
           <div

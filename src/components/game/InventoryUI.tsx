@@ -5,17 +5,18 @@ import { useGameStore } from '@/store/gameStore';
 import { gameApi, type InvEntry } from '@/game/api';
 import { ITEMS } from '@/game/data/items';
 import {
-  Coins, FlaskConical, Flower2, Gem, KeyRound, Map as MapIcon, Package,
-  ScrollText, Sword, X,
+  Coins, Feather, FlaskConical, Flower2, Gem, KeyRound, Layers, Map as MapIcon, Package,
+  ScrollText, Shield, Shirt, Sword, X,
 } from 'lucide-react';
 
 const ICONS: Record<string, React.ComponentType<{ size?: number | string; className?: string }>> = {
-  Coins, FlaskConical, Flower2, Gem, KeyRound, Map: MapIcon, Package, ScrollText, Sword,
+  Coins, Feather, FlaskConical, Flower2, Gem, KeyRound, Map: MapIcon, Package, ScrollText, Shield, Shirt, Sword, Layers,
 };
 
 const KIND_LABEL: Record<string, string> = {
-  weapon: 'Arma', consumable: 'Consumible', material: 'Material',
-  key: 'Objeto clave', readable: 'Documento', treasure: 'Tesoro',
+  weapon: 'Weapon', consumable: 'Consumable', material: 'Material',
+  key: 'Key item', readable: 'Document', treasure: 'Treasure',
+  armor: 'Armor', wings: 'Wings',
 };
 
 export default function InventoryUI() {
@@ -39,13 +40,19 @@ export default function InventoryUI() {
 
   const selectedDef = selected ? ITEMS[selected] : null;
   const equipped = gameApi.equippedWeapon();
+  const equippedArmor = gameApi.equippedArmor();
+  const equippedWings = gameApi.equippedWings();
+  const equippedAny =
+    selected === equipped
+    || selected === equippedArmor
+    || selected === equippedWings;
 
   return (
     <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/60">
       <div className="kotfs-panel kotfs-panel-corner w-full max-w-3xl p-6">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="kotfs-title text-lg tracking-[0.25em] text-[color:var(--kotfs-gold)]">
-            ZURRÓN DEL EXPLORADOR
+            EXPLORER'S SATCHEL
           </h2>
           <button
             className="text-[color:var(--kotfs-parchment-dim)] transition hover:text-[color:var(--kotfs-parchment)]"
@@ -61,7 +68,7 @@ export default function InventoryUI() {
 
         {items.length === 0 ? (
           <p className="py-12 text-center italic text-[color:var(--kotfs-parchment-dim)]">
-            Tu zurrón está vacío. La isla esconde más tesoros de lo que parece…
+            Your satchel is empty. The island hides more treasures than it lets on…
           </p>
         ) : (
           <div className="grid grid-cols-[1fr_260px] gap-5">
@@ -70,7 +77,7 @@ export default function InventoryUI() {
               {items.map(({ id, count }) => {
                 const def = ITEMS[id];
                 const Icon = ICONS[def?.icon ?? 'Package'] ?? Package;
-                const isEquipped = equipped === id;
+                const isEquipped = id === equipped || id === equippedArmor || id === equippedWings;
                 return (
                   <button
                     key={id}
@@ -139,7 +146,7 @@ export default function InventoryUI() {
                           refresh();
                         }}
                       >
-                        Usar
+                        Use
                       </button>
                     )}
                     {selectedDef.lore && (
@@ -147,29 +154,32 @@ export default function InventoryUI() {
                         className="kotfs-btn w-full !py-2 text-xs"
                         onClick={() => gameApi.readItem(selectedDef.id)}
                       >
-                        Leer
+                        Read
                       </button>
                     )}
                     {selectedDef.equipable && (
                       <button
                         className="kotfs-btn w-full !py-2 text-xs"
                         onClick={() => {
-                          if (equipped === selectedDef.id) {
-                            gameApi.unequipWeapon();
+                          if (equippedAny) {
+                            // take THIS piece off (whichever slot it occupies)
+                            if (selected === equipped) gameApi.unequipWeapon();
+                            else if (selected === equippedArmor) gameApi.unequipArmor();
+                            else if (selected === equippedWings) gameApi.unequipWings();
                           } else {
                             gameApi.equipItem(selectedDef.id);
                           }
                           refresh();
                         }}
                       >
-                        {equipped === selectedDef.id ? 'Desequipar' : 'Equipar'}
+                        {equippedAny ? 'Unequip' : 'Equip'}
                       </button>
                     )}
                   </div>
                 </>
               ) : (
                 <p className="mt-6 text-center italic text-xs text-[color:var(--kotfs-parchment-dim)] opacity-60">
-                  Selecciona un objeto para examinarlo
+                  Select an item to examine it
                 </p>
               )}
             </div>
@@ -177,7 +187,7 @@ export default function InventoryUI() {
         )}
 
         <p className="mt-4 text-center text-[0.6rem] tracking-[0.3em] text-[color:var(--kotfs-parchment-dim)] opacity-50">
-          TAB / ESC PARA CERRAR
+          TAB / ESC TO CLOSE
         </p>
       </div>
     </div>

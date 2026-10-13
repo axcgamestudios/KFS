@@ -59,8 +59,8 @@ export interface EndingDef {
 export const ENDINGS: Record<EndingId, EndingDef> = {
   guardian: {
     id: 'guardian',
-    title: 'EL GUARDIÁN DE LA MAREA',
-    subtitle: 'Final I — El pacto restaurado',
+    title: 'THE WARDEN OF THE TIDE',
+    subtitle: 'Ending I — The Pact Restored',
     shots: [
       // 1 — high above the altar, descending toward the hero
       { from: [64, 130, -246], to: [44, 96, -268], lookFrom: [20, 86, -302], lookTo: [20, 88, -300], dur: 10, fov: 50 },
@@ -82,17 +82,17 @@ export const ENDINGS: Record<EndingId, EndingDef> = {
       { from: [20, 52, -356], to: [20, 60, -372], lookFrom: [10, 0, -190], lookTo: [0, 0, -120], dur: 9, fov: 60 },
     ],
     epilogue: [
-      'El pacto se teje de nuevo, hilo a hilo, con tu juramento como nudo. Esa noche, por primera vez en cien años, los tres dragones de Aldmor duermen custodiados — y los cuervos pierden su sombra.',
-      'La Orden de la Marea reabre sus puertas en Puerto Cuervo: Aldric escribe, Bram forja, Maren planta el segundo arce junto a la cascada. Y cada Guardián que venga después jurará sobre el Colmillo… como tú.',
-      'Los reinos olvidados siguen olvidados — pero ya no perdidos. Alguien vela. La marea guarda, la marea juzga. Y tú, Guardián, eres su mano.',
+      'The pact is woven anew, thread by thread, with your oath as the knot. That night, for the first time in a hundred years, the three dragons of Aldmor sleep under watch — and the crows lose their shadow.',
+      'The Order of the Tide reopens its doors in Crowhaven: Aldric writes, Bram forges, Maren plants the second maple beside the waterfall. And every Warden who comes after will swear upon the Fang… as you did.',
+      'The forgotten realms remain forgotten — but lost no longer. Someone keeps the watch. The tide guards, the tide judges. And you, Warden, are its hand.',
     ],
     aftermathFlag: 'ending_guardian',
     reward: { xp: 300, items: [{ id: 'pocion', count: 3 }], gold: 200 },
   },
   crown: {
     id: 'crown',
-    title: 'LA CORONA DE LAS ISLAS',
-    subtitle: 'Final II — El nuevo trono',
+    title: 'THE CROWN OF THE ISLES',
+    subtitle: 'Ending II — The New Throne',
     shots: [
       // 1 — the crowning: descend on the altar
       { from: [58, 122, -252], to: [38, 94, -272], lookFrom: [20, 88, -302], lookTo: [20, 90, -300], dur: 10, fov: 48 },
@@ -114,17 +114,17 @@ export const ENDINGS: Record<EndingId, EndingDef> = {
       { from: [196, 138, -250], to: [190, 150, -280], lookFrom: [-30, 0, 0], lookTo: [-60, 0, 60], dur: 9, fov: 62 },
     ],
     epilogue: [
-      'La Corona de Thalassar pesa sobre tu frente — y sin embargo, nunca sentiste los hombros tan rectos. Dragones y puertos, fortalezas y faros: un solo cetro sobre el mar.',
-      'Aldric archiva la Orden «en servicio de la Corona» y sonríe a medias: las canciones prefieren a los reyes que a los custodios. Bram forja tu estandarte. Rosa compone — cobra bien por él.',
-      'Gobiernas con la marea como consejera y la espada como última palabra. El Cuervo no volverá: las sombras no se alimentan de juramentos que se cumplen. Reinarás… mientras el mar lo permita.',
+      'The Crown of Thalassar weighs upon your brow — and yet your shoulders have never felt so straight. Dragons and harbors, fortresses and lighthouses: one scepter over the sea.',
+      'Aldric files the Order away “in service of the Crown” and half-smiles: songs favor kings over keepers. Bram forges your standard. Rosa composes one — and charges well for it.',
+      'You rule with the tide as counselor and the sword as final word. The Crow will not return: shadows do not feed on oaths that are kept. You will reign… for as long as the sea allows.',
     ],
     aftermathFlag: 'ending_crown',
     reward: { xp: 300, items: [{ id: 'coin', count: 500 }] },
   },
   free: {
     id: 'free',
-    title: 'EL MAR SIN DUEÑO',
-    subtitle: 'Final III — La marea libre',
+    title: 'THE SEA WITHOUT A MASTER',
+    subtitle: 'Ending III — The Free Tide',
     shots: [
       // 1 — the seal sinks: looking down into the deep from the altar cliff
       { from: [50, 108, -258], to: [30, 86, -280], lookFrom: [20, 60, -308], lookTo: [20, 30, -330], dur: 10, fov: 52 },
@@ -146,9 +146,9 @@ export const ENDINGS: Record<EndingId, EndingDef> = {
       { from: [160, 30, 496], to: [170, 40, 530], lookFrom: [220, 2, 560], lookTo: [260, 2, 600], dur: 9, fov: 62 },
     ],
     epilogue: [
-      'El Sello se hunde primero, girando como una moneda de cobre; la Corona le sigue, plateada y silenciosa; el Corazón del Cuervo se disuelve en la corriente como tinta negra que se vuelve azul.',
-      'Nadie custodia nada — y por primera vez, nada necesita ser custodiado. Los dragones despiertan libres, los puertos negocian en igualdad, y las canciones ya no hablan de reyes hundidos sino de mares abiertos.',
-      'Los viejos te llamarán imprudente. Los jóvenes, libre. El mar — el mar no te llama nada: el mar nunca tuvo dueño, y por fin lo saben todos. Zarpa, Colibrí. Hay horizonte de sobra.',
+      'The Seal sinks first, spinning like a copper coin; the Crown follows, silver and silent; the Heart of the Crow dissolves into the current like black ink turning blue.',
+      'No one keeps anything — and for the first time, nothing needs keeping. The dragons wake free, the ports trade as equals, and the songs speak no more of sunken kings but of open seas.',
+      'The old will call you reckless. The young, free. The sea — the sea calls you nothing: the sea never had a master, and at last everyone knows it. Set sail, Sea Hummingbird. There is horizon enough.',
     ],
     aftermathFlag: 'ending_free',
     reward: { xp: 300, items: [{ id: 'escama', count: 2 }] },
@@ -318,8 +318,8 @@ export class EndingSystem {
       def.reward.items?.forEach((it) => this.state.addItem(it.id, it.count));
       store.notify(
         'quest',
-        `${def.title} — El destino está sellado`,
-        'Eldoria sigue abierto: puedes continuar explorando con el mundo transformado por tu decisión.',
+        `${def.title} — Your fate is sealed`,
+        'Eldoria remains open: you may keep exploring a world transformed by your choice.',
       );
     }
     store.setEndingCard(null);

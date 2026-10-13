@@ -2,11 +2,11 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Kingdoms of the Forgotten Seas — Capítulo I",
+  title: "Kingdoms of the Forgotten Seas — Chapter 1: A Brand New Beginning",
   description:
-    "Aventura medieval 3D de mundo abierto en tu navegador. Explora la isla de Aldmor, descubre ruinas antiguas, navega hacia lo desconocido y desentraña el legado de la Orden de la Marea.",
+    "A 3D medieval open-world adventure in your browser. Explore the island of Aldmor, uncover ancient ruins, sail into the unknown and unravel the legacy of the Order of the Tide.",
   keywords: [
-    "videojuego 3D", "mundo abierto", "medieval", "Three.js", "aventura", "dragones",
+    "3D video game", "open world", "medieval", "Three.js", "adventure", "dragons",
     "Kingdoms of the Forgotten Seas", "Eldoria",
   ],
   authors: [{ name: "AXCGames Studios" }],
@@ -24,7 +24,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="es" suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning>
       <head>
         {/* Medieval typography — falls back gracefully to serif if offline */}
         <link rel="preconnect" href="https://fonts.googleapis.com" />

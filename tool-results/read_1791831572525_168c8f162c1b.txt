@@ -1,0 +1,732 @@
+     1→'use client';
+     2→
+     3→import { useEffect, useRef, useState } from 'react';
+     4→import { useGameStore, type Notification, type SailingHud, type BossHud, type WeaponSlotHud } from '@/store/gameStore';
+     5→import { gameApi } from '@/game/api';
+     6→import {
+     7→  Compass, Heart, Wind, Anchor, Ship, Sword, Axe, Navigation, BowArrow,
+     8→  Scroll, Package, Trophy, Save, MapPin, Info, Lock, Shield, Gauge, Rabbit,
+     9→} from 'lucide-react';
+    10→
+    11→/** Fase 13 — contador de FPS opcional (ajustes → Mostrar FPS). */
+    12→function FpsCounter() {
+    13→  const [fps, setFps] = useState(0);
+    14→  useEffect(() => {
+    15→    const id = setInterval(() => setFps(gameApi.fps()), 500);
+    16→    return () => clearInterval(id);
+    17→  }, []);
+    18→  const color = fps >= 50 ? '#9fe08a' : fps >= 30 ? '#e8c96a' : '#e88a6a';
+    19→  return (
+    20→    <div
+    21→      className="kfs-frame pointer-events-none absolute left-1/2 top-3 -translate-x-1/2 px-3 py-1"
+    22→      style={{ background: 'rgba(12,10,8,0.72)' }}
+    23→    >
+    24→      <span className="kotfs-title text-[0.72rem] tracking-[0.18em]" style={{ color }}>
+    25→        {fps} FPS
+    26→      </span>
+    27→    </div>
+    28→  );
+    29→}
+    30→
+    31→/* ================================================================
+    32→   Fase 7 — HUD AAA "Brass & Iron": beveled frames, rivets, ghost
+    33→   bars, medallion, gauges. Presentational upgrade only — same store.
+    34→   ================================================================ */
+    35→
+    36→function Rivets() {
+    37→  return (
+    38→    <>
+    39→      <span className="kfs-rivet kfs-rivet-tl" />
+    40→      <span className="kfs-rivet kfs-rivet-tr" />
+    41→      <span className="kfs-rivet kfs-rivet-bl" />
+    42→      <span className="kfs-rivet kfs-rivet-br" />
+    43→    </>
+    44→  );
+    45→}
+    46→
+    47→/** Bar with a delayed pale "ghost" trail that shows recent damage. */
+    48→function GhostBar({
+    49→  value, max, kind, low,
+    50→}: { value: number; max: number; kind: 'hp' | 'st'; low?: boolean }) {
+    51→  const [ghost, setGhost] = useState(value);
+    52→  useEffect(() => {
+    53→    // heals follow instantly (next tick); damage trails behind (420 ms)
+    54→    const t = setTimeout(() => setGhost(value), value < ghost ? 420 : 0);
+    55→    return () => clearTimeout(t);
+    56→  }, [value, ghost]);
+    57→  const pct = Math.max(0, Math.min(100, (value / max) * 100));
+    58→  const ghostPct = Math.max(pct, Math.min(100, (ghost / max) * 100));
+    59→  return (
+    60→    <div className={`kfs-bar ${low ? 'kfs-bar-low' : ''}`}>
+    61→      <div className="kfs-bar-ghost" style={{ width: `${ghostPct}%` }} />
+    62→      <div className={`kfs-bar-fill ${kind === 'hp' ? 'kfs-bar-fill-hp' : 'kfs-bar-fill-st'}`} style={{ width: `${pct}%` }} />
+    63→      <div className="kfs-bar-ticks" />
+    64→    </div>
+    65→  );
+    66→}
+    67→
+    68→/** Circular level medallion with an XP progress ring. */
+    69→function XpMedallion({ level, xp, xpToNext }: { level: number; xp: number; xpToNext: number }) {
+    70→  const R = 24;
+    71→  const C = 2 * Math.PI * R;
+    72→  const frac = Math.max(0, Math.min(1, xp / xpToNext));
+    73→  return (
+    74→    <div className="kfs-medallion" title={`Nivel ${level} · ${xp}/${xpToNext} XP`}>
+    75→      <svg width="54" height="54" viewBox="0 0 54 54">
+    76→        <circle cx="27" cy="27" r={R} fill="rgba(12,9,6,0.92)" stroke="rgba(0,0,0,0.85)" strokeWidth="5" />
+    77→        <circle cx="27" cy="27" r={R} fill="none" stroke="rgba(201,162,39,0.18)" strokeWidth="4"
+    78→          strokeDasharray={`${C} ${C}`} transform="rotate(-90 27 27)" />
+    79→        <circle cx="27" cy="27" r={R} fill="none" stroke="#e8c96a" strokeWidth="3.2"
+    80→          strokeDasharray={`${C * frac} ${C}`} strokeLinecap="round" transform="rotate(-90 27 27)"
+    81→          style={{ filter: 'drop-shadow(0 0 5px rgba(232,201,106,0.7))', transition: 'stroke-dasharray 0.5s ease' }} />
+    82→        <circle cx="27" cy="27" r="18" fill="none" stroke="rgba(201,162,39,0.28)" strokeWidth="1" />
+    83→      </svg>
+    84→      <div className="kfs-medallion-num">{level}</div>
+    85→    </div>
+    86→  );
+    87→}
+    88→
+    89→/** Brass speed gauge (semicircle + needle). */
+    90→function SpeedGauge({ knots }: { knots: number }) {
+    91→  const frac = Math.min(1, Math.max(0, knots / 10));
+    92→  const angle = frac * 180 - 90;
+    93→  const arc = Math.PI * 30;
+    94→  return (
+    95→    <svg width="78" height="46" viewBox="0 0 78 46" className="shrink-0">
+    96→      <path d="M 9 40 A 30 30 0 0 1 69 40" fill="none" stroke="rgba(201,162,39,0.22)" strokeWidth="3.4" />
+    97→      {Array.from({ length: 6 }).map((_, i) => {
+    98→        const a = (i * 36 - 90) * (Math.PI / 180);
+    99→        return (
+   100→          <line key={i}
+   101→            x1={39 + Math.sin(a) * 24} y1={40 - Math.cos(a) * 24}
+   102→            x2={39 + Math.sin(a) * 30} y2={40 - Math.cos(a) * 30}
+   103→            stroke="rgba(201,162,39,0.55)" strokeWidth={i % 5 === 0 ? 2 : 1.2} />
+   104→        );
+   105→      })}
+   106→      <path d="M 9 40 A 30 30 0 0 1 69 40" fill="none" stroke="url(#kfsGaugeGrad)" strokeWidth="3.4"
+   107→        strokeDasharray={`${frac * arc} 200`} strokeLinecap="round" />
+   108→      <defs>
+   109→        <linearGradient id="kfsGaugeGrad" x1="0" y1="0" x2="1" y2="0">
+   110→          <stop offset="0%" stopColor="#9cc168" />
+   111→          <stop offset="100%" stopColor="#e8c96a" />
+   112→        </linearGradient>
+   113→      </defs>
+   114→      <g transform={`rotate(${angle} 39 40)`} style={{ transition: 'transform 0.3s ease-out' }}>
+   115→        <line x1="39" y1="40" x2="39" y2="15" stroke="#f0e2b6" strokeWidth="2" />
+   116→        <circle cx="39" cy="40" r="3.4" fill="#8a6a1e" stroke="#e8c96a" strokeWidth="1" />
+   117→      </g>
+   118→    </svg>
+   119→  );
+   120→}
+   121→
+   122→/** Compass strip with 15° ticks, cardinal letters and a degree readout. */
+   123→function CompassStrip() {
+   124→  const [yaw, setYaw] = useState(0);
+   125→  useEffect(() => {
+   126→    const iv = setInterval(() => {
+   127→      const y = (window as unknown as { __kotfsYaw?: number }).__kotfsYaw;
+   128→      if (typeof y === 'number') setYaw(y);
+   129→    }, 80);
+   130→    return () => clearInterval(iv);
+   131→  }, []);
+   132→  const deg = Math.round(((-yaw * 180) / Math.PI + 360) % 360);
+   133→  const CARDINALS: Record<number, string> = { 0: 'N', 90: 'E', 180: 'S', 270: 'O' };
+   134→  const HALVES: Record<number, string> = { 45: 'NE', 135: 'SE', 225: 'SO', 315: 'NO' };
+   135→
+   136→  const marks: React.ReactNode[] = [];
+   137→  for (let d = 0; d < 360; d += 15) {
+   138→    let delta = d - deg;
+   139→    if (delta > 180) delta -= 360;
+   140→    if (delta < -180) delta += 360;
+   141→    const px = delta * 2.7;
+   142→    if (Math.abs(px) > 158) continue;
+   143→    const cardinal = CARDINALS[d];
+   144→    const half = HALVES[d];
+   145→    if (cardinal) {
+   146→      marks.push(
+   147→        <span key={d} className="kotfs-title absolute text-[0.86rem] font-bold text-[color:#e8c96a]"
+   148→          style={{
+   149→            left: `calc(50% + ${px}px)`, top: '50%', transform: 'translate(-50%,-54%)',
+   150→            textShadow: '0 0 10px rgba(232,201,106,0.75), 0 2px 4px #000',
+   151→            opacity: 1 - Math.abs(px) / 210,
+   152→          }}>
+   153→          {cardinal}
+   154→        </span>,
+   155→      );
+   156→    } else if (half) {
+   157→      marks.push(
+   158→        <span key={d} className="kotfs-title absolute text-[0.56rem] text-[color:var(--kotfs-parchment-dim)]"
+   159→          style={{
+   160→            left: `calc(50% + ${px}px)`, top: '56%', transform: 'translateX(-50%)',
+   161→            opacity: 0.85 - Math.abs(px) / 220,
+   162→          }}>
+   163→          {half}
+   164→        </span>,
+   165→      );
+   166→    } else {
+   167→      marks.push(
+   168→        <span key={d} className="absolute w-px bg-[color:rgba(201,162,39,0.5)]"
+   169→          style={{
+   170→            left: `calc(50% + ${px}px)`, top: 7, height: d % 45 === 0 ? 8 : 5,
+   171→            opacity: 0.8 - Math.abs(px) / 220,
+   172→          }} />,
+   173→      );
+   174→    }
+   175→  }
+   176→
+   177→  return (
+   178→    <div className="flex flex-col items-center gap-0.5">
+   179→      <div className="kfs-compass kotfs-compass-mask relative w-[330px]">
+   180→        {marks}
+   181→        <div className="kfs-compass-vignette" />
+   182→      </div>
+   183→      <p className="kotfs-title text-[0.56rem] tracking-[0.3em] text-[color:var(--kotfs-parchment-dim)] opacity-75">
+   184→        {String(deg).padStart(3, '0')}°
+   185→      </p>
+   186→    </div>
+   187→  );
+   188→}
+   189→
+   190→/** Turn "(E)" fragments of a prompt into brass keycaps. */
+   191→function renderPromptText(text: string) {
+   192→  return text.split(/(\([^)]+\))/g).map((p, i) => {
+   193→    const m = p.match(/^\((.+)\)$/);
+   194→    if (m) return <span key={i} className="kfs-kbd">{m[1]}</span>;
+   195→    return <span key={i}>{p}</span>;
+   196→  });
+   197→}
+   198→
+   199→/* ---------------------------------------------------------------- panels */
+   200→
+   201→function NotifCard({ n }: { n: Notification }) {
+   202→  const dismiss = useGameStore((s) => s.dismissNotification);
+   203→  useEffect(() => {
+   204→    const t = setTimeout(() => dismiss(n.id), 6500);
+   205→    return () => clearTimeout(t);
+   206→  }, [n.id, dismiss]);
+   207→
+   208→  const conf: Record<Notification['kind'], { icon: typeof Scroll; color: string; glow?: boolean }> = {
+   209→    info: { icon: Info, color: '#c9bb9c' },
+   210→    quest: { icon: Scroll, color: '#e8c96a', glow: true },
+   211→    discovery: { icon: MapPin, color: '#e8c96a', glow: true },
+   212→    item: { icon: Package, color: '#a8c48a' },
+   213→    levelup: { icon: Trophy, color: '#ffd97a', glow: true },
+   214→    save: { icon: Save, color: '#c9bb9c' },
+   215→  };
+   216→  const c = conf[n.kind] ?? conf.info;
+   217→  const Icon = c.icon;
+   218→
+   219→  return (
+   220→    <div
+   221→      className={`kfs-notif kfs-frame pointer-events-auto flex max-w-xs items-start gap-2.5 px-3.5 py-2 ${c.glow ? 'kfs-notif-glow-quest' : ''}`}
+   222→      onClick={() => dismiss(n.id)}
+   223→    >
+   224→      <span className="kfs-rivet kfs-rivet-tl" />
+   225→      <span className="kfs-rivet kfs-rivet-br" />
+   226→      <span className="absolute left-0 top-0 h-full w-[3px]" style={{ background: c.color, opacity: 0.85 }} />
+   227→      <Icon size={15} style={{ color: c.color }} className="mt-0.5 shrink-0" />
+   228→      <div className="min-w-0">
+   229→        <p className="kotfs-title text-[0.7rem] leading-tight" style={{ color: c.color }}>{n.title}</p>
+   230→        {n.body && <p className="mt-0.5 text-[0.72rem] leading-snug text-[color:var(--kotfs-parchment-dim)]">{n.body}</p>}
+   231→      </div>
+   232→    </div>
+   233→  );
+   234→}
+   235→
+   236→function SailingPanel({ s }: { s: SailingHud }) {
+   237→  const sailLabel = ['RECOGIDAS', 'MEDIA VELA', 'VELA PLENA'][s.sailState];
+   238→  const windDeg = (s.windRel * 180) / Math.PI;
+   239→  const hullPct = Math.max(0, (s.hull / s.hullMax) * 100);
+   240→  return (
+   241→    <div className="kfs-frame kotfs-panel-corner absolute bottom-24 right-5 w-[272px] px-4 py-3">
+   242→      <Rivets />
+   243→      <div className="mb-2 flex items-center justify-between">
+   244→        <span className="kotfs-title flex items-center gap-1.5 text-[0.66rem] tracking-[0.22em] text-[color:var(--kotfs-parchment)]">
+   245→          <Ship size={12} className="text-[color:#e8c96a]" /> {s.shipName.toUpperCase()}
+   246→        </span>
+   247→        {s.anchored && (
+   248→          <span className="flex items-center gap-1 text-[0.58rem] tracking-widest text-[color:#e8c96a]">
+   249→            <Anchor size={10} /> FONDEADO
+   250→          </span>
+   251→        )}
+   252→      </div>
+   253→
+   254→      <div className="flex items-center gap-3">
+   255→        <SpeedGauge knots={s.knots} />
+   256→        <div className="flex-1">
+   257→          <div className="mb-0.5 flex items-center justify-between">
+   258→            <span className="kotfs-title flex items-center gap-1 text-[0.55rem] tracking-[0.2em] text-[color:var(--kotfs-parchment-dim)]">
+   259→              <Shield size={9} className="text-[color:#c05656]" /> CASCO
+   260→            </span>
+   261→            <span className="text-[0.58rem] text-[color:var(--kotfs-parchment-dim)]">{Math.round(s.hull)}/{s.hullMax}</span>
+   262→          </div>
+   263→          <GhostBar value={s.hull} max={s.hullMax} kind="hp" low={hullPct < 25} />
+   264→          <div className="mt-1.5 flex items-center justify-between">
+   265→            <span className="kotfs-title text-[0.55rem] tracking-[0.2em] text-[color:#a8c48a]">
+   266→              <Gauge size={9} className="mr-0.5 inline" /> {sailLabel}
+   267→            </span>
+   268→            <span className="flex items-center gap-1 text-[0.55rem] tracking-[0.2em] text-[color:var(--kotfs-parchment-dim)]">
+   269→              VIENTO
+   270→              <span className="relative inline-flex h-5 w-5 items-center justify-center rounded-full border border-[color:rgba(201,162,39,0.45)]">
+   271→                <span className="absolute left-1/2 top-[1px] h-1 w-[2px] -translate-x-1/2 bg-[color:#e8c96a]" />
+   272→                <Wind size={11} className="text-[color:#9cc168]"
+   273→                  style={{ transform: `rotate(${windDeg}deg)`, transition: 'transform 0.3s ease' }} />
+   274→              </span>
+   275→            </span>
+   276→          </div>
+   277→        </div>
+   278→      </div>
+   279→
+   280→      {/* Broadsides */}
+   281→      <div className="mt-2.5 flex items-center gap-2 border-t border-[color:rgba(201,162,39,0.2)] pt-2">
+   282→        <div className="flex-1">
+   283→          <p className="text-center text-[0.5rem] tracking-widest text-[color:var(--kotfs-parchment-dim)]">BABOR · CLIC IZQ.</p>
+   284→          <div className="kfs-bar mt-0.5 h-[5px]">
+   285→            <div className="kfs-bar-fill" style={{
+   286→              width: `${s.cdPort * 100}%`,
+   287→              background: s.cdPort >= 1
+   288→                ? 'linear-gradient(90deg,#8a6a1e,#e8c96a)'
+   289→                : 'linear-gradient(90deg,#4a3a10,#8a6a1e)',
+   290→              boxShadow: s.cdPort >= 1 ? '0 0 10px rgba(232,201,106,0.6)' : 'none',
+   291→            }} />
+   292→          </div>
+   293→        </div>
+   294→        <span className="kotfs-title text-[0.55rem] tracking-[0.18em] text-[color:var(--kotfs-parchment-dim)]">BORDADAS</span>
+   295→        <div className="flex-1">
+   296→          <p className="text-center text-[0.5rem] tracking-widest text-[color:var(--kotfs-parchment-dim)]">ESTRIBOR · CLIC DER.</p>
+   297→          <div className="kfs-bar mt-0.5 h-[5px]">
+   298→            <div className="kfs-bar-fill" style={{
+   299→              width: `${s.cdStar * 100}%`,
+   300→              background: s.cdStar >= 1
+   301→                ? 'linear-gradient(90deg,#8a6a1e,#e8c96a)'
+   302→                : 'linear-gradient(90deg,#4a3a10,#8a6a1e)',
+   303→              boxShadow: s.cdStar >= 1 ? '0 0 10px rgba(232,201,106,0.6)' : 'none',
+   304→            }} />
+   305→          </div>
+   306→        </div>
+   307→      </div>
+   308→
+   309→      {s.enemy && (
+   310→        <div className="mt-2 border-t border-[color:rgba(201,162,39,0.25)] pt-1.5">
+   311→          <div className="flex items-center justify-between">
+   312→            <span className="kotfs-title text-[0.6rem] tracking-[0.15em] text-[color:#d88080]">⚓ {s.enemy.name}</span>
+   313→            <span className="text-[0.58rem] text-[color:var(--kotfs-parchment-dim)]">{Math.round(s.enemy.dist)} m</span>
+   314→          </div>
+   315→          <div className="kfs-bar mt-1 h-[6px]">
+   316→            <div className="kfs-bar-fill kfs-bar-fill-hp" style={{ width: `${s.enemy.hullFrac * 100}%` }} />
+   317→          </div>
+   318→          {s.enemy.hullFrac < 0.36 && (
+   319→            <p className="kotfs-pulse mt-1 text-center text-[0.58rem] italic text-[color:#e8c96a]">
+   320→              ¡Tocada! Acércate y <span className="kfs-kbd !h-[17px] !min-w-[17px] !text-[0.6rem]">E</span> ABORDA
+   321→            </p>
+   322→          )}
+   323→        </div>
+   324→      )}
+   325→    </div>
+   326→  );
+   327→}
+   328→
+   329→function MountPanel({ m }: { m: { horseName: string; gait: string; speedKmh: number; cart: boolean } }) {
+   330→  return (
+   331→    <div className="kfs-frame absolute bottom-6 left-1/2 flex -translate-x-1/2 items-center gap-3 px-5 py-1.5">
+   332→      <Rivets />
+   333→      <Rabbit size={13} className="text-[color:#e8c96a]" />
+   334→      <span className="kotfs-title text-[0.72rem] tracking-[0.15em] text-[color:#e8c96a]">{m.horseName.toUpperCase()}</span>
+   335→      <span className="opacity-30">|</span>
+   336→      <span className="text-[0.72rem] text-[color:var(--kotfs-parchment)]">{m.gait}</span>
+   337→      <span className="opacity-30">|</span>
+   338→      <span className="text-[0.72rem] text-[color:var(--kotfs-parchment-dim)]">{m.speedKmh} km/h</span>
+   339→      {m.cart && (
+   340→        <>
+   341→          <span className="opacity-30">|</span>
+   342→          <span className="kotfs-title text-[0.62rem] tracking-widest text-[color:#e8c96a]">CARRETA</span>
+   343→        </>
+   344→      )}
+   345→      <span className="opacity-30">|</span>
+   346→      <span className="text-[0.68rem]"><span className="kfs-kbd !h-[19px] !min-w-[19px] !text-[0.62rem]">E</span> desmontar</span>
+   347→    </div>
+   348→  );
+   349→}
+   350→
+   351→/** Ornate boss bar: filigree flanks, name plate, phase gems, ghost damage. */
+   352→function BossBar({ b }: { b: BossHud }) {
+   353→  const [ghost, setGhost] = useState(b.hp);
+   354→  useEffect(() => {
+   355→    // heals follow instantly (next tick); damage trails behind (520 ms)
+   356→    const t = setTimeout(() => setGhost(b.hp), b.hp < ghost ? 520 : 0);
+   357→    return () => clearTimeout(t);
+   358→  }, [b.hp, ghost]);
+   359→  const pct = Math.max(0, (b.hp / b.maxHp) * 100);
+   360→  const ghostPct = Math.max(pct, Math.min(100, (ghost / b.maxHp) * 100));
+   361→  return (
+   362→    <div className="kfs-boss absolute left-1/2 top-16 w-[min(600px,74vw)] -translate-x-1/2">
+   363→      <div className="kfs-frame px-6 py-2.5" style={{ borderColor: 'rgba(192,86,86,0.5)' }}>
+   364→        <Rivets />
+   365→        <div className="flex items-center justify-center gap-3">
+   366→          <svg width="64" height="18" viewBox="0 0 64 18" className="opacity-70">
+   367→            <path d="M62,9 C46,1 34,17 18,9 C11,5.5 6,7 2,9" fill="none" stroke="#c9a227" strokeWidth="1.3" />
+   368→            <circle cx="2" cy="9" r="1.8" fill="#c9a227" />
+   369→          </svg>
+   370→          <span className="kotfs-title text-[0.92rem] tracking-[0.24em] text-[color:#e09090] kotfs-shadow-text">
+   371→            {b.name.toUpperCase()}
+   372→          </span>
+   373→          <svg width="64" height="18" viewBox="0 0 64 18" className="opacity-70" style={{ transform: 'scaleX(-1)' }}>
+   374→            <path d="M62,9 C46,1 34,17 18,9 C11,5.5 6,7 2,9" fill="none" stroke="#c9a227" strokeWidth="1.3" />
+   375→            <circle cx="2" cy="9" r="1.8" fill="#c9a227" />
+   376→          </svg>
+   377→        </div>
+   378→        <div className="mt-1 flex items-baseline justify-center gap-2">
+   379→          <span className="text-[0.62rem] italic tracking-wider text-[color:var(--kotfs-parchment-dim)]">{b.title}</span>
+   380→          {b.phase > 1 && (
+   381→            <span className="flex items-center gap-1.5">
+   382→              {[1, 2, 3].slice(0, Math.max(2, b.phase)).map((p) => (
+   383→                <span key={p} className={`kfs-gem ${p <= b.phase ? 'kfs-gem-lit' : ''}`} />
+   384→              ))}
+   385→            </span>
+   386→          )}
+   387→        </div>
+   388→        <div className="kfs-bar mt-1.5 h-[11px]">
+   389→          <div className="kfs-bar-ghost" style={{ width: `${ghostPct}%`, background: 'linear-gradient(90deg,rgba(238,200,180,0.8),rgba(192,86,86,0.7))' }} />
+   390→          <div className="kfs-bar-fill" style={{
+   391→            width: `${pct}%`,
+   392→            background: pct > 40
+   393→              ? 'linear-gradient(180deg,#c46a5a 0%,#8f2f2f 45%,#5c1a19 100%)'
+   394→              : 'linear-gradient(180deg,#e8a05a 0%,#c05a20 45%,#7a2f0e 100%)',
+   395→            boxShadow: '0 0 16px rgba(220,80,50,0.55), inset 0 1px 0 rgba(255,255,255,0.25)',
+   396→          }} />
+   397→          <div className="kfs-bar-ticks" />
+   398→        </div>
+   399→      </div>
+   400→    </div>
+   401→  );
+   402→}
+   403→
+   404→/** Weapon action bar (keys 1-4) with brass keycaps. */
+   405→function WeaponSlots({ slots }: { slots: WeaponSlotHud[] }) {
+   406→  if (slots.length === 0) return null;
+   407→  const icons: Record<string, typeof Sword> = { sword: Sword, axe: Axe, spear: Navigation, bow: BowArrow };
+   408→  return (
+   409→    <div className="absolute bottom-24 right-5 flex gap-2">
+   410→      {slots.map((s) => {
+   411→        const Icon = icons[s.kind] ?? Sword;
+   412→        return (
+   413→          <div
+   414→            key={s.id}
+   415→            className={`kfs-slot ${s.equipped ? 'kfs-slot-equipped' : s.owned ? 'kfs-slot-owned' : 'kfs-slot-locked'}`}
+   416→            title={s.name}
+   417→          >
+   418→            <span className="kfs-keycap">{s.slot}</span>
+   419→            {s.owned
+   420→              ? <Icon size={20} className={s.equipped ? 'text-[color:#ffe9a6]' : 'text-[color:var(--kotfs-parchment-dim)]'} />
+   421→              : <Lock size={15} className="text-[color:var(--kotfs-parchment-dim)]" />}
+   422→            <span className={`kotfs-title max-w-[56px] truncate text-center text-[0.44rem] tracking-wide ${
+   423→              s.equipped ? 'text-[color:var(--kotfs-parchment)]' : 'text-[color:var(--kotfs-parchment-dim)]'
+   424→            }`}>
+   425→              {s.name.toUpperCase()}
+   426→            </span>
+   427→          </div>
+   428→        );
+   429→      })}
+   430→    </div>
+   431→  );
+   432→}
+   433→
+   434→/* ---------------------------------------------------------------- root */
+   435→
+   436→/** Fase 12 — screen-space objective pin: a golden compass diamond hovering
+   437→ *  over the target, or an edge arrow with metres when it's off-screen. */
+   438→function QuestPin({ m }: {
+   439→  m: { x: number; y: number; onScreen: boolean; dist: number; angle: number };
+   440→}) {
+   441→  const left = `${(m.x * 100).toFixed(2)}%`;
+   442→  const top = `${(m.y * 100).toFixed(2)}%`;
+   443→  if (m.onScreen) {
+   444→    return (
+   445→      <div
+   446→        className="absolute -translate-x-1/2 -translate-y-1/2"
+   447→        style={{ left, top }}
+   448→      >
+   449→        <div className="flex flex-col items-center gap-0.5">
+   450→          <span
+   451→            className="block h-3.5 w-3.5 rotate-45 border-2 border-[color:#ffe9a8] bg-[color:#e8c96a]/90"
+   452→            style={{ boxShadow: '0 0 14px rgba(232,201,106,0.95), 0 0 4px rgba(0,0,0,0.6)' }}
+   453→          />
+   454→          <span
+   455→            className="kotfs-title whitespace-nowrap border border-[color:#e8c96a]/50 bg-[color:#140f06]/85 px-1.5 py-px text-[0.62rem] tracking-[0.08em] text-[color:#ffe9a8]"
+   456→            style={{ textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}
+   457→          >
+   458→            {m.dist} m
+   459→          </span>
+   460→        </div>
+   461→      </div>
+   462→    );
+   463→  }
+   464→  // off-screen: arrow clamped near the edge + metres
+   465→  return (
+   466→    <div
+   467→      className="absolute -translate-x-1/2 -translate-y-1/2"
+   468→      style={{ left, top }}
+   469→    >
+   470→      <div className="flex flex-col items-center gap-0.5">
+   471→        <span
+   472→          className="kotfs-title text-2xl leading-none text-[color:#ffd76a]"
+   473→          style={{
+   474→            transform: `rotate(${m.angle}rad)`,
+   475→            textShadow: '0 0 12px rgba(232,201,106,0.95), 0 1px 4px rgba(0,0,0,0.8)',
+   476→          }}
+   477→        >
+   478→          ➤
+   479→        </span>
+   480→        <span
+   481→          className="kotfs-title whitespace-nowrap border border-[color:#e8c96a]/40 bg-[color:#140f06]/80 px-1.5 py-px text-[0.6rem] tracking-[0.08em] text-[color:#e8c96a]"
+   482→          style={{ textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}
+   483→        >
+   484→          {m.dist} m
+   485→        </span>
+   486→      </div>
+   487→    </div>
+   488→  );
+   489→}
+   490→
+   491→export default function HUD() {
+   492→  const health = useGameStore((s) => s.health);
+   493→  const maxHealth = useGameStore((s) => s.maxHealth);
+   494→  const stamina = useGameStore((s) => s.stamina);
+   495→  const maxStamina = useGameStore((s) => s.maxStamina);
+   496→  const clock = useGameStore((s) => s.clock);
+   497→  const dayCount = useGameStore((s) => s.dayCount);
+   498→  const prompt = useGameStore((s) => s.prompt);
+   499→  const questTracker = useGameStore((s) => s.questTracker);
+   500→  const discovery = useGameStore((s) => s.discovery);
+   501→  const notifications = useGameStore((s) => s.notifications);
+   502→  const level = useGameStore((s) => s.level);
+   503→  const xp = useGameStore((s) => s.xp);
+   504→  const xpToNext = useGameStore((s) => s.xpToNext);
+   505→  const overlay = useGameStore((s) => s.overlay);
+   506→  const dialogue = useGameStore((s) => s.dialogue);
+   507→  const sailing = useGameStore((s) => s.sailing);
+   508→  const boss = useGameStore((s) => s.boss);
+   509→  const weaponSlots = useGameStore((s) => s.weaponSlots);
+   510→  const bowDraw = useGameStore((s) => s.bowDraw);
+   511→  const atHelm = useGameStore((s) => s.atHelm);
+   512→  const mount = useGameStore((s) => s.mount);
+   513→  const hurtFlash = useGameStore((s) => s.hurtFlash);
+   514→  const combo = useGameStore((s) => s.combo);
+   515→  // "staminaOut" latches while the bar sits at zero (pulse warning).
+   516→  // Derived WITHOUT touching a ref during render (react-hooks/refs).
+   517→  const staminaOut = stamina <= 0.5;
+   518→
+   519→  const hidden = overlay !== null || dialogue !== null;
+   520→
+   521→  // Fase 13 — contador de FPS opcional (ajustes → Mostrar FPS)
+   522→  const [showFps, setShowFps] = useState(false);
+   523→  useEffect(() => {
+   524→    const id = setInterval(() => {
+   525→      const v = !!gameApi.settings().showFps;
+   526→      setShowFps((prev) => (prev === v ? prev : v));
+   527→    }, 800);
+   528→    return () => clearInterval(id);
+   529→  }, []);
+   530→  if (hidden) return null;
+   531→
+   532→  const lowHp = health / maxHealth < 0.28;
+   533→
+   534→  return (
+   535→    <div className="pointer-events-none absolute inset-0 z-20 select-none">
+   536→      {showFps && <FpsCounter />}
+   537→      {/* --- Top center: compass + clock --- */}
+   538→      <div className="absolute left-1/2 top-3 flex -translate-x-1/2 flex-col items-center gap-1">
+   539→        <CompassStrip />
+   540→        <p className="kotfs-title flex items-center gap-2 text-[0.6rem] tracking-[0.3em] text-[color:var(--kotfs-parchment-dim)] opacity-85">
+   541→          <span>DÍA {dayCount}</span>
+   542→          <span className="h-3 w-px bg-[color:rgba(201,162,39,0.5)]" />
+   543→          <span>{clock}</span>
+   544→        </p>
+   545→      </div>
+   546→
+   547→      {/* --- Fase 12 — the objective PIN: pinned on the world, clamped to
+   548→           the screen edge with an arrow when you face away --- */}
+   549→      {questTracker?.marker3d && !dialogue && <QuestPin m={questTracker.marker3d} />}
+   550→
+   551→      {/* --- Boss health bar --- */}
+   552→      {boss && <BossBar b={boss} />}
+   553→
+   554→      {/* --- Fase 9 — combo chain indicator (cinematic combat) --- */}
+   555→      {combo && !atHelm && (
+   556→        <div className="absolute left-1/2 top-[64px] -translate-x-1/2 text-center">
+   557→          <p
+   558→            className="kotfs-title text-lg tracking-[0.24em] text-[color:#e8c96a]"
+   559→            style={{ textShadow: '0 1px 10px rgba(0,0,0,0.85)' }}
+   560→          >
+   561→            {combo.label ?? (combo.counter ? '¡CONTRAATAQUE!' : `CADENA ×${combo.step + 1}`)}
+   562→          </p>
+   563→          <p className="text-[0.58rem] tracking-[0.3em] text-[color:var(--kotfs-parchment-dim)] uppercase">
+   564→            {combo.label
+   565→              ? (combo.label.includes('ESQUIVA') ? 'golpea ahora — ventana abierta' : '')
+   566→              : combo.counter ? 'golpea ahora — daño ×1.6' : combo.step >= 1 ? 'sigue — remate a la tercera' : 'encadena'}
+   567→          </p>
+   568→        </div>
+   569→      )}
+   570→
+   571→      {/* --- Top right: quest tracker scroll --- */}
+   572→      {questTracker && (
+   573→        <div className="kfs-frame absolute right-4 top-4 max-w-[300px] px-4 py-2.5 text-right">
+   574→          <Rivets />
+   575→          <p className="kotfs-title flex items-center justify-end gap-1.5 text-[0.6rem] tracking-[0.3em] text-[color:#e8c96a] opacity-95">
+   576→            <Scroll size={10} /> MISIÓN ACTUAL
+   577→          </p>
+   578→          <p className="kotfs-title mt-1 text-[0.92rem] leading-tight text-[color:var(--kotfs-parchment)] kotfs-shadow-text">
+   579→            {questTracker.title}
+   580→          </p>
+   581→          <ul className="mt-1.5 space-y-1">
+   582→            {questTracker.objectives.map((o, i) => (
+   583→              <li key={i} className={`flex items-center justify-end gap-2 text-[0.74rem] leading-snug kotfs-shadow-text ${
+   584→                o.done ? 'text-[color:var(--kotfs-parchment-dim)] line-through opacity-55' : 'text-[color:var(--kotfs-parchment)]'
+   585→              }`}>
+   586→                <span className={`inline-block h-[7px] w-[7px] rotate-45 ${o.done ? 'bg-[color:#4a4232]' : 'bg-[color:#e8c96a]'}`}
+   587→                  style={!o.done ? { boxShadow: '0 0 6px rgba(232,201,106,0.8)' } : undefined} />
+   588→                {o.text}
+   589→              </li>
+   590→            ))}
+   591→          </ul>
+   592→          {/* Fase 11 — the señálero: live bearing + distance to the objective */}
+   593→          {questTracker.marker && (
+   594→            <div className="mt-1.5 flex items-center justify-end gap-2 border-t border-[color:#5a4a2e]/60 pt-1.5">
+   595→              <span className="kotfs-serif text-[0.66rem] italic text-[color:#cdb98a]/80">objetivo</span>
+   596→              <span
+   597→                className="kotfs-title inline-flex h-6 w-6 items-center justify-center border border-[color:#e8c96a]/70 bg-[color:#1a140a]/80"
+   598→                style={{ transform: `rotate(${questTracker.marker.bearing}rad)`, boxShadow: '0 0 10px rgba(232,201,106,0.35) inset' }}
+   599→              >
+   600→                <span
+   601→                  className="text-[0.72rem] leading-none text-[color:#e8c96a]"
+   602→                  style={{ textShadow: '0 0 8px rgba(232,201,106,0.9)' }}
+   603→                >
+   604→                  ➤
+   605→                </span>
+   606→              </span>
+   607→              <span className="kotfs-title text-[0.7rem] tracking-[0.1em] text-[color:#ffe9a8] kotfs-shadow-text">
+   608→                {questTracker.marker.dist} m
+   609→              </span>
+   610→            </div>
+   611→          )}
+   612→        </div>
+   613→      )}
+   614→
+   615→      {/* --- Bottom left: vitals + medallion --- */}
+   616→      <div className="absolute bottom-5 left-5 flex items-end gap-3">
+   617→        <XpMedallion level={level} xp={xp} xpToNext={xpToNext} />
+   618→        <div className="kfs-frame w-56 px-4 pb-3 pt-2.5">
+   619→          <Rivets />
+   620→          <div className="mb-1 flex items-center justify-between">
+   621→            <span className="kotfs-title flex items-center gap-1.5 text-[0.6rem] tracking-[0.22em] text-[color:var(--kotfs-parchment-dim)]">
+   622→              <Heart size={11} className="text-[color:#e06a5a]" /> SALUD
+   623→            </span>
+   624→            <span className="kotfs-title text-[0.62rem] text-[color:var(--kotfs-parchment)]">
+   625→              {Math.round(health)}<span className="opacity-50">/{maxHealth}</span>
+   626→            </span>
+   627→          </div>
+   628→          <GhostBar value={health} max={maxHealth} kind="hp" low={lowHp} />
+   629→          <div className="mb-1 mt-2.5 flex items-center justify-between">
+   630→            <span className="kotfs-title flex items-center gap-1.5 text-[0.6rem] tracking-[0.22em] text-[color:var(--kotfs-parchment-dim)]">
+   631→              <Wind size={11} className="text-[color:#9cc168]" /> RESISTENCIA
+   632→            </span>
+   633→            <span className="kotfs-title text-[0.62rem] text-[color:var(--kotfs-parchment)]">
+   634→              {Math.round(stamina)}<span className="opacity-50">/{maxStamina}</span>
+   635→            </span>
+   636→          </div>
+   637→          <div className={staminaOut ? 'kfs-stamina-out' : ''}>
+   638→            <GhostBar value={stamina} max={maxStamina} kind="st" />
+   639→          </div>
+   640→        </div>
+   641→      </div>
+   642→
+   643→      {/* --- Bottom center: interaction prompt --- */}
+   644→      {prompt && (
+   645→        <div className="kfs-prompt absolute bottom-[12vh] left-1/2 -translate-x-1/2">
+   646→          <div className="kfs-frame px-6 py-2">
+   647→            <Rivets />
+   648→            <p className="kotfs-shadow-text text-[0.92rem] tracking-wide text-[color:var(--kotfs-parchment)]">
+   649→              {renderPromptText(prompt)}
+   650→            </p>
+   651→          </div>
+   652→        </div>
+   653→      )}
+   654→
+   655→      {/* --- Naval / mount panels --- */}
+   656→      {sailing && <SailingPanel s={sailing} />}
+   657→      {mount && !atHelm && <MountPanel m={mount} />}
+   658→
+   659→      {/* --- Weapon quick-slots (on foot) --- */}
+   660→      {!atHelm && <WeaponSlots slots={weaponSlots} />}
+   661→
+   662→      {/* --- Bow reticle --- */}
+   663→      {!atHelm && bowDraw >= 0 && (
+   664→        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
+   665→          {(() => {
+   666→            const gap = 7 + (1 - Math.max(0, bowDraw)) * 20;
+   667→            const len = 9;
+   668→            return (
+   669→              <div className="relative h-1 w-1">
+   670→                <span className="kfs-reticle-tick" style={{ position: 'absolute', left: '50%', top: '50%', width: 2, height: len, transform: `translate(-50%,-50%) translateY(-${gap}px)`, opacity: 0.9 }} />
+   671→                <span className="kfs-reticle-tick" style={{ position: 'absolute', left: '50%', top: '50%', width: 2, height: len, transform: `translate(-50%,-50%) translateY(${gap}px)`, opacity: 0.9 }} />
+   672→                <span className="kfs-reticle-tick" style={{ position: 'absolute', left: '50%', top: '50%', width: len, height: 2, transform: `translate(-50%,-50%) translateX(-${gap}px)`, opacity: 0.9 }} />
+   673→                <span className="kfs-reticle-tick" style={{ position: 'absolute', left: '50%', top: '50%', width: len, height: 2, transform: `translate(-50%,-50%) translateX(${gap}px)`, opacity: 0.9 }} />
+   674→                <span className="absolute left-1/2 top-1/2 h-[3px] w-[3px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[color:#e8c96a]"
+   675→                  style={{ boxShadow: '0 0 6px rgba(232,201,106,0.9)' }} />
+   676→              </div>
+   677→            );
+   678→          })()}
+   679→        </div>
+   680→      )}
+   681→
+   682→      {/* --- Damage vignette / low-health pulse --- */}
+   683→      {hurtFlash !== 0 && (
+   684→        <div key={hurtFlash} className="kotfs-hurt-vignette pointer-events-none absolute inset-0" />
+   685→      )}
+   686→      {lowHp && !sailing && <div className="kfs-lowhp" />}
+   687→
+   688→      {/* --- Keymap hints --- */}
+   689→      <div className="absolute bottom-5 right-5 text-right text-[0.6rem] leading-[1.7] tracking-wider text-[color:var(--kotfs-parchment-dim)] opacity-60">
+   690→        {sailing ? (
+   691→          <>
+   692→            <p><span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">W</span><span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">S</span> velas · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">A</span><span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">D</span> timón · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">ESPACIO</span> fondear</p>
+   693→            <p>CLIC IZQ./DER. bordadas · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">E</span> desembarcar / abordar</p>
+   694→            {boss && <p className="text-[color:#e8c96a]">¡APUNTA LAS BORDADAS AL WYVERN!</p>}
+   695→          </>
+   696→        ) : (
+   697→          <>
+   698→            <p>CLIC atacar (mantén = pesado) · CLIC DER. bloquear · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">C</span> esquivar</p>
+   699→            <p><span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">1</span>–<span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">4</span> armas · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">MAYÚS</span> correr · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">ESPACIO</span> saltar · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">E</span> interactuar</p>
+   700→          </>
+   701→        )}
+   702→      </div>
+   703→
+   704→      {/* --- Top left: notifications --- */}
+   705→      <div className="pointer-events-auto absolute left-4 top-4 flex flex-col gap-2">
+   706→        {notifications.map((n) => <NotifCard key={n.id} n={n} />)}
+   707→      </div>
+   708→
+   709→      {/* --- Center: discovery banner --- */}
+   710→      {discovery && (
+   711→        <div className="kfs-discovery absolute left-1/2 top-[26%] w-[min(520px,80vw)] -translate-x-1/2 text-center">
+   712→          <p className="kotfs-title text-[0.62rem] tracking-[0.6em] text-[color:#e8c96a]">
+   713→            — LUGAR DESCUBIERTO —
+   714→          </p>
+   715→          <div className="kfs-discovery-line mx-auto mt-1.5 w-2/3" />
+   716→          <h3 className="kotfs-title mt-2 text-[2rem] leading-tight text-[color:var(--kotfs-parchment)]"
+   717→            style={{ textShadow: '0 0 34px rgba(201,162,39,0.55), 0 4px 16px #000' }}>
+   718→            {discovery.title}
+   719→          </h3>
+   720→          <p className="mt-1 text-[0.85rem] italic text-[color:var(--kotfs-parchment-dim)]">{discovery.sub}</p>
+   721→          <div className="kfs-discovery-line mx-auto mt-2 w-1/2" />
+   722→        </div>
+   723→      )}
+   724→
+   725→      {/* Decorative compass icon */}
+   726→      <div className="absolute left-1/2 top-[4.4rem] hidden -translate-x-1/2 opacity-50 lg:block">
+   727→        <Compass size={11} className="text-[color:#e8c96a]" />
+   728→      </div>
+   729→    </div>
+   730→  );
+   731→}
+   732→

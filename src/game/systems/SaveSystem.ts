@@ -31,12 +31,25 @@ export interface SaveData {
       sailState: 0 | 1 | 2; anchored: boolean; sunk: boolean; sinking: number;
       questBoarded?: boolean;
     }>;
+    /** Fase 16 — admin ships survive a reload (optional; old saves lack it). */
+    extras?: Array<{
+      id: string; x: number; z: number; heading: number; hullHp: number;
+      sailState: 0 | 1 | 2; anchored: boolean; sunk: boolean; sinking: number;
+    }>;
   };
   /** Fase 4 mounts & weather (version 3 saves; absent in earlier versions). */
   mounts?: {
-    horses: Array<{ id: string; x: number; z: number; yaw: number; owned: boolean }>;
+    horses: Array<{ id: string; x: number; z: number; yaw: number; owned: boolean; name?: string; coat?: string; price?: number }>;
     cart: { x: number; z: number; heading: number; hitchedTo: string | null } | null;
     riding: string | null;
+  };
+  /** Fase 16 — the hero's own (admin-spawned) dragons survive a reload. */
+  dragons?: {
+    admins: Array<{
+      id?: string; species: string; x: number; y: number; z: number; yaw: number;
+      flying: boolean; hp: number; name?: string;
+    }>;
+    riding?: string | null;
   };
   weather?: { kind: 'clear' | 'cloudy' | 'rain' | 'storm'; timer: number };
 }
@@ -180,12 +193,12 @@ export class SaveSystem {
     const data = SaveSystem.load(slot);
     if (!data) return null;
     const flags = data.gameState.flags ?? [];
-    let chapter = 'Capítulo I — El Legado de Eirik';
-    if (flags.includes('ending_done')) chapter = 'Epílogo — El Destino de las Mareas';
-    else if (flags.includes('kraivenn_awake')) chapter = 'Capítulo V — El Cuervo de Tres Cabezas';
-    else if (flags.includes('corona_taken')) chapter = 'Capítulo IV — La Corona Hundida';
-    else if (flags.includes('ancestro_dead')) chapter = 'Capítulo IV — La Corona Hundida';
-    else if (flags.includes('ship_repaired')) chapter = flags.includes('vaelthara_seen') ? 'Capítulo III — El Rumor de las Alas' : 'Capítulo II — Los Mares Olvidados';
+    let chapter = 'Chapter I — The Legacy of Eirik';
+    if (flags.includes('ending_done')) chapter = 'Epilogue — The Fate of the Tides';
+    else if (flags.includes('kraivenn_awake')) chapter = 'Chapter V — The Three-Headed Crow';
+    else if (flags.includes('corona_taken')) chapter = 'Chapter IV — The Sunken Crown';
+    else if (flags.includes('ancestro_dead')) chapter = 'Chapter IV — The Sunken Crown';
+    else if (flags.includes('ship_repaired')) chapter = flags.includes('vaelthara_seen') ? 'Chapter III — The Whisper of Wings' : 'Chapter II — The Forgotten Seas';
     return {
       slot,
       timestamp: data.timestamp,

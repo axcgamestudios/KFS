@@ -32,8 +32,9 @@ export interface KnightVisualDeps {
    *  When set, the statue sword & shield NEVER show. */
   villager?: { palette: import('./CharacterModel').CharacterPalette; seed: number; role?: string };
   /** Fase 10 — bandit variant: RED knights (dark crimson cloth + oxidised
-   *  red-steel armour). When set the statue props never show. */
-  bandit?: { seed: number; captain?: boolean };
+   *  red-steel armour). When set the statue props never show. Fase 17:
+   *  `shield: true` arms heavies with a kit shield on the left forearm. */
+  bandit?: { seed: number; captain?: boolean; shield?: boolean };
 }
 
 type Euler3 = [number, number, number];
@@ -63,6 +64,7 @@ export class KnightModelGLB implements CharacterVisual {
   private wantsShield = false;
   private isVillager = false;
   private isBandit = false;
+  private banditShield = false;
   private blockHitT = 0;   // shield impact recoil (0..1)
   private blockHitDir = 1;
   // Fase 8 — night torch: replaces the shield after dusk (light source)
@@ -90,6 +92,7 @@ export class KnightModelGLB implements CharacterVisual {
     const scene = deps.scene;
     this.isVillager = !!deps.villager;
     this.isBandit = !!deps.bandit;
+    this.banditShield = !!deps.bandit?.shield;
 
     // collect bones + meshes
     for (const name of BONE_NAMES) {
@@ -320,7 +323,7 @@ export class KnightModelGLB implements CharacterVisual {
       this.armSlot.remove(this.activeShield);
       this.activeShield = null;
     }
-    if (this.wantsShield && !this.isVillager && !this.isBandit && this.shieldFactory) {
+    if (this.wantsShield && !this.isVillager && (!this.isBandit || this.banditShield) && this.shieldFactory) {
       const s = this.shieldFactory();
       if (s) {
         this.armSlot.add(s);
@@ -339,7 +342,8 @@ export class KnightModelGLB implements CharacterVisual {
         && !this.activeWeapon;
     }
     if (this.shieldProp) {
-      this.shieldProp.visible = !this.isVillager && !this.isBandit && this.wantsShield && !this.activeShield;
+      this.shieldProp.visible = !this.isVillager && this.wantsShield && !this.activeShield
+        && (!this.isBandit || this.banditShield);
     }
   }
 
@@ -591,11 +595,20 @@ export class KnightModelGLB implements CharacterVisual {
     this.wasGrounded = p.grounded;
     if (this.landT > 0) this.landT = Math.max(0, this.landT - dt);
 
-    // ---- global overrides, in priority order ----
+    // ---- roll/swim/ride overrides ----
     const rollT = p.rollT ?? 0;
     if (rollT > 0) { this.poseRoll(target, rollT, moving, ph, p.dodgeStep === true); this.apply(target, dt, true); this.post(p); return; }
     if (p.swimming) { this.poseSwim(target, ph, p); this.apply(target, dt, true); this.post(p); return; }
     if (p.riding) { this.poseRide(target, p); this.apply(target, dt, true); this.post(p); return; }
+
+    // ---- Fase 17 — the HOOK DASH flying kick: the rope carries the body
+    //      and both heels lead the way. Held while the kick lingers. ----
+    if (p.dashKick && p.attackT === 0) {
+      this.poseHookKick(target);
+      this.apply(target, dt, true);
+      this.post(p);
+      return;
+    }
 
     // ---- Fase 11 — LAYERED base: air OR locomotion (no early return any
     // more: the attack/block overlays now layer over the airborne pose too,
@@ -637,6 +650,9 @@ export class KnightModelGLB implements CharacterVisual {
       this.post(p);
       return;
     }
+
+    // Fase 17 — the sweep-kick spin unwinds when the kick isn't driving it
+    this.inner.rotation.y = damp(this.inner.rotation.y, 0, 14, dt);
 
     // ---- hit reaction ----
     if (this.hitT > 0) {
@@ -689,7 +705,17 @@ export class KnightModelGLB implements CharacterVisual {
   private poseLocomotion(t: PoseTarget, p: AnimParams, moving: boolean, ph: number): void {
     const runK = Math.min(1, this.speedSm / 6.2);
     if (moving) {
-      const amp = 0.52 + runK * 0.5;
+      // ---- Fase 17 — the charge blend: past ~65% of top speed the knight
+      // drops into the SHIELD CHARGE — shield forward, body low, blade
+      // trailing. It eases in with speed so walking never triggers it. ----
+      const hasShield = this.wantsShield
+        && (this.activeShield !== null || (this.shieldProp?.visible ?? false));
+      const charge = hasShield
+        ? THREE.MathUtils.smoothstep(runK, 0.55, 0.88)
+        : THREE.MathUtils.smoothstep(runK, 0.68, 0.92);
+      const armed = this.weaponKind !== 'none' && this.weaponKind !== 'bow';
+
+      const amp = 0.52 + runK * 0.5 + charge * 0.12;
       const legPhL = Math.sin(ph);
       const legPhR = Math.sin(ph + Math.PI);
       // Fase 12 — pelvis rocks over the stance leg (secondary motion: the
@@ -698,39 +724,59 @@ export class KnightModelGLB implements CharacterVisual {
       const hipRoll = Math.sin(ph) * (0.035 + runK * 0.05);
       // right leg (x<0) — j_hipR: -X = forward
       t.j_hipR = [-legPhR * amp, 0, -hipRoll];
-      t.j_kneeR = [Math.max(0, -Math.sin(ph + Math.PI - 0.7)) * (0.55 + runK * 0.75), 0, 0];
+      t.j_kneeR = [Math.max(0, -Math.sin(ph + Math.PI - 0.7)) * (0.55 + runK * 0.75 + charge * 0.22), 0, 0];
       t.j_ankleR = [-0.1 + legPhR * 0.18, 0, Math.max(0, legPhR) * 0.08];
       // left leg
       t.j_hipL = [-legPhL * amp, 0, hipRoll];
-      t.j_kneeL = [Math.max(0, -Math.sin(ph - 0.7)) * (0.55 + runK * 0.75), 0, 0];
+      t.j_kneeL = [Math.max(0, -Math.sin(ph - 0.7)) * (0.55 + runK * 0.75 + charge * 0.22), 0, 0];
       t.j_ankleL = [-0.1 + legPhL * 0.18, 0, Math.max(0, legPhL) * 0.08];
-      // arms counter-swing; the sword arm (R) carries the relaxed sword.
-      // Fase 12 — elbows flex on the BACK swing (the arm folds as it trails
-      // behind, opens as it swings forward — the classic follow-through).
+
+      // ---- ARMS ----
+      // Fase 17 — the sword arm never pendulums while armed (the old full
+      // counter-swing with a blade in hand read as broken). It holds a low
+      // READY CARRY: elbow bent, blade angled down-forward, a hint of swing
+      // so the gait still breathes. Charging, the arm trails back like a
+      // lance at rest.
       const armAmp = 0.34 + runK * 0.5;
-      t.j_shoulderR = [legPhR * armAmp, 0, -0.06];
-      t.j_elbowR = [-0.18 - runK * 0.35 - Math.max(0, -legPhR) * (0.3 + runK * 0.3), 0, 0];
-      // Fase 10 — SHIELD CARRY: a knight does NOT swing the shield arm like a
-      // pendulum while running (the old full counter-swing looked broken).
-      // With a shield visible the left arm locks into a steady carry: elbow
-      // bent, shield held low across the thigh, a touch of vertical bob so it
-      // still breathes with the gait.
-      const shieldCarry = this.wantsShield
-        && (this.activeShield !== null || (this.shieldProp?.visible ?? false))
-        && (p.blockT ?? 0) < 0.1;
+      if (armed) {
+        const ready = -0.22 + legPhR * 0.13;
+        const trailing = 0.55 + legPhR * 0.08;
+        t.j_shoulderR = [THREE.MathUtils.lerp(ready, trailing, charge), 0, THREE.MathUtils.lerp(-0.1, -0.18, charge)];
+        t.j_elbowR = [THREE.MathUtils.lerp(-0.62, -0.3, charge), 0, 0];
+      } else {
+        t.j_shoulderR = [legPhR * armAmp * (1 - charge * 0.5), 0, -0.06];
+        t.j_elbowR = [-0.18 - runK * 0.35 - Math.max(0, -legPhR) * (0.3 + runK * 0.3), 0, 0];
+      }
+      // Fase 10/17 — SHIELD CARRY → SHIELD CHARGE: a knight does NOT swing
+      // the shield arm like a pendulum. Walking: elbow bent, shield held low
+      // across the thigh with a touch of bob. Charging: the shield snaps UP
+      // AND FORWARD — the battering-ram brace.
+      const shieldCarry = hasShield && (p.blockT ?? 0) < 0.1;
       if (shieldCarry) {
         const bob = Math.sin(ph * 2) * 0.045;
-        t.j_shoulderL = [-0.34 + bob - runK * 0.1, 0.16, 0.3];
-        t.j_elbowL = [-0.92, 0, 0.18];
+        const walkPose: [number, number, number] = [-0.36 + bob - runK * 0.12, 0.18, 0.32];
+        const chargePose: [number, number, number] = [-1.12, 0.28, 0.3];
+        t.j_shoulderL = [
+          THREE.MathUtils.lerp(walkPose[0], chargePose[0], charge),
+          THREE.MathUtils.lerp(walkPose[1], chargePose[1], charge),
+          THREE.MathUtils.lerp(walkPose[2], chargePose[2], charge),
+        ];
+        t.j_elbowL = [THREE.MathUtils.lerp(-0.94, -1.02, charge), 0, 0.16];
       } else {
-        t.j_shoulderL = [legPhL * armAmp * 0.8, 0, 0.06];
+        t.j_shoulderL = [legPhL * armAmp * 0.8 * (1 - charge * 0.5), 0, 0.06];
         t.j_elbowL = [-0.25 - runK * 0.3 - Math.max(0, -legPhL) * (0.28 + runK * 0.28), 0, 0];
       }
-      // torso: bob, forward lean, counter-rotation (amplified at speed)
-      t.j_torso = [0.05 + runK * 0.2, Math.sin(ph) * (0.05 + runK * 0.08), 0];
-      // head stabilizes against the torso sway (vestibular reflex)
-      t.j_head = [-0.04 - runK * 0.08, -Math.sin(ph) * 0.06, -Math.sin(ph) * 0.02];
-      this.inner.position.y = Math.abs(Math.sin(ph)) * 0.028 * (0.5 + runK);
+
+      // ---- TORSO & HEAD ----
+      // The charge crouches into the run: deep lean, eyes UP over the rim.
+      const lean = 0.05 + runK * 0.2 + charge * 0.16;
+      t.j_torso = [lean, Math.sin(ph) * (0.05 + runK * 0.08), 0];
+      t.j_head = [
+        -0.04 - runK * 0.08 - charge * 0.2,
+        -Math.sin(ph) * 0.06,
+        -Math.sin(ph) * 0.02,
+      ];
+      this.inner.position.y = Math.abs(Math.sin(ph)) * 0.028 * (0.5 + runK + charge * 0.5) - charge * 0.05;
       // Fase 12 — subtle lateral sway of the whole body over the stance foot
       this.inner.position.x = Math.sin(ph) * 0.012 * (0.6 + runK);
     } else {
@@ -902,6 +948,29 @@ export class KnightModelGLB implements CharacterVisual {
     this.inner.position.y -= 0.06 * k;
   }
 
+  /** Fase 17 — the flying kick of the hook dash: a drop-kick silhouette
+   *  that reads at full speed — lead leg extended, body arched behind it,
+   *  arms tucked for the aerodynamics of a man who has made a mistake. */
+  private poseHookKick(t: PoseTarget): void {
+    // lead leg (right) drives the kick
+    t.j_hipR = [-1.62, 0.06, -0.06];
+    t.j_kneeR = [0.14, 0, 0];
+    t.j_ankleR = [0.55, 0, 0];
+    // trailing leg folded under
+    t.j_hipL = [0.62, 0, 0.1];
+    t.j_kneeL = [1.35, 0, 0];
+    t.j_ankleL = [0.4, 0, 0];
+    // body arched back, chest proud, chin up
+    t.j_torso = [-0.3, 0, 0];
+    t.j_head = [0.18, 0, 0];
+    // arms swept back like a diver
+    t.j_shoulderR = [0.85, 0, -0.55];
+    t.j_elbowR = [-0.5, 0, 0];
+    t.j_shoulderL = [0.7, 0, 0.6];
+    t.j_elbowL = [-0.45, 0, 0];
+    this.inner.position.y = 0;
+  }
+
   /** Attack curves. attackT: 0→1 across the whole swing. */
   private poseAttack(t: PoseTarget, k: number, kind: string, bowDraw: number): void {
     const L = THREE.MathUtils.lerp;
@@ -1025,9 +1094,54 @@ export class KnightModelGLB implements CharacterVisual {
     }
     // ----------------------------------------------------------- Fase 11
     // — the cinematic set —
-    if (kind === 'spin') {
+    if (kind === 'sweep') {
+      // Fase 17 — the SPINNING SWEEP KICK (chain hit 3): a low arc that
+      // takes the ankles. The whole body pivots through it (inner yaw) while
+      // the lead leg scythes the deck.
+      const spin = (u: number) => THREE.MathUtils.lerp(0.5, -2.45, u);
+      if (k < 0.24) {
+        // coil: drop the weight, wind the torso
+        const u = ease(k / 0.24);
+        t.j_torso = [0.3 * u + 0.06, THREE.MathUtils.lerp(0, 0.5, u), 0];
+        t.j_hipR = [-0.25 * u, 0, 0];
+        t.j_kneeR = [1.05 * u, 0, 0];
+        t.j_hipL = [-0.15 * u, 0, 0];
+        t.j_kneeL = [0.35 * u, 0, 0];
+        this.inner.position.y = -0.16 * u;
+        this.inner.rotation.y = THREE.MathUtils.lerp(0, 0.5, u);
+      } else if (k < 0.66) {
+        // THE SWEEP: the pivot unloads, the leg scythes low
+        const u = ease((k - 0.24) / 0.42);
+        t.j_torso = [0.36, THREE.MathUtils.lerp(0.5, -0.6, u), 0];
+        t.j_hipR = [THREE.MathUtils.lerp(-0.25, -1.35, u), 0, 0];
+        t.j_kneeR = [THREE.MathUtils.lerp(1.05, 0.1, u), 0, 0];
+        t.j_ankleR = [0.3, 0, 0];
+        t.j_hipL = [-0.35, 0, 0];
+        t.j_kneeL = [1.25, 0, 0];
+        this.inner.position.y = -0.24;
+        this.inner.rotation.y = spin(u);
+      } else {
+        // recover: rise out of the crouch, unwind
+        const u = (k - 0.66) / 0.34;
+        t.j_torso = [THREE.MathUtils.lerp(0.36, 0.05, u), THREE.MathUtils.lerp(-0.6, 0, u), 0];
+        t.j_hipR = [THREE.MathUtils.lerp(-1.35, 0, u), 0, 0];
+        t.j_kneeR = [THREE.MathUtils.lerp(0.1, 0.2, u), 0, 0];
+        t.j_hipL = [THREE.MathUtils.lerp(-0.35, 0, u), 0, 0];
+        t.j_kneeL = [THREE.MathUtils.lerp(1.25, 0.15, u), 0, 0];
+        this.inner.position.y = -0.24 * (1 - u);
+        this.inner.rotation.y = THREE.MathUtils.lerp(-2.45, -Math.PI * 2, u);
+      }
+      // arms: whipsaw counter-rotation
+      t.j_shoulderR = [-0.6, 0, -0.4];
+      t.j_elbowR = [-0.8, 0, 0];
+      t.j_shoulderL = [-0.5, 0, 0.55];
+      t.j_elbowL = [-0.7, 0, 0];
+      t.j_head = [-0.1, 0.2, 0];
+    } else if (kind === 'spin') {
       // 360° horizontal sweep: coil left (0..0.3), whip around
-      // (0.3..0.72 — the torso drives the turn), settle the follow-through
+      // (0.3..0.72 — the torso drives the turn), settle the follow-through.
+      // Fase 17: the whole body rotates with it (inner yaw) — a true
+      // whirlwind, not a torso twist.
       if (k < 0.3) {
         const u = ease(k / 0.3);
         t.j_shoulderR = [L(0, -1.15, u), 0, L(0, 1.05, u)];
@@ -1036,6 +1150,7 @@ export class KnightModelGLB implements CharacterVisual {
         t.j_hipR = [0.12, 0, 0];
         t.j_hipL = [-0.18, 0, 0];
         this.inner.position.y = -0.05 * u;
+        this.inner.rotation.y = L(0, 0.55, u);
       } else if (k < 0.72) {
         const u = ease((k - 0.3) / 0.42);
         t.j_shoulderR = [L(-1.15, -1.05, u), 0, L(1.05, -1.15, u)];
@@ -1046,6 +1161,7 @@ export class KnightModelGLB implements CharacterVisual {
         t.j_hipL = [-0.1, L(-0.3, 0.35, u), 0];
         t.j_kneeR = [0.35, 0, 0];
         this.inner.position.y = -0.09;
+        this.inner.rotation.y = L(0.55, -3.6, u); // the full whirl
       } else {
         const u = (k - 0.72) / 0.28;
         t.j_shoulderR = [L(-1.05, -0.2, u), 0, L(-1.15, -0.1, u)];
@@ -1054,6 +1170,7 @@ export class KnightModelGLB implements CharacterVisual {
         t.j_head = [0, L(-0.55, 0, u), 0];
         t.j_hipR = [0, L(-0.35, 0, u), 0];
         this.inner.position.y = -0.09 * (1 - u);
+        this.inner.rotation.y = L(-3.6, -Math.PI * 2, u);
       }
       t.j_shoulderL = [-0.75, 0, 0.5];
       t.j_elbowL = [-0.7, 0, 0];

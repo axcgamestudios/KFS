@@ -1,0 +1,1063 @@
+     1→     1→import * as THREE from 'three';
+     2→     2→import type { Player } from '../entities/Player';
+     3→     3→import type { GameState } from './GameState';
+     4→     4→import type { Input } from '../core/Input';
+     5→     5→import type { Dragon } from '../entities/Dragon';
+     6→     6→import type { VfxSystem } from './VfxSystem';
+     7→     7→import { ITEMS } from '../data/items';
+     8→     8→
+     9→     9→const ITEMS_NAME_LOOKUP: Record<string, string> = Object.fromEntries(
+    10→    10→  Object.values(ITEMS).map((it) => [it.id, it.name]),
+    11→    11→);
+    12→    12→
+    13→    13→/** Weapon stats — every weapon behaves differently (Fase 3). */
+    14→    14→export interface WeaponDef {
+    15→    15→  id: string;
+    16→    16→  kind: 'sword' | 'axe' | 'spear' | 'bow';
+    17→    17→  lightDmg: number;
+    18→    18→  heavyDmg: number;
+    19→    19→  reach: number;          // meters from the player's center
+    20→    20→  arc: number;            // swing arc in radians
+    21→    21→  lightDur: number;       // swing duration (s)
+    22→    22→  heavyDur: number;
+    23→    23→  recovery: number;       // post-swing gate (s)
+    24→    24→  lightStamina: number;
+    25→    25→  heavyStamina: number;
+    26→    26→  ranged?: { drawTime: number; dmg: number; minDmgFrac: number; speed: number };
+    27→    27→  /** Fase 12 — elemental legendary swords (late-game boss loot). */
+    28→    28→  element?: 'fire' | 'frost' | 'storm';
+    29→    29→}
+    30→    30→
+    31→    31→export const WEAPONS: Record<string, WeaponDef> = {
+    32→    32→  // Fase 10 — the STARTING sword: honest steel, weaker than Eirik's heirloom
+    33→    33→  // but always in hand from the first second. Bram's forge upgrades (sword
+    34→    34→  // tiers) apply on top of ANY sword (see swordDamageMult()).
+    35→    35→  espada_acero: {
+    36→    36→    id: 'espada_acero', kind: 'sword',
+    37→    37→    lightDmg: 15, heavyDmg: 26, reach: 2.45, arc: 1.75,
+    38→    38→    lightDur: 0.5, heavyDur: 0.8, recovery: 0.35, lightStamina: 8, heavyStamina: 16,
+    39→    39→  },
+    40→    40→  espada_eirik: {
+    41→    41→    id: 'espada_eirik', kind: 'sword',
+    42→    42→    lightDmg: 20, heavyDmg: 34, reach: 2.5, arc: 1.75,
+    43→    43→    lightDur: 0.5, heavyDur: 0.8, recovery: 0.35, lightStamina: 8, heavyStamina: 16,
+    44→    44→  },
+    45→    45→  espada_fuego: {
+    46→    46→    id: 'espada_fuego', kind: 'sword', element: 'fire',
+    47→    47→    lightDmg: 34, heavyDmg: 58, reach: 2.6, arc: 1.8,
+    48→    48→    lightDur: 0.5, heavyDur: 0.8, recovery: 0.32, lightStamina: 8, heavyStamina: 16,
+    49→    49→  },
+    50→    50→  espada_escarcha: {
+    51→    51→    id: 'espada_escarcha', kind: 'sword', element: 'frost',
+    52→    52→    lightDmg: 30, heavyDmg: 52, reach: 2.55, arc: 1.78,
+    53→    53→    lightDur: 0.48, heavyDur: 0.78, recovery: 0.3, lightStamina: 7, heavyStamina: 15,
+    54→    54→  },
+    55→    55→  espada_tormenta: {
+    56→    56→    id: 'espada_tormenta', kind: 'sword', element: 'storm',
+    57→    57→    lightDmg: 32, heavyDmg: 55, reach: 2.58, arc: 1.82,
+    58→    58→    lightDur: 0.49, heavyDur: 0.8, recovery: 0.31, lightStamina: 8, heavyStamina: 16,
+    59→    59→  },
+    60→    60→  hacha_orden: {
+    61→    61→    id: 'hacha_orden', kind: 'axe',
+    62→    62→    lightDmg: 27, heavyDmg: 50, reach: 2.35, arc: 1.4,
+    63→    63→    lightDur: 0.68, heavyDur: 1.05, recovery: 0.5, lightStamina: 12, heavyStamina: 22,
+    64→    64→  },
+    65→    65→  lanza_caza: {
+    66→    66→    id: 'lanza_caza', kind: 'spear',
+    67→    67→    lightDmg: 15, heavyDmg: 27, reach: 3.8, arc: 0.62,
+    68→    68→    lightDur: 0.45, heavyDur: 0.66, recovery: 0.4, lightStamina: 7, heavyStamina: 13,
+    69→    69→  },
+    70→    70→  arco_naufragio: {
+    71→    71→    id: 'arco_naufragio', kind: 'bow',
+    72→    72→    lightDmg: 0, heavyDmg: 0, reach: 0, arc: 0,
+    73→    73→    lightDur: 0.35, heavyDur: 0.35, recovery: 0.25, lightStamina: 0, heavyStamina: 0,
+    74→    74→    ranged: { drawTime: 1.05, dmg: 30, minDmgFrac: 0.4, speed: 36 },
+    75→    75→  },
+    76→    76→  // ---- Fase 16 — LA HERRERÍA: espadas de comercio (Torvald + Borin) ----
+    77→    77→  espada_plata: {
+    78→    78→    id: 'espada_plata', kind: 'sword',
+    79→    79→    lightDmg: 24, heavyDmg: 40, reach: 2.5, arc: 1.76,
+    80→    80→    lightDur: 0.48, heavyDur: 0.78, recovery: 0.33, lightStamina: 8, heavyStamina: 15,
+    81→    81→  },
+    82→    82→  espada_almirante: {
+    83→    83→    id: 'espada_almirante', kind: 'sword',
+    84→    84→    lightDmg: 29, heavyDmg: 50, reach: 2.55, arc: 1.8,
+    85→    85→    lightDur: 0.47, heavyDur: 0.76, recovery: 0.31, lightStamina: 8, heavyStamina: 16,
+    86→    86→  },
+    87→    87→  espada_plata_rota: {
+    88→    88→    id: 'espada_plata_rota', kind: 'sword',
+    89→    89→    lightDmg: 52, heavyDmg: 85, reach: 2.62, arc: 1.85,
+    90→    90→    lightDur: 0.44, heavyDur: 0.72, recovery: 0.28, lightStamina: 7, heavyStamina: 14,
+    91→    91→  },
+    92→    92→  espada_almirante_rota: {
+    93→    93→    id: 'espada_almirante_rota', kind: 'sword',
+    94→    94→    lightDmg: 65, heavyDmg: 110, reach: 2.68, arc: 1.9,
+    95→    95→    lightDur: 0.43, heavyDur: 0.7, recovery: 0.26, lightStamina: 7, heavyStamina: 14,
+    96→    96→  },
+    97→    97→};
+    98→    98→
+    99→    99→/** Slot order for keys 1-4. Slot 1 is the sword the player actually owns
+   100→   100→ * (Fase 10: the starting Espada de acero upgrades through Bram's forge and
+   101→   101→ * heirlooms are found along the way — the HUD always shows the best one). */
+   102→   102→export const SWORD_PRIORITY = [
+   103→   103→  // Fase 16 — the smith's broken (OP) blades sit above the boss legendaries
+   104→   104→  'espada_almirante_rota', 'espada_plata_rota',
+   105→   105→  'espada_fuego', 'espada_escarcha', 'espada_tormenta',
+   106→   106→  'espada_almirante',
+   107→   107→  'espada_guardian', 'espada_eirik', 'espada_plata', 'espada_acero',
+   108→   108→];
+   109→   109→export const WEAPON_SLOTS = ['espada_acero', 'hacha_orden', 'lanza_caza', 'arco_naufragio'];
+   110→   110→
+   111→   111→/** Fase 12 — element of an equipped weapon id (null = mundane steel). */
+   112→   112→export function swordElementOf(id: string | null | undefined): 'fire' | 'frost' | 'storm' | null {
+   113→   113→  if (id === 'espada_fuego') return 'fire';
+   114→   114→  if (id === 'espada_escarcha') return 'frost';
+   115→   115→  if (id === 'espada_tormenta') return 'storm';
+   116→   116→  return null;
+   117→   117→}
+   118→   118→
+   119→   119→/** Display names for the forge tiers of any sword. */
+   120→   120→export const SWORD_TIER_NAMES = ['', ' · Templada', ' · Rúnica', ' · Legendaria'];
+   121→   121→
+   122→   122→/** Fase 10 — Bram's forge damage multiplier by tier (0 = base). */
+   123→   123→export const SWORD_TIER_MULT = [1, 1.3, 1.7, 2.05];
+   124→   124→
+   125→   125→export interface CombatHooks {
+   126→   126→  sound(kind: Parameters<import('./AudioSystem').AudioSystem['playEvent']>[0]): void;
+   127→   127→  notify(kind: 'info' | 'item', title: string, body?: string): void;
+   128→   128→  /** Melee query against dragons. */
+   129→   129→  dragonMelee(origin: THREE.Vector3, yaw: number, reach: number, arc: number):
+   130→   130→    { dragon: Dragon; head: boolean; point: THREE.Vector3 } | null;
+   131→   131→  damageDragon(dragon: Dragon, amount: number, heavy: boolean): void;
+   132→   132→  /** Boarding crew query — returns true when someone was struck. */
+   133→   133→  crewHit(origin: THREE.Vector3, yaw: number, dmg: number, reach: number, arc: number): boolean;
+   134→   134→  /** Fase 12 — an elemental sword connected: burst FX at the impact point. */
+   135→   135→  elementalHit?(pos: THREE.Vector3, element: 'fire' | 'frost' | 'storm'): void;
+   136→   136→  /** Fase 10 — red knight bandits: melee query + damage sink. */
+   137→   137→  banditMelee?(origin: THREE.Vector3, yaw: number, reach: number, arc: number):
+   138→   138→    { bandit: unknown; point: THREE.Vector3 } | null;
+   139→   139→  damageBandit?(bandit: unknown, amount: number, heavy: boolean): void;
+   140→   140→  /** Fase 11 — multi-target sweep for spin finishers (up to `max` victims). */
+   141→   141→  banditMeleeMulti?(origin: THREE.Vector3, yaw: number, reach: number, arc: number, max: number):
+   142→   142→    Array<{ bandit: unknown; point: THREE.Vector3 }>;
+   143→   143→  /** Fase 11 — radial AoE for the plunge landing (everything in the ring). */
+   144→   144→  banditMeleeRadius?(center: THREE.Vector3, radius: number, max: number):
+   145→   145→    Array<{ bandit: unknown; point: THREE.Vector3 }>;
+   146→   146→  /** Training dummy — returns XP granted when struck. */
+   147→   147→  dummyHit(origin: THREE.Vector3, yaw: number): boolean;
+   148→   148→  /** Camera aim ray for the bow. */
+   149→   149→  aimRay(): { origin: THREE.Vector3; dir: THREE.Vector3 };
+   150→   150→  /** Fase 11 — the swing cut only air: bandits snap to guard (near misses
+   151→   151→   *  telegraph the next exchange — the fight reads both ways). */
+   152→   152→  onWhiff?(pos: THREE.Vector3): void;
+   153→   153→}
+   154→   154→
+   155→   155→interface Arrow {
+   156→   156→  mesh: THREE.Group;
+   157→   157→  vel: THREE.Vector3;
+   158→   158→  life: number;
+   159→   159→  dmg: number;
+   160→   160→  stuck: boolean;
+   161→   161→}
+   162→   162→
+   163→   163→interface ArrowPickup {
+   164→   164→  mesh: THREE.Group;
+   165→   165→  pos: THREE.Vector3;
+   166→   166→}
+   167→   167→
+   168→   168→/**
+   169→   169→ * Player combat (Fase 3): light/heavy melee with per-weapon stats, blocking,
+   170→   170→ * dodge rolls, the bow with real projectiles and recoverable arrows.
+   171→   171→ * Works alongside the existing boarding-crew and training-dummy fights.
+   172→   172→ *
+   173→   173→ * Fase 9 — CINEMATIC COMBAT (PDF §4): 3-hit combo chains (light -> light ->
+   174→   174→ * heavy finisher) with buffered inputs and chain windows, PARRY (perfect
+   175→   175→ * block within 0.19 s) that staggers attackers and opens a x1.6 counter
+   176→   176→ * window, hit knockback, and camera punches on decisive blows.
+   177→   177→ *
+   178→   178→ * Fase 11 — CHOREOGRAPHED COMBAT (the Spider-Man-grade spec):
+   179→   179→ *  - chains up to 4 moves with route-aware finishers (heavy / uppercut / spin)
+   180→   180→ *  - input buffering during the WHOLE swing (spam-safe), late-fires cleanly
+   181→   181→ *  - DIRECTIONAL variety: strafing -> 360 spin (multi-target), backpedal ->
+   182→   182→ *    uppercut launcher; forward keeps the classic diagonal
+   183→   183→ *  - AIR COMBAT: floating air slashes (aircut) + a plunging AoE dive whose
+   184→   184→ *    damage resolves on landing (Player.onPlungeImpact -> plungeLand)
+   185→   185→ *  - dodge styles: forward somersault vs side/back quickstep; a hit absorbed
+   186→   186→ *    by roll i-frames = PERFECT DODGE -> counter window (like the parry)
+   187→   187→ *  - spin finishers hit up to 3 targets; the plunge hits everything in a ring
+   188→   188→ *  - hit-stop (global slow-mo beat) on finishers, parries and counters
+   189→   189→ */
+   190→   190→export class CombatSystem {
+   191→   191→  private player: Player;
+   192→   192→  private state: GameState;
+   193→   193→  private hooks: CombatHooks;
+   194→   194→  private vfx: VfxSystem;
+   195→   195→  /** Charge window: click & hold > threshold = heavy attack. */
+   196→   196→  private chargeT = -1;
+   197→   197→  private chargeConsumed = false;
+   198→   198→  private swingHitDone = false;
+   199→   199→  private arrows: Arrow[] = [];
+   200→   200→  private pickups: ArrowPickup[] = [];
+   201→   201→  private scene: THREE.Scene;
+   202→   202→  private tmp = new THREE.Vector3();
+   203→   203→  private tmp2 = new THREE.Vector3();
+   204→   204→  private tmpDir = new THREE.Vector3();
+   205→   205→
+   206→   206→  // ---- Fase 9/11: combo chain state ----
+   207→   207→  /** Position in the chain (0 = fresh ... 3 = route finisher). */
+   208→   208→  private comboStep = 0;
+   209→   209→  /** Seconds left to continue the chain before it resets. */
+   210→   210→  private comboWindowT = 0;
+   211→   211→  /** Attack clicked during the swing -> fires the moment it can (Fase 11:
+   212→   212→   *  buffered during the WHOLE swing, not just the tail). */
+   213→   213→  private bufferedNext = false;
+   214→   214→  /** The buffered input is a HEAVY (changes the route). */
+   215→   215→  private bufferedHeavy = false;
+   216→   216→  /** Counter window after a parry: next melee x1.6 + camera punch. */
+   217→   217→  private parryCounterT = 0;
+   218→   218→  /** Fase 11 — counter window after a PERFECT DODGE (next melee x1.5). */
+   219→   219→  private dodgeCounterT = 0;
+   220→   220→  /** Damage multiplier queued by the current swing (combo/counter). */
+   221→   221→  private pendingDmgMult = 1;
+   222→   222→  /** True while the current swing is a chain FINISHER (bigger feedback). */
+   223→   223→  private swingIsFinisher = false;
+   224→   224→  /** True while the current swing is a MULTI-HIT sweep (spin/plunge). */
+   225→   225→  private swingIsMulti = false;
+   226→   226→  /** Route tag of the current chain (HUD + variation bookkeeping). */
+   227→   227→  private comboRoute: 'std' | 'dodge' | 'air' = 'std';
+   228→   228→  private comboLabel = '';
+   229→   229→
+   230→   230→  /** Fase 9 — camera punch hook (Game wires this to the CameraRig FOV kick). */
+   231→   231→  onCameraPunch?: (intensity: number) => void;
+   232→   232→  /** Fase 11 — hit-stop hook: the Game slows the world for a beat. */
+   233→   233→  onHitStop?: (duration: number) => void;
+   234→   234→  /** Fase 11 — HUD flash channel (perfect dodge / counters). */
+   235→   235→  onCombatEvent?: (label: string) => void;
+   236→   236→
+   237→   237→  /** Fase 11 — transient fight label for the HUD (decays on its own). */
+   238→   238→  get eventLabel(): string | null {
+   239→   239→    return this.eventT > 0 ? this.eventText : null;
+   240→   240→  }
+   241→   241→  private eventText: string | null = null;
+   242→   242→  private eventT = 0;
+   243→   243→
+   244→   244→  /** Show a fight moment on the HUD for ~1.3 s (perfect dodge, riposte...). */
+   245→   245→  flashEvent(label: string): void {
+   246→   246→    this.eventText = label;
+   247→   247→    this.eventT = 1.3;
+   248→   248→  }
+   249→   249→
+   250→   250→  /** Combo state for the HUD (null when no chain running). */
+   251→   251→  get comboHud(): { step: number; window: number; counter: boolean; label?: string } | null {
+   252→   252→    if (this.comboWindowT <= 0 || this.comboStep <= 0) return null;
+   253→   253→    return {
+   254→   254→      step: this.comboStep,
+   255→   255→      window: this.comboWindowT,
+   256→   256→      counter: this.parryCounterT > 0 || this.dodgeCounterT > 0,
+   257→   257→      label: this.comboLabel,
+   258→   258→    };
+   259→   259→  }
+   260→   260→
+   261→   261→  constructor(
+   262→   262→    scene: THREE.Scene,
+   263→   263→    player: Player,
+   264→   264→    state: GameState,
+   265→   265→    vfx: VfxSystem,
+   266→   266→    hooks: CombatHooks,
+   267→   267→  ) {
+   268→   268→    this.scene = scene;
+   269→   269→    this.player = player;
+   270→   270→    this.state = state;
+   271→   271→    this.vfx = vfx;
+   272→   272→    this.hooks = hooks;
+   273→   273→    // Fase 9 — parry feedback: clang + sparks + counter window. Chain any
+   274→   274→    // callback the Game may have installed (crew stagger, HUD...).
+   275→   275→    const prevOnParry = player.onParry;
+   276→   276→    player.onParry = (fx: number, fz: number) => {
+   277→   277→      prevOnParry?.(fx, fz);
+   278→   278→      this.parryCounterT = 1.35;
+   279→   279→      this.hooks.sound('block');
+   280→   280→      this.onCameraPunch?.(0.55);
+   281→   281→      this.onHitStop?.(0.09);
+   282→   282→      this.onCombatEvent?.('¡PARADA PERFECTA!');
+   283→   283→      this.vfx.weaponImpact(new THREE.Vector3(fx, player.position.y + 1.25, fz));
+   284→   284→    };
+   285→   285→    // Fase 11 — perfect dodge: the blow slid past inside the roll i-frames
+   286→   286→    const prevOnDodge = player.onPerfectDodge;
+   287→   287→    player.onPerfectDodge = () => {
+   288→   288→      prevOnDodge?.();
+   289→   289→      this.dodgeCounterT = 1.1;
+   290→   290→      this.hooks.sound('swing');
+   291→   291→      this.onCameraPunch?.(0.4);
+   292→   292→      this.onCombatEvent?.('¡ESQUIVA PERFECTA!');
+   293→   293→    };
+   294→   294→    // Fase 11 — plunge landing: the AoE resolves here
+   295→   295→    player.onPlungeImpact = () => this.plungeLand();
+   296→   296→  }
+   297→   297→
+   298→   298→  get equippedId(): string | null {
+   299→   299→    return this.state.equippedWeapon;
+   300→   300→  }
+   301→   301→
+   302→   302→  get weapon(): WeaponDef | null {
+   303→   303→    const id = this.state.equippedWeapon;
+   304→   304→    return id ? WEAPONS[id] ?? null : null;
+   305→   305→  }
+   306→   306→
+   307→   307→  /** Weapon slot info for the HUD. */
+   308→   308→  slots(): Array<{ slot: number; id: string; name: string; owned: boolean; equipped: boolean; kind: string }> {
+   309→   309→    const slots = [...WEAPON_SLOTS];
+   310→   310→    // Slot 1 = the best sword currently owned
+   311→   311→    for (const id of SWORD_PRIORITY) {
+   312→   312→      if (this.state.hasItem(id)) {
+   313→   313→        slots[0] = id;
+   314→   314→        break;
+   315→   315→      }
+   316→   316→    }
+   317→   317→    return slots.map((id, i) => ({
+   318→   318→      slot: i + 1,
+   319→   319→      id,
+   320→   320→      name: this.itemName(id),
+   321→   321→      owned: this.state.hasItem(id),
+   322→   322→      equipped: this.state.equippedWeapon === id,
+   323→   323→      kind: WEAPONS[id].kind,
+   324→   324→    }));
+   325→   325→  }
+   326→   326→
+   327→   327→  private itemName(id: string): string {
+   328→   328→    // items.ts registry name (import avoided to prevent a cycle; lookup via ITEMS)
+   329→   329→    const base = ITEMS_NAME_LOOKUP[id] ?? id;
+   330→   330→    // forge tiers only show on swords
+   331→   331→    if (WEAPONS[id]?.kind === 'sword' && this.state.swordTier > 0) {
+   332→   332→      return base + (SWORD_TIER_NAMES[this.state.swordTier] ?? '');
+   333→   333→    }
+   334→   334→    return base;
+   335→   335→  }
+   336→   336→
+   337→   337→  /** Visual + state refresh after equip changes (called by the Game too). */
+   338→   338→  refreshVisuals(): void {
+   339→   339→    const id = this.state.equippedWeapon;
+   340→   340→    const w = id ? WEAPONS[id] : null;
+   341→   341→    this.player.setWeaponVisual(w ? w.kind : 'none');
+   342→   342→    this.player.setShieldVisual(this.state.hasItem('escudo_marea'));
+   343→   343→    this.player.hasShieldEquipped = this.state.hasItem('escudo_marea');
+   344→   344→  }
+   345→   345→
+   346→   346→  // ---------------------------------------------------------------- update
+   347→   347→
+   348→   348→  /** Runs in foot mode BEFORE Player.update so animations stay in sync. */
+   349→   349→  update(dt: number, input: Input, dialogueActive: boolean, dead: boolean): void {
+   350→   350→    const p = this.player;
+   351→   351→    const weapon = this.weapon;
+   352→   352→
+   353→   353→    // --- Weapon switching (1-4) ---
+   354→   354→    for (let i = 0; i < WEAPON_SLOTS.length; i++) {
+   355→   355→      if (input.anyPressed(`Digit${i + 1}`)) {
+   356→   356→        const slotId = i === 0 ? this.currentSwordId() : WEAPON_SLOTS[i];
+   357→   357→        if (slotId) this.switchTo(slotId);
+   358→   358→      }
+   359→   359→    }
+   360→   360→
+   361→   361→    if (dead || dialogueActive) {
+   362→   362→      p.blocking = false;
+   363→   363→      if (p.bowDraw >= 0) p.bowDraw = -1;
+   364→   364→      this.chargeT = -1;
+   365→   365→      return;
+   366→   366→    }
+   367→   367→
+   368→   368→    // --- Blocking (RMB, melee only) ---
+   369→   369→    const canBlock = !!weapon && weapon.kind !== 'bow' && p.grounded && p.stamina > 1 && p.attackT === 0 && !p.rolling;
+   370→   370→    p.blocking = canBlock && input.rightDown;
+   371→   371→
+   372→   372→    // --- Dodge (C): direction chooses the style —
+   373→   373→    //     forward = somersault roll, side/back = quickstep dash.
+   374→   374→    //     A dodge right after a dodge-feint or mid-chain keeps the chain.
+   375→   375→    if (input.anyPressed('KeyC') && p.grounded && !p.rolling && p.stamina >= 20 && !p.swimming && p.attackT === 0) {
+   376→   376→      let ix = 0;
+   377→   377→      let iz = 0;
+   378→   378→      if (input.isDown('forward')) iz += 1;
+   379→   379→      if (input.isDown('back')) iz -= 1;
+   380→   380→      if (input.isDown('left')) ix -= 1;
+   381→   381→      if (input.isDown('right')) ix += 1;
+   382→   382→      const fx = Math.sin(this.camYaw);
+   383→   383→      const fz = Math.cos(this.camYaw);
+   384→   384→      let dx = 0;
+   385→   385→      let dz = 0;
+   386→   386→      if (ix !== 0 || iz !== 0) {
+   387→   387→        const len = Math.hypot(ix, iz);
+   388→   388→        ix /= len; iz /= len;
+   389→   389→        dx = fx * iz - fz * ix;
+   390→   390→        dz = fz * iz + fx * ix;
+   391→   391→      } else {
+   392→   392→        dx = -Math.sin(p.yaw); dz = -Math.cos(p.yaw); // backward by default
+   393→   393→      }
+   394→   394→      // forward roll vs quickstep: is the dash within 50° of the facing?
+   395→   395→      const fwdDot = Math.sin(p.yaw) * dx + Math.cos(p.yaw) * dz;
+   396→   396→      const style: 'roll' | 'step' = fwdDot > 0.45 ? 'roll' : 'step';
+   397→   397→      p.beginRoll(dx, dz, style);
+   398→   398→      p.stamina -= 20;
+   399→   399→      this.hooks.sound('swing');
+   400→   400→      this.vfx.landingDust(new THREE.Vector3(p.position.x, p.position.y + 0.05, p.position.z), 5, 0.5);
+   401→   401→      // a dodge inside an open chain reroutes it — the next hit whips around
+   402→   402→      if (this.comboWindowT > 0 && this.comboStep > 0) {
+   403→   403→        this.comboRoute = 'dodge';
+   404→   404→        this.comboWindowT = Math.max(this.comboWindowT, 0.9);
+   405→   405→      }
+   406→   406→    }
+   407→   407→
+   408→   408→    if (!weapon) {
+   409→   409→      p.bowDraw = -1;
+   410→   410→      this.updateArrows(dt);
+   411→   411→      return;
+   412→   412→    }
+   413→   413→
+   414→   414→    // --- Bow ---
+   415→   415→    if (weapon.kind === 'bow') {
+   416→   416→      this.updateBow(dt, input, weapon);
+   417→   417→      this.updateArrows(dt);
+   418→   418→      return;
+   419→   419→    }
+   420→   420→
+   421→   421→    // =================== MELEE — the choreography core ===================
+   422→   422→    // Route intent is sampled every frame so a heavy's variant reads exactly
+   423→   423→    // what the player was doing at the moment of release (not a stale value).
+   424→   424→    this.lastIntent = this.moveIntent(input);
+   425→   425→
+   426→   426→    // Chain timers
+   427→   427→    if (this.comboWindowT > 0) {
+   428→   428→      this.comboWindowT -= dt;
+   429→   429→      if (this.comboWindowT <= 0) {
+   430→   430→        this.comboStep = 0;
+   431→   431→        this.bufferedNext = false;
+   432→   432→        this.comboRoute = 'std';
+   433→   433→      }
+   434→   434→    }
+   435→   435→    if (this.parryCounterT > 0) this.parryCounterT -= dt;
+   436→   436→    if (this.dodgeCounterT > 0) this.dodgeCounterT -= dt;
+   437→   437→    if (this.eventT > 0) {
+   438→   438→      this.eventT -= dt;
+   439→   439→      if (this.eventT <= 0) this.eventText = null;
+   440→   440→    }
+   441→   441→
+   442→   442→    const canAct = p.attackT === 0 && !p.rolling && !p.swimming;
+   443→   443→    const canActGround = canAct && p.grounded && p.attackRecovery <= 0;
+   444→   444→    // Fase 11 — air act: only during the useful part of an arc (short hops)
+   445→   445→    const canActAir = canAct && !p.grounded && p.airTime < 0.42 && !p.plunging;
+   446→   446→
+   447→   447→    // --- Plunge hold: the dive pose holds until the ground (no time gate)
+   448→   448→    if (p.attackT > 0 && p.attackKind === 'plunge') {
+   449→   449→      if (p.plunging) {
+   450→   450→        p.attackT = Math.min(p.attackT, 0.34); // hold the read
+   451→   451→        this.swingHitDone = true;             // impact fires on landing
+   452→   452→        return;
+   453→   453→      }
+   454→   454→      // landed (plungeLand cleared it or safety): fall through to normal
+   455→   455→    }
+   456→   456→
+   457→   457→    // --- Input buffering (Fase 11: the whole swing counts) ---
+   458→   458→    if (input.leftPressed && p.attackT > 0.10) {
+   459→   459→      this.bufferedNext = true;
+   460→   460→      this.bufferedHeavy = false;
+   461→   461→    }
+   462→   462→    if (p.attackRecovery > 0 && input.leftPressed && this.comboWindowT > 0 && this.comboStep < 3) {
+   463→   463→      this.bufferedNext = true; // recovery clicks keep the chain alive
+   464→   464→      this.bufferedHeavy = false;
+   465→   465→    }
+   466→   466→    const chainReady = this.bufferedNext && this.comboWindowT > 0 && this.comboStep < 3;
+   467→   467→
+   468→   468→    // --- Ground charge & release ---
+   469→   469→    if (input.leftPressed && canActGround && !chainReady) {
+   470→   470→      this.chargeT = 0;
+   471→   471→      this.chargeConsumed = false;
+   472→   472→    }
+   473→   473→    if (this.chargeT >= 0 && input.leftDown && !this.chargeConsumed && p.grounded) {
+   474→   474→      this.chargeT += dt;
+   475→   475→      if (this.chargeT >= 0.28) {
+   476→   476→        // Held long enough -> heavy attack fires immediately
+   477→   477→        this.chargeConsumed = true;
+   478→   478→        this.chargeT = -1;
+   479→   479→        this.commitHeavy(weapon);
+   480→   480→      }
+   481→   481→    }
+   482→   482→    if (this.chargeT >= 0 && !input.leftDown && !this.chargeConsumed) {
+   483→   483→      // Quick click -> light attack (chain step if the window is open)
+   484→   484→      this.chargeT = -1;
+   485→   485→      if (canActGround) this.fireLight(weapon);
+   486→   486→    }
+   487→   487→    if (!input.leftDown) this.chargeT = -1;
+   488→   488→
+   489→   489→    // --- Air inputs (Fase 11) ---
+   490→   490→    if (canActAir && input.leftPressed) {
+   491→   491→      this.fireAircut(weapon);
+   492→   492→    }
+   493→   493→    if (!p.grounded && !p.plunging && p.attackT === 0 && !p.swimming && p.airTime < 1.3) {
+   494→   494→      // a HOLD in the air commits the plunge (the aerial heavy)
+   495→   495→      if (input.leftDown) this.airChargeT += dt;
+   496→   496→      else this.airChargeT = 0;
+   497→   497→      if (this.airChargeT >= 0.2) {
+   498→   498→        this.airChargeT = 0;
+   499→   499→        this.firePlunge(weapon);
+   500→   500→      }
+   501→   501→      // air-dodge quickstep (C) — spends stamina, no height gain
+   502→   502→      if (input.anyPressed('KeyC') && p.stamina >= 10 && !p.rolling) {
+   503→   503→        p.beginRoll(0, 0, 'step');
+   504→   504→        p.stamina -= 10;
+   505→   505→        this.hooks.sound('swing');
+   506→   506→      }
+   507→   507→    } else {
+   508→   508→      this.airChargeT = 0;
+   509→   509→    }
+   510→   510→
+   511→   511→    // --- Chain execution: the buffered click fires the next step the moment
+   512→   512→    // the previous swing clears (late recovery counts — chains feel fluid)
+   513→   513→    if (chainReady && canAct && (p.grounded ? p.attackRecovery <= 0.3 : p.airTime < 0.42)) {
+   514→   514→      this.bufferedNext = false;
+   515→   515→      const step = this.comboStep + 1;
+   516→   516→      const heavy = this.bufferedHeavy;
+   517→   517→      this.bufferedHeavy = false;
+   518→   518→      this.startSwing(weapon, step >= 3 || heavy, step);
+   519→   519→    }
+   520→   520→
+   521→   521→    // --- Swing progression ---
+   522→   522→    if (p.attackT > 0) {
+   523→   523→      const wasAir = !p.grounded;
+   524→   524→      p.attackT += dt / p.attackDur;
+   525→   525→      const impactAt = p.attackKind === 'heavy' ? 0.55
+   526→   526→        : p.attackKind === 'spin' ? 0.5
+   527→   527→        : p.attackKind === 'uppercut' ? 0.62
+   528→   528→        : 0.45;
+   529→   529→      if (!this.swingHitDone && p.attackT >= impactAt) {
+   530→   530→        this.swingHitDone = true;
+   531→   531→        this.resolveMeleeHit(weapon, p.attackKind === 'heavy' || p.attackKind === 'spin' || p.attackKind === 'uppercut');
+   532→   532→      }
+   533→   533→      if (p.attackT >= 1) {
+   534→   534→        p.attackT = 0;
+   535→   535→        if (wasAir && !p.grounded) {
+   536→   536→          // the swing ended mid-air: recovery waits for the landing
+   537→   537→          p.attackRecovery = weapon.recovery * 0.5;
+   538→   538→        } else {
+   539→   539→          // Chained swings recover faster — the rhythm keeps rolling
+   540→   540→          p.attackRecovery = weapon.recovery * (this.comboStep > 0 && this.comboWindowT > 0 ? 0.5 : 1);
+   541→   541→        }
+   542→   542→      }
+   543→   543→    }
+   544→   544→  }
+   545→   545→
+   546→   546→  /** Best owned sword — slot 1 target (Fase 10). */
+   547→   547→  currentSwordId(): string | null {
+   548→   548→    for (const id of SWORD_PRIORITY) {
+   549→   549→      if (this.state.hasItem(id)) return id;
+   550→   550→    }
+   551→   551→    return null;
+   552→   552→  }
+   553→   553→
+   554→   554→  private camYaw = 0;
+   555→   555→  setCameraYaw(yaw: number): void {
+   556→   556→    this.camYaw = yaw;
+   557→   557→  }
+   558→   558→
+   559→   559→  // ---------------------------------------------------------------- helpers
+   560→   560→
+   561→   561→  /** Player's current movement intent, camera-relative (for routes). */
+   562→   562→  private moveIntent(input: Input): { fwd: number; side: number } {
+   563→   563→    let iz = 0;
+   564→   564→    let ix = 0;
+   565→   565→    if (input.isDown('forward')) iz += 1;
+   566→   566→    if (input.isDown('back')) iz -= 1;
+   567→   567→    if (input.isDown('left')) ix -= 1;
+   568→   568→    if (input.isDown('right')) ix += 1;
+   569→   569→    const len = Math.hypot(ix, iz);
+   570→   570→    if (len === 0) return { fwd: 0, side: 0 };
+   571→   571→    const fx = Math.sin(this.camYaw);
+   572→   572→    const fz = Math.cos(this.camYaw);
+   573→   573→    const rx = -Math.cos(this.camYaw);
+   574→   574→    const rz = Math.sin(this.camYaw);
+   575→   575→    // world dir
+   576→   576→    const wx = fx * iz + rx * ix;
+   577→   577→    const wz = fz * iz + rz * ix;
+   578→   578→    const p = this.player;
+   579→   579→    // relative to the player's facing: fwd = along yaw, side = perpendicular
+   580→   580→    const fwd = Math.sin(p.yaw) * wx + Math.cos(p.yaw) * wz;
+   581→   581→    const side = Math.sin(p.yaw) * wz - Math.cos(p.yaw) * wx;
+   582→   582→    return { fwd: fwd / len, side: side / len };
+   583→   583→  }
+   584→   584→
+   585→   585→  /** A quick click on the ground: light attack or chain step. */
+   586→   586→  private fireLight(weapon: WeaponDef): void {
+   587→   587→    const step = this.comboWindowT > 0 ? this.comboStep + 1 : 1;
+   588→   588→    this.startSwing(weapon, false, Math.min(step, 3));
+   589→   589→  }
+   590→   590→
+   591→   591→  /** A committed heavy (held click or chain finisher slot). */
+   592→   592→  private commitHeavy(weapon: WeaponDef): void {
+   593→   593→    // route by movement intent: strafing -> spin, backpedal -> uppercut
+   594→   594→    const { fwd, side } = this.moveIntentInput();
+   595→   595→    const step = this.comboWindowT > 0 ? Math.min(this.comboStep + 1, 3) : 0;
+   596→   596→    this.startSwing(weapon, true, step, Math.abs(side) > 0.55 && Math.abs(fwd) < 0.55
+   597→   597→      ? 'spin'
+   598→   598→      : fwd < -0.45 ? 'uppercut' : 'heavy');
+   599→   599→  }
+   600→   600→
+   601→   601→  private moveIntentInput(): { fwd: number; side: number } {
+   602→   602→    // cached input at click time via the last moveIntent — kept separate so
+   603→   603→    // charge-release reads exactly what the player was doing on release
+   604→   604→    return this.lastIntent;
+   605→   605→  }
+   606→   606→  private lastIntent: { fwd: number; side: number } = { fwd: 0, side: 0 };
+   607→   607→  /** Air heavy charge clock (hold-to-plunge). */
+   608→   608→  private airChargeT = 0;
+   609→   609→
+   610→   610→  /** Floating air slash. */
+   611→   611→  private fireAircut(weapon: WeaponDef): void {
+   612→   612→    const p = this.player;
+   613→   613→    if (p.stamina < weapon.lightStamina) return;
+   614→   614→    p.stamina -= weapon.lightStamina;
+   615→   615→    p.attackKind = 'aircut';
+   616→   616→    p.attackDur = weapon.lightDur * 0.8;
+   617→   617→    p.attackT = 0.001;
+   618→   618→    this.swingHitDone = false;
+   619→   619→    this.comboStep = this.comboWindowT > 0 ? this.comboStep : 0;
+   620→   620→    this.comboRoute = 'air';
+   621→   621→    this.pendingDmgMult = 1.05;
+   622→   622→    this.swingIsFinisher = false;
+   623→   623→    this.swingIsMulti = false;
+   624→   624→    this.comboLabel = 'AÉREO';
+   625→   625→    p.onAttackSwing?.();
+   626→   626→  }
+   627→   627→
+   628→   628→  /** Plunging dive — damage resolves when the ground arrives. */
+   629→   629→  private firePlunge(weapon: WeaponDef): void {
+   630→   630→    const p = this.player;
+   631→   631→    if (p.stamina < weapon.heavyStamina) return;
+   632→   632→    p.stamina -= weapon.heavyStamina;
+   633→   633→    p.attackKind = 'plunge';
+   634→   634→    p.attackDur = 0.6; // the pose holds; plungeLand finishes it
+   635→   635→    p.attackT = 0.05;
+   636→   636→    p.plunging = true;
+   637→   637→    p.rollDir.set(Math.sin(p.yaw), 0, Math.cos(p.yaw)); // dive along the facing
+   638→   638→    this.swingHitDone = true; // resolved by plungeLand, not by time
+   639→   639→    this.pendingDmgMult = 1.15;
+   640→   640→    this.swingIsFinisher = true;
+   641→   641→    this.swingIsMulti = true;
+   642→   642→    this.comboLabel = '¡COLAPSO!';
+   643→   643→    this.onCombatEvent?.('¡COLAPSO!');
+   644→   644→    p.onAttackSwing?.();
+   645→   645→  }
+   646→   646→
+   647→   647→  /** Plunge landing: the AoE lands (called by Player.onPlungeImpact). */
+   648→   648→  private plungeLand(): void {
+   649→   649→    const p = this.player;
+   650→   650→    const weapon = this.weapon;
+   651→   651→    if (!weapon) return;
+   652→   652→    const c = this.tmp.set(p.position.x, p.position.y + 0.1, p.position.z);
+   653→   653→    this.vfx.landingDust(c.clone(), 16, 1.4);
+   654→   654→    this.onCameraPunch?.(0.6);
+   655→   655→    this.onHitStop?.(0.12);
+   656→   656→    this.hooks.sound('hit_scale');
+   657→   657→    // bandits: radial ring
+   658→   658→    if (this.hooks.banditMeleeRadius) {
+   659→   659→      const hits = this.hooks.banditMeleeRadius(p.position, weapon.reach * 1.15, 4);
+   660→   660→      for (const h of hits) this.hooks.damageBandit?.(h.bandit, weapon.heavyDmg * this.pendingDmgMult, true);
+   661→   661→      if (hits.length > 0) this.vfx.weaponImpact(hits[0].point);
+   662→   662→    }
+   663→   663→    // dragons keep their own lane (single query, unchanged behaviour)
+   664→   664→    const hit = this.hooks.dragonMelee(p.position, p.yaw, weapon.reach, 2.4);
+   665→   665→    if (hit) this.hooks.damageDragon(hit.dragon, weapon.heavyDmg * this.pendingDmgMult, true);
+   666→   666→    // crew
+   667→   667→    this.hooks.crewHit(p.position, p.yaw, weapon.heavyDmg, weapon.reach * 1.2, 2.4);
+   668→   668→    // wrap the dive
+   669→   669→    p.attackT = 0;
+   670→   670→    p.attackKind = 'heavy';
+   671→   671→    p.attackRecovery = weapon.recovery;
+   672→   672→    this.comboStep = 0;
+   673→   673→    this.comboWindowT = 0;
+   674→   674→    this.comboRoute = 'std';
+   675→   675→  }
+   676→   676→
+   677→   677→  // ---------------------------------------------------------------- melee
+   678→   678→
+   679→   679→  private startSwing(weapon: WeaponDef, heavy: boolean, comboStep = 0, forceKind?: 'heavy' | 'spin' | 'uppercut'): void {
+   680→   680→    const p = this.player;
+   681→   681→    const cost = heavy ? weapon.heavyStamina : weapon.lightStamina;
+   682→   682→    if (p.stamina < cost) {
+   683→   683→      // Out of gas: the chain drops
+   684→   684→      this.comboStep = 0;
+   685→   685→      this.comboWindowT = 0;
+   686→   686→      this.bufferedNext = false;
+   687→   687→      return; // too exhausted — no swing
+   688→   688→    }
+   689→   689→    p.stamina -= cost;
+   690→   690→
+   691→   691→    // Route tag + label (HUD reads like a fight, not a spreadsheet)
+   692→   692→    const { fwd, side } = this.moveIntentInput();
+   693→   693→    let kindOverride = forceKind;
+   694→   694→    if (!kindOverride && heavy) {
+   695→   695→      kindOverride = Math.abs(side) > 0.55 && Math.abs(fwd) < 0.55 ? 'spin' : (fwd < -0.45 ? 'uppercut' : 'heavy');
+   696→   696→    }
+   697→   697→    const isFinisher = heavy && comboStep >= 2;
+   698→   698→    const counter = (this.parryCounterT > 0 || this.dodgeCounterT > 0) && !heavy;
+   699→   699→    this.comboStep = comboStep;
+   700→   700→    this.comboWindowT = 1.15;
+   701→   701→    this.swingIsFinisher = isFinisher || counter;
+   702→   702→    this.pendingDmgMult = 1;
+   703→   703→    if (comboStep === 1) this.pendingDmgMult = 1.1;        // second hit bites deeper
+   704→   704→    if (comboStep === 2) this.pendingDmgMult = 1.18;
+   705→   705→    if (isFinisher) this.pendingDmgMult = 1.3;             // chain finisher
+   706→   706→    if (counter) this.pendingDmgMult = this.parryCounterT > 0 ? 1.6 : 1.5; // riposte!
+   707→   707→    // weapon identity per the spec: each weapon moves differently
+   708→   708→    let akind: string;
+   709→   709→    if (kindOverride === 'spin') akind = 'spin';
+   710→   710→    else if (kindOverride === 'uppercut') akind = 'uppercut';
+   711→   711→    else if (weapon.kind === 'axe') akind = heavy ? 'heavy' : this.altLight();
+   712→   712→    else if (weapon.kind === 'spear') akind = 'thrust';
+   713→   713→    else akind = heavy ? 'heavy' : this.altLight();
+   714→   714→    if (counter) akind = this.parryCounterT > 0 ? 'heavy' : 'spin'; // ripostes read BIG
+   715→   715→    p.attackKind = akind as typeof p.attackKind;
+   716→   716→    p.attackDur = heavy ? weapon.heavyDur : weapon.lightDur;
+   717→   717→    if (akind === 'spin') {
+   718→   718→      p.attackDur = weapon.heavyDur * 0.92;         // the whip-around is brisk
+   719→   719→      this.swingIsMulti = true;
+   720→   720→    } else if (akind === 'uppercut') {
+   721→   721→      p.attackDur = weapon.heavyDur * 1.05;
+   722→   722→      this.swingIsMulti = false;
+   723→   723→    } else {
+   724→   724→      this.swingIsMulti = false;
+   725→   725→    }
+   726→   726→    if (isFinisher) p.attackDur *= 1.12;                   // weighty finisher
+   727→   727→    p.attackT = 0.001;
+   728→   728→    this.swingHitDone = false;
+   729→   729→    // label for the HUD
+   730→   730→    this.comboLabel = counter
+   731→   731→      ? (this.parryCounterT > 0 ? '¡CONTRAATAQUE!' : '¡RESPUESTA!')
+   732→   732→      : akind === 'spin' ? 'GIRO 360°'
+   733→   733→      : akind === 'uppercut' ? '¡LANZAMIENTO!'
+   734→   734→      : isFinisher ? '¡REmate!' : '';
+   735→   735→    if (counter) {
+   736→   736→      this.comboLabel = this.parryCounterT > 0 ? '¡CONTRAATAQUE!' : '¡RESPUESTA ÁGIL!';
+   737→   737→      if (this.parryCounterT > 0) this.parryCounterT = 0; else this.dodgeCounterT = 0;
+   738→   738→      this.onCameraPunch?.(0.7);
+   739→   739→      this.onHitStop?.(0.1);
+   740→   740→    } else if (isFinisher) {
+   741→   741→      this.onCameraPunch?.(0.45);
+   742→   742→      this.onHitStop?.(0.07);
+   743→   743→    }
+   744→   744→    // spear heavies lunge the fencer forward along the thrust
+   745→   745→    if (weapon.kind === 'spear' && heavy) {
+   746→   746→      p.velocity.x += Math.sin(p.yaw) * 3.2;
+   747→   747→      p.velocity.z += Math.cos(p.yaw) * 3.2;
+   748→   748→    }
+   749→   749→    p.onAttackSwing?.();
+   750→   750→  }
+   751→   751→
+   752→   752→  private lightAlt = false;
+   753→   753→  private altLight(): 'light1' | 'light2' {
+   754→   754→    this.lightAlt = !this.lightAlt;
+   755→   755→    return this.lightAlt ? 'light1' : 'light2';
+   756→   756→  }
+   757→   757→
+   758→   758→  private resolveMeleeHit(weapon: WeaponDef, heavy: boolean): void {
+   759→   759→    const p = this.player;
+   760→   760→    let dmg = heavy ? weapon.heavyDmg : weapon.lightDmg;
+   761→   761→    if (this.state.learnedSkills.has('comb_maestria')) dmg *= 1.15;
+   762→   762→    dmg *= this.pendingDmgMult;      // combo/counter weight
+   763→   763→    // Fase 10 — Bram's forge upgrades sharpen ANY sword
+   764→   764→    if (weapon.kind === 'sword') dmg *= SWORD_TIER_MULT[this.state.swordTier] ?? 1;
+   765→   765→    // Fase 12 — elemental legendaries: flat bonus + distinct feel per element
+   766→   766→    let element: 'fire' | 'frost' | 'storm' | undefined;
+   767→   767→    if (weapon.element) {
+   768→   768→      element = weapon.element;
+   769→   769→      dmg *= element === 'fire' ? 1.35 : element === 'storm' ? 1.30 : 1.25;
+   770→   770→    }
+   771→   771→    const big = this.swingIsFinisher;
+   772→   772→    const kind = p.attackKind;
+   773→   773→    const multiArc = kind === 'spin' ? 2.75 : weapon.arc;
+   774→   774→
+   775→   775→    // 1) Dragons — the big game (single query, untouched lane)
+   776→   776→    const hit = this.hooks.dragonMelee(p.position, p.yaw, weapon.reach, multiArc);
+   777→   777→    if (hit) {
+   778→   778→      const final = hit.head ? dmg * 1.5 : dmg;
+   779→   779→      this.hooks.damageDragon(hit.dragon, final, heavy);
+   780→   780→      this.vfx.weaponImpact(hit.point);
+   781→   781→      if (element) this.hooks.elementalHit?.(hit.point, element);
+   782→   782→      this.hooks.sound('hit_scale');
+   783→   783→      if (big) this.onCameraPunch?.(0.4);
+   784→   784→      return;
+   785→   785→    }
+   786→   786→    // 1.5) Fase 10/11 — bandits: multi sweeps for spins, nearest for the rest
+   787→   787→    if (this.hooks.banditMelee) {
+   788→   788→      if (this.swingIsMulti && this.hooks.banditMeleeMulti) {
+   789→   789→        const hits = this.hooks.banditMeleeMulti(p.position, p.yaw, weapon.reach, multiArc, 3);
+   790→   790→        if (hits.length > 0) {
+   791→   791→          for (const h of hits) this.hooks.damageBandit?.(h.bandit, dmg, heavy);
+   792→   792→          this.vfx.weaponImpact(hits[0].point);
+   793→   793→          if (element) {
+   794→   794→            this.hooks.elementalHit?.(hits[0].point, element);
+   795→   795→            // STORM chains: the nearest extra bandit eats half the damage
+   796→   796→            if (element === 'storm' && hits.length > 1) {
+   797→   797→              this.hooks.damageBandit?.(hits[hits.length - 1].bandit, dmg * 0.5, false);
+   798→   798→              this.hooks.elementalHit?.(hits[hits.length - 1].point, 'storm');
+   799→   799→            }
+   800→   800→          }
+   801→   801→          this.hooks.sound(big ? 'hit_scale' : 'damage');
+   802→   802→          if (big) {
+   803→   803→            this.onCameraPunch?.(0.5);
+   804→   804→            this.onHitStop?.(0.08);
+   805→   805→          }
+   806→   806→          return;
+   807→   807→        }
+   808→   808→      } else {
+   809→   809→        const bHit = this.hooks.banditMelee(p.position, p.yaw, weapon.reach, multiArc);
+   810→   810→        if (bHit) {
+   811→   811→          this.hooks.damageBandit?.(bHit.bandit, dmg, heavy);
+   812→   812→          this.vfx.weaponImpact(bHit.point);
+   813→   813→          if (element) this.hooks.elementalHit?.(bHit.point, element);
+   814→   814→          this.hooks.sound(big ? 'hit_scale' : 'damage');
+   815→   815→          if (big) {
+   816→   816→            this.onCameraPunch?.(0.5);
+   817→   817→            this.onHitStop?.(0.08);
+   818→   818→          }
+   819→   819→          return;
+   820→   820→        }
+   821→   821→      }
+   822→   822→    }
+   823→   823→    // 2) Boarding pirates
+   824→   824→    if (this.hooks.crewHit(p.position, p.yaw, dmg, weapon.reach, multiArc)) {
+   825→   825→      this.hooks.sound(big ? 'hit_scale' : 'damage');
+   826→   826→      if (big) this.onCameraPunch?.(0.5);
+   827→   827→      return;
+   828→   828→    }
+   829→   829→    // 3) Training dummy (needs to face it & be close)
+   830→   830→    if (this.hooks.dummyHit(p.position, p.yaw)) {
+   831→   831→      this.hooks.sound('damage');
+   832→   832→      return;
+   833→   833→    }
+   834→   834→    // 4) Nothing connected — a WHIFF: nearby bandits raise their guard
+   835→   835→    this.hooks.onWhiff?.(p.position);
+   836→   836→  }
+   837→   837→
+   838→   838→  // ---------------------------------------------------------------- bow
+   839→   839→
+   840→   840→  private updateBow(dt: number, input: Input, weapon: WeaponDef): void {
+   841→   841→    const p = this.player;
+   842→   842→    const ranged = weapon.ranged!;
+   843→   843→    const drawSpeed = this.state.learnedSkills.has('comb_punteria') ? 1.3 : 1;
+   844→   844→
+   845→   845→    if (
+   846→   846→      input.leftDown && p.attackT === 0 && p.attackRecovery <= 0 && !p.rolling
+   847→   847→      && p.grounded && p.stamina > 1
+   848→   848→    ) {
+   849→   849→      // Drawing
+   850→   850→      if (p.bowDraw < 0) {
+   851→   851→        if (this.state.countItem('flecha') > 0) {
+   852→   852→          p.bowDraw = 0.001;
+   853→   853→          this.hooks.sound('bow_draw');
+   854→   854→        } else if (input.leftPressed) {
+   855→   855→          this.hooks.notify('info', 'Sin flechas', 'No te quedan flechas. Se recuperan de fallidos y los drakelings las llevan.');
+   856→   856→        }
+   857→   857→      } else {
+   858→   858→        p.bowDraw = Math.min(1, p.bowDraw + (dt / ranged.drawTime) * drawSpeed);
+   859→   859→      }
+   860→   860→    } else if (p.bowDraw >= 0) {
+   861→   861→      // Released (or interrupted) -> fire if meaningfully drawn
+   862→   862→      const draw = p.bowDraw;
+   863→   863→      p.bowDraw = -1;
+   864→   864→      if (draw > 0.25 && this.state.countItem('flecha') > 0 && p.attackT === 0) {
+   865→   865→        this.fireArrow(weapon, draw);
+   866→   866→      }
+   867→   867→    }
+   868→   868→
+   869→   869→    // Draw drains a little stamina at full draw
+   870→   870→    if (p.bowDraw >= 0.999) {
+   871→   871→      p.stamina = Math.max(0, p.stamina - dt * 2);
+   872→   872→    }
+   873→   873→  }
+   874→   874→
+   875→   875→  private fireArrow(weapon: WeaponDef, draw: number): void {
+   876→   876→    const p = this.player;
+   877→   877→    if (!this.state.removeItem('flecha', 1)) return;
+   878→   878→    const ranged = weapon.ranged!;
+   879→   879→    const { origin, dir } = this.hooks.aimRay();
+   880→   880→    // Aim point 48m along the camera ray, fired from the player's chest —
+   881→   881→    // classic third-person converging projectile.
+   882→   882→    const aimPoint = this.tmp.copy(origin).addScaledVector(dir, 48);
+   883→   883→    const chest = this.tmp2.set(p.position.x, p.position.y + 1.35, p.position.z);
+   884→   884→    const flightDir = new THREE.Vector3().copy(aimPoint).sub(chest).normalize();
+   885→   885→    const mesh = this.buildArrowMesh();
+   886→   886→    mesh.position.copy(chest).addScaledVector(flightDir, 0.6);
+   887→   887→    mesh.lookAt(mesh.position.clone().add(flightDir));
+   888→   888→    this.scene.add(mesh);
+   889→   889→    let dmg = ranged.dmg * (ranged.minDmgFrac + (1 - ranged.minDmgFrac) * draw);
+   890→   890→    if (this.state.learnedSkills.has('comb_punteria')) dmg *= 1.3;
+   891→   891→    this.arrows.push({
+   892→   892→      mesh,
+   893→   893→      vel: flightDir.clone().multiplyScalar(ranged.speed),
+   894→   894→      life: 6,
+   895→   895→      dmg,
+   896→   896→      stuck: false,
+   897→   897→    });
+   898→   898→    // Release animation
+   899→   899→    p.attackKind = 'bowRelease';
+   900→   900→    p.attackDur = 0.35;
+   901→   901→    p.attackT = 0.001;
+   902→   902→    this.swingHitDone = true;
+   903→   903→    this.hooks.sound('bow_release');
+   904→   904→  }
+   905→   905→
+   906→   906→  private buildArrowMesh(): THREE.Group {
+   907→   907→    const g = new THREE.Group();
+   908→   908→    const shaft = new THREE.Mesh(
+   909→   909→      new THREE.CylinderGeometry(0.012, 0.012, 0.62, 5),
+   910→   910→      new THREE.MeshStandardMaterial({ color: 0x6a5232, roughness: 0.8 }),
+   911→   911→    );
+   912→   912→    shaft.rotation.x = Math.PI / 2;
+   913→   913→    g.add(shaft);
+   914→   914→    const tip = new THREE.Mesh(
+   915→   915→      new THREE.ConeGeometry(0.02, 0.09, 5),
+   916→   916→      new THREE.MeshStandardMaterial({ color: 0x9aa2a8, roughness: 0.4, metalness: 0.7 }),
+   917→   917→    );
+   918→   918→    tip.rotation.x = Math.PI / 2;
+   919→   919→    tip.position.z = 0.35;
+   920→   920→    g.add(tip);
+   921→   921→    const fletch = new THREE.Mesh(
+   922→   922→      new THREE.ConeGeometry(0.028, 0.12, 4),
+   923→   923→      new THREE.MeshStandardMaterial({ color: 0xd8d2c0, roughness: 0.9 }),
+   924→   924→    );
+   925→   925→    fletch.rotation.x = -Math.PI / 2;
+   926→   926→    fletch.position.z = -0.28;
+   927→   927→    g.add(fletch);
+   928→   928→    return g;
+   929→   929→  }
+   930→   930→
+   931→   931→  private updateArrows(dt: number): void {
+   932→   932→    const p = this.player;
+   933→   933→    for (let i = this.arrows.length - 1; i >= 0; i--) {
+   934→   934→      const a = this.arrows[i];
+   935→   935→      if (a.stuck) continue;
+   936→   936→      a.life -= dt;
+   937→   937→      // Ballistic arc — remember the previous position for swept collision
+   938→   938→      a.vel.y -= 16 * dt;
+   939→   939→      const prevX = a.mesh.position.x;
+   940→   940→      const prevY = a.mesh.position.y;
+   941→   941→      const prevZ = a.mesh.position.z;
+   942→   942→      const step = this.tmpDir.copy(a.vel).multiplyScalar(dt);
+   943→   943→      a.mesh.position.add(step);
+   944→   944→      a.mesh.lookAt(this.tmp.copy(a.mesh.position).add(a.vel));
+   945→   945→
+   946→   946→      // Dragon hit (swept segment so fast arrows can't tunnel at low fps)
+   947→   947→      const prev = this.tmp2.set(prevX, prevY, prevZ);
+   948→   948→      const dragon = this.hooksAimDragon(a.mesh.position, 0.4, prev);
+   949→   949→      if (dragon) {
+   950→   950→        this.hooks.damageDragon(dragon, a.dmg, false);
+   951→   951→        this.vfx.weaponImpact(a.mesh.position);
+   952→   952→        this.hooks.sound('arrow_hit');
+   953→   953→        this.removeArrow(i);
+   954→   954→        continue;
+   955→   955→      }
+   956→   956→      // Fase 10 — bandit hit (swept, same protocol)
+   957→   957→      const bandit = this.banditHitRef?.(a.mesh.position, 0.4, prev) ?? null;
+   958→   958→      if (bandit) {
+   959→   959→        this.damageBanditRef?.(bandit, a.dmg);
+   960→   960→        this.vfx.weaponImpact(a.mesh.position);
+   961→   961→        this.hooks.sound('arrow_hit');
+   962→   962→        this.removeArrow(i);
+   963→   963→        continue;
+   964→   964→      }
+   965→   965→      // Terrain hit -> stick (some can be recovered); over open water the
+   966→   966→      // arrow is simply lost to the sea.
+   967→   967→      const ground = this.terrainHeight(a.mesh.position.x, a.mesh.position.z);
+   968→   968→      if (a.mesh.position.y <= Math.max(ground, -0.4) + 0.02) {
+   969→   969→        if (ground < -0.4) {
+   970→   970→          this.vfx.arrowDust(a.mesh.position);
+   971→   971→          this.removeArrow(i);
+   972→   972→          continue;
+   973→   973→        }
+   974→   974→        a.mesh.position.y = ground + 0.02;
+   975→   975→        a.stuck = true;
+   976→   976→        this.vfx.arrowDust(a.mesh.position);
+   977→   977→        if (Math.random() < 0.55) {
+   978→   978→          this.pickups.push({ mesh: a.mesh, pos: a.mesh.position.clone() });
+   979→   979→          this.arrows.splice(i, 1); // keep mesh alive as pickup
+   980→   980→        } else {
+   981→   981→          a.life = 4; // fade non-recoverable stuck arrows
+   982→   982→          this.arrows[i].stuck = true;
+   983→   983→        }
+   984→   984→        continue;
+   985→   985→      }
+   986→   986→      if (a.life <= 0) this.removeArrow(i);
+   987→   987→    }
+   988→   988→    // Stuck arrow fade
+   989→   989→    for (let i = this.arrows.length - 1; i >= 0; i--) {
+   990→   990→      const a = this.arrows[i];
+   991→   991→      if (a.stuck) {
+   992→   992→        a.life -= dt;
+   993→   993→        if (a.life <= 0) this.removeArrow(i);
+   994→   994→      }
+   995→   995→    }
+   996→   996→    // Pickups: walk close to recover the arrow
+   997→   997→    for (let i = this.pickups.length - 1; i >= 0; i--) {
+   998→   998→      const pu = this.pickups[i];
+   999→   999→      if (pu.pos.distanceTo(p.position) < 1.8) {
+  1000→  1000→        this.state.addItem('flecha', 1);
+  1001→  1001→        this.hooks.sound('pickup');
+  1002→  1002→        this.scene.remove(pu.mesh);
+  1003→  1003→        this.pickups.splice(i, 1);
+  1004→  1004→      }
+  1005→  1005→    }
+  1006→  1006→  }
+  1007→  1007→
+  1008→  1008→  private hooksAimDragon(pos: THREE.Vector3, radius: number, prevPos?: THREE.Vector3): Dragon | null {
+  1009→  1009→    return this.dragonHitRef ? this.dragonHitRef(pos, radius, prevPos) : null;
+  1010→  1010→  }
+  1011→  1011→
+  1012→  1012→  /** Injected by the Game (avoids a circular hook dependency). */
+  1013→  1013→  dragonHitRef: ((pos: THREE.Vector3, radius: number, prevPos?: THREE.Vector3) => Dragon | null) | null = null;
+  1014→  1014→  /** Fase 10 — arrow collision against bandits (same swept protocol). */
+  1015→  1015→  banditHitRef: ((pos: THREE.Vector3, radius: number, prevPos?: THREE.Vector3) => unknown | null) | null = null;
+  1016→  1016→  damageBanditRef: ((bandit: unknown, amount: number) => void) | null = null;
+  1017→  1017→  terrainHeightRef: ((x: number, z: number) => number) | null = null;
+  1018→  1018→
+  1019→  1019→  private terrainHeight(x: number, z: number): number {
+  1020→  1020→    return this.terrainHeightRef ? this.terrainHeightRef(x, z) : 0;
+  1021→  1021→  }
+  1022→  1022→
+  1023→  1023→  private removeArrow(i: number): void {
+  1024→  1024→    const a = this.arrows[i];
+  1025→  1025→    this.scene.remove(a.mesh);
+  1026→  1026→    a.mesh.traverse((o) => {
+  1027→  1027→      if ((o as THREE.Mesh).isMesh) {
+  1028→  1028→        (o as THREE.Mesh).geometry.dispose();
+  1029→  1029→        ((o as THREE.Mesh).material as THREE.Material).dispose();
+  1030→  1030→      }
+  1031→  1031→    });
+  1032→  1032→    this.arrows.splice(i, 1);
+  1033→  1033→  }
+  1034→  1034→
+  1035→  1035→  // ---------------------------------------------------------------- misc
+  1036→  1036→
+  1037→  1037→  private switchTo(id: string): void {
+  1038→  1038→    if (!this.state.hasItem(id)) {
+  1039→  1039→      this.hooks.notify('info', 'Arma no adquirida', 'Aún no llevas esa arma. Explora Eldoria y completa misiones.');
+  1040→  1040→      return;
+  1041→  1041→    }
+  1042→  1042→    if (this.state.equippedWeapon === id) return;
+  1043→  1043→    this.state.equip(id);
+  1044→  1044→    this.player.attackT = 0;
+  1045→  1045→    this.player.bowDraw = -1;
+  1046→  1046→    this.refreshVisuals();
+  1047→  1047→    this.hooks.sound('swap');
+  1048→  1048→  }
+  1049→  1049→
+  1050→  1050→  /** Called by the Game when the UI equips an item directly. */
+  1051→  1051→  onUiEquip(): void {
+  1052→  1052→    this.refreshVisuals();
+  1053→  1053→  }
+  1054→  1054→
+  1055→  1055→  dispose(): void {
+  1056→  1056→    for (let i = this.arrows.length - 1; i >= 0; i--) this.removeArrow(i);
+  1057→  1057→    for (const pu of this.pickups) {
+  1058→  1058→      this.scene.remove(pu.mesh);
+  1059→  1059→    }
+  1060→  1060→    this.pickups = [];
+  1061→  1061→  }
+  1062→  1062→}
+  1063→  1063→

@@ -1,0 +1,700 @@
+     1→import * as THREE from 'three';
+     2→import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+     3→import type { ChunkScatter } from './TerrainSystem';
+     4→import { TerrainHeight } from './TerrainHeight';
+     5→import { mulberry32, hash2, clamp } from '../core/MathUtils';
+     6→import { distToRoads } from './WorldConfig';
+     7→import { GrassField } from './GrassField';
+     8→import { FarGrass } from './FarGrass';
+     9→
+    10→/** Shared time uniform injected into all wind-swaying materials. */
+    11→export const windTime = { value: 0 };
+    12→/** Fase 4 — global wind gust multiplier (weather-driven). */
+    13→export const windGust = { value: 1 };
+    14→
+    15→/** Patch a MeshStandardMaterial so its vertices sway with the wind. */
+    16→export function patchWind(material: THREE.Material, opts: { strength: number; minHeight: number; maxHeight: number }): void {
+    17→  material.onBeforeCompile = (shader) => {
+    18→    shader.uniforms.uTime = windTime;
+    19→    shader.uniforms.uWindStrength = windGust;
+    20→    shader.vertexShader = shader.vertexShader
+    21→      .replace('#include <common>', '#include <common>\nuniform float uTime;\nuniform float uWindStrength;')
+    22→      .replace(
+    23→        '#include <begin_vertex>',
+    24→        /* glsl */ `
+    25→        #include <begin_vertex>
+    26→        #ifdef USE_INSTANCING
+    27→          float windPhase = instanceMatrix[3][0] * 0.08 + instanceMatrix[3][2] * 0.11;
+    28→          float swayK = smoothstep(${opts.minHeight.toFixed(2)}, ${opts.maxHeight.toFixed(2)}, position.y) * ${opts.strength.toFixed(3)} * uWindStrength;
+    29→          transformed.x += (sin(uTime * 1.35 + windPhase) + 0.5 * sin(uTime * 2.3 + windPhase * 1.7)) * 0.5 * swayK;
+    30→          transformed.z += (cos(uTime * 1.05 + windPhase * 1.3) + 0.4 * sin(uTime * 2.9 + windPhase)) * 0.4 * swayK;
+    31→        #endif
+    32→        `,
+    33→      );
+    34→  };
+    35→  material.customProgramCacheKey = () => `wind_${opts.strength}_${opts.minHeight}_${opts.maxHeight}`;
+    36→}
+    37→
+    38→/** Set a vertex color attribute on a geometry (with subtle per-vertex noise). */
+    39→function colorize(geo: THREE.BufferGeometry, color: THREE.Color, variation = 0.05, seed = 1): void {
+    40→  const count = geo.attributes.position.count;
+    41→  const colors = new Float32Array(count * 3);
+    42→  const rand = mulberry32(seed);
+    43→  for (let i = 0; i < count; i++) {
+    44→    const v = 1 + (rand() - 0.5) * 2 * variation;
+    45→    colors[i * 3] = clamp(color.r * v, 0, 1);
+    46→    colors[i * 3 + 1] = clamp(color.g * v, 0, 1);
+    47→    colors[i * 3 + 2] = clamp(color.b * v, 0, 1);
+    48→  }
+    49→  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    50→}
+    51→
+    52→function transformGeo(geo: THREE.BufferGeometry, x: number, y: number, z: number, sx = 1, sy = 1, sz = 1, rotY = 0, rotZ = 0): THREE.BufferGeometry {
+    53→  const m = new THREE.Matrix4();
+    54→  const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, rotY, rotZ));
+    55→  m.compose(new THREE.Vector3(x, y, z), q, new THREE.Vector3(sx, sy, sz));
+    56→  const g = geo.index ? geo.toNonIndexed() : geo;
+    57→  return g.applyMatrix4(m);
+    58→}
+    59→
+    60→/**
+    61→ * Fase 12 — trees are TWO textured parts (bark trunk + leaf canopy) for every
+    62→ * species, with organically noise-displaced canopies so they read as leaf
+    63→ * clusters instead of angular blobs. Species:
+    64→ * 0 oak · 1 pine · 2 birch · 3 maple (golden) · 4 spruce · 5 dead/ancient
+    65→ */
+    66→function displacedBlob(radius: number, seed: number, amp = 0.24, squashY = 0.9): THREE.BufferGeometry {
+    67→  const g = new THREE.IcosahedronGeometry(radius, 1);
+    68→  const pos = g.attributes.position as THREE.BufferAttribute;
+    69→  // Hash the position (not the index): shared corners displace identically → no cracks.
+    70→  for (let i = 0; i < pos.count; i++) {
+    71→    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+    72→    const h = (frac(Math.sin(x * 12.9898 + y * 78.233 + z * 37.719) * 43758.5453) * 2 - 1) * amp;
+    73→    const h2 = (frac(Math.sin(x * 93.989 + y * 47.233 + z * 17.719) * 24634.6345) * 2 - 1) * amp * 0.55;
+    74→    pos.setXYZ(i, x * (1 + h), y * (1 + h2) * squashY, z * (1 + h));
+    75→  }
+    76→  g.computeVertexNormals();
+    77→  return g;
+    78→}
+    79→const frac = (v: number) => v - Math.floor(v);
+    80→
+    81→/** Per-species [bark trunk geometry, leaf canopy geometry]. */
+    82→function buildTreeGeometries(): Array<[THREE.BufferGeometry, THREE.BufferGeometry]> {
+    83→  const rand = mulberry32(999);
+    84→  const parts: Array<[THREE.BufferGeometry, THREE.BufferGeometry]> = [];
+    85→
+    86→  // --- Species 0: Oak — broad, muscular, green ---
+    87→  {
+    88→    const trunk: THREE.BufferGeometry[] = [];
+    89→    const trunkCol = new THREE.Color(0x8a6a4a);
+    90→    const t = new THREE.CylinderGeometry(0.22, 0.46, 3.0, 10);
+    91→    colorize(t, trunkCol, 0.07, 1);
+    92→    trunk.push(transformGeo(t, 0, 1.5, 0));
+    93→    for (let i = 0; i < 4; i++) {
+    94→      const b = new THREE.CylinderGeometry(0.09, 0.17, 1.9, 8);
+    95→      colorize(b, trunkCol, 0.07, 2 + i);
+    96→      const ang = (i / 4) * Math.PI * 2 + rand() * 0.5;
+    97→      trunk.push(transformGeo(b, Math.cos(ang) * 0.8, 2.6 + rand() * 0.6, Math.sin(ang) * 0.8, 1, 1, 1, 0, 0.55 + rand() * 0.35));
+    98→    }
+    99→    const canopy: THREE.BufferGeometry[] = [];
+   100→    const leafCols = [new THREE.Color(0x86a34a), new THREE.Color(0x74a040), new THREE.Color(0x92ac54)];
+   101→    const blobs: Array<[number, number, number, number]> = [
+   102→      [0, 4.6, 0, 2.0], [1.35, 3.9, 0.6, 1.45], [-1.2, 4.0, -0.65, 1.4], [0.35, 3.8, -1.3, 1.35],
+   103→      [-0.45, 4.1, 1.25, 1.3], [0.9, 5.4, 0.7, 1.15], [-0.8, 5.5, -0.6, 1.1], [0.1, 6.3, 0.2, 1.0],
+   104→    ];
+   105→    blobs.forEach((b, i) => {
+   106→      const g = displacedBlob(b[3], 11 + i, 0.22, 0.88);
+   107→      colorize(g, leafCols[i % 3], 0.1, 20 + i);
+   108→      canopy.push(transformGeo(g, b[0], b[1], b[2], 1.12, 1, 1.12, rand() * 3, rand() * 0.25));
+   109→    });
+   110→    parts.push([mergeGeometries(trunk)!, mergeGeometries(canopy)!]);
+   111→  }
+   112→
+   113→  // --- Species 1: Pine — layered cones with wobbled rims ---
+   114→  {
+   115→    const trunk: THREE.BufferGeometry[] = [];
+   116→    const pineTrunk = new THREE.CylinderGeometry(0.16, 0.34, 2.2, 9);
+   117→    colorize(pineTrunk, new THREE.Color(0x6e5238), 0.07, 21);
+   118→    trunk.push(transformGeo(pineTrunk, 0, 1.1, 0));
+   119→    const canopy: THREE.BufferGeometry[] = [];
+   120→    const pineCols = [new THREE.Color(0x3f6b46), new THREE.Color(0x35624a), new THREE.Color(0x49734a)];
+   121→    const tiers: Array<[number, number, number, number]> = [
+   122→      [2.3, 2.1, 2.7, 1.0], [3.7, 1.6, 2.3, 0.95], [4.95, 1.15, 1.95, 0.9], [5.95, 0.72, 1.55, 0.85], [6.7, 0.38, 1.1, 0.8],
+   123→    ];
+   124→    tiers.forEach((tier, i) => {
+   125→      const c = new THREE.ConeGeometry(tier[1], tier[2], 11);
+   126→      colorize(c, pineCols[i % 3], 0.09, 30 + i);
+   127→      canopy.push(transformGeo(c, 0, tier[0], 0, 1, 1, 1, rand() * 3));
+   128→    });
+   129→    parts.push([mergeGeometries(trunk)!, mergeGeometries(canopy)!]);
+   130→  }
+   131→
+   132→  // --- Species 2: Birch — pale slim trunk, airy light-green crown ---
+   133→  {
+   134→    const trunk: THREE.BufferGeometry[] = [];
+   135→    const btrunk = new THREE.CylinderGeometry(0.10, 0.19, 3.6, 9);
+   136→    colorize(btrunk, new THREE.Color(0xe8e4d8), 0.05, 41);
+   137→    trunk.push(transformGeo(btrunk, 0, 1.8, 0));
+   138→    const canopy: THREE.BufferGeometry[] = [];
+   139→    const bCols = [new THREE.Color(0xa9c465), new THREE.Color(0xbcd07a)];
+   140→    const bBlobs: Array<[number, number, number, number]> = [
+   141→      [0, 4.1, 0, 1.25], [0.65, 3.5, 0.35, 0.9], [-0.6, 3.7, -0.3, 0.85], [0.15, 4.9, -0.45, 0.8], [-0.15, 5.3, 0.4, 0.72],
+   142→    ];
+   143→    bBlobs.forEach((b, i) => {
+   144→      const g = displacedBlob(b[3], 51 + i, 0.26, 1.2);
+   145→      colorize(g, bCols[i % 2], 0.11, 50 + i);
+   146→      canopy.push(transformGeo(g, b[0], b[1], b[2], 1.05, 1, 1.05, rand() * 3));
+   147→    });
+   148→    parts.push([mergeGeometries(trunk)!, mergeGeometries(canopy)!]);
+   149→  }
+   150→
+   151→  // --- Species 3: Maple — the golden landmark tree ---
+   152→  {
+   153→    const trunk: THREE.BufferGeometry[] = [];
+   154→    const mt = new THREE.CylinderGeometry(0.18, 0.46, 3.2, 10);
+   155→    colorize(mt, new THREE.Color(0x9a8574), 0.05, 61);
+   156→    trunk.push(transformGeo(mt, 0, 1.6, 0));
+   157→    for (let i = 0; i < 4; i++) {
+   158→      const b = new THREE.CylinderGeometry(0.07, 0.15, 2.1, 7);
+   159→      colorize(b, new THREE.Color(0x9a8574), 0.06, 62 + i);
+   160→      const ang = (i / 4) * Math.PI * 2 + 0.4;
+   161→      trunk.push(transformGeo(b, Math.cos(ang) * 0.9, 3.6 + rand() * 0.6, Math.sin(ang) * 0.9, 1, 1, 1, 0, 0.7 + rand() * 0.25));
+   162→    }
+   163→    const canopy: THREE.BufferGeometry[] = [];
+   164→    const mCols = [new THREE.Color(0xe8bc50), new THREE.Color(0xd8a83c), new THREE.Color(0xf0cc66), new THREE.Color(0xc9952e)];
+   165→    const mBlobs: Array<[number, number, number, number]> = [
+   166→      [0, 5.5, 0, 1.95], [1.4, 4.7, 0.65, 1.35], [-1.25, 4.9, -0.6, 1.3], [0.5, 4.5, -1.35, 1.25],
+   167→      [-0.55, 4.8, 1.3, 1.2], [0.15, 6.6, 0.25, 1.1], [1.0, 6.1, -0.7, 0.95],
+   168→    ];
+   169→    mBlobs.forEach((b, i) => {
+   170→      const g = displacedBlob(b[3], 71 + i, 0.24, 0.9);
+   171→      colorize(g, mCols[i % 4], 0.09, 70 + i);
+   172→      canopy.push(transformGeo(g, b[0], b[1], b[2], 1.1, 0.95, 1.1, rand() * 3, rand() * 0.25));
+   173→    });
+   174→    parts.push([mergeGeometries(trunk)!, mergeGeometries(canopy)!]);
+   175→  }
+   176→
+   177→  // --- Species 4: Spruce — tall, narrow, dark, high altitude ---
+   178→  {
+   179→    const trunk: THREE.BufferGeometry[] = [];
+   180→    const sTrunk = new THREE.CylinderGeometry(0.13, 0.28, 2.8, 9);
+   181→    colorize(sTrunk, new THREE.Color(0x5c4430), 0.07, 81);
+   182→    trunk.push(transformGeo(sTrunk, 0, 1.4, 0));
+   183→    const canopy: THREE.BufferGeometry[] = [];
+   184→    const sCols = [new THREE.Color(0x2e5240), new THREE.Color(0x274c38), new THREE.Color(0x355942)];
+   185→    const sTiers: Array<[number, number, number, number]> = [
+   186→      [3.0, 1.85, 2.6, 1.0], [4.5, 1.4, 2.2, 0.95], [5.9, 1.0, 1.8, 0.9], [7.15, 0.66, 1.45, 0.88], [8.2, 0.35, 1.05, 0.85], [9.0, 0.16, 0.7, 0.82],
+   187→    ];
+   188→    sTiers.forEach((tier, i) => {
+   189→      const c = new THREE.ConeGeometry(tier[1], tier[2], 11);
+   190→      colorize(c, sCols[i % 3], 0.08, 85 + i);
+   191→      canopy.push(transformGeo(c, 0, tier[0], 0, 1, 1, 1, rand() * 3));
+   192→    });
+   193→    parts.push([mergeGeometries(trunk)!, mergeGeometries(canopy)!]);
+   194→  }
+   195→
+   196→  // --- Species 5: Dead / ancient — bare twisted branches (bark both groups) ---
+   197→  {
+   198→    const trunk: THREE.BufferGeometry[] = [];
+   199→    const dCol = new THREE.Color(0x8a7a68);
+   200→    const dTrunk = new THREE.CylinderGeometry(0.17, 0.42, 3.8, 9);
+   201→    colorize(dTrunk, dCol, 0.12, 91);
+   202→    trunk.push(transformGeo(dTrunk, 0, 1.9, 0, 1, 1, 1, 0, 0.06));
+   203→    const canopy: THREE.BufferGeometry[] = [];
+   204→    for (let i = 0; i < 7; i++) {
+   205→      const len = 1.3 + rand() * 1.5;
+   206→      const b = new THREE.CylinderGeometry(0.03, 0.11, len, 6);
+   207→      colorize(b, dCol, 0.14, 92 + i);
+   208→      const ang = (i / 7) * Math.PI * 2 + rand() * 0.8;
+   209→      const h = 2.4 + rand() * 1.7;
+   210→      canopy.push(transformGeo(b, Math.cos(ang) * 0.55, h, Math.sin(ang) * 0.55, 1, 1, 1, ang, 0.7 + rand() * 0.5));
+   211→      if (rand() < 0.7) {
+   212→        const tb = new THREE.CylinderGeometry(0.02, 0.055, len * 0.6, 5);
+   213→        colorize(tb, dCol, 0.14, 100 + i);
+   214→        canopy.push(transformGeo(tb, Math.cos(ang + 0.5) * 0.95, h + len * 0.42, Math.sin(ang + 0.5) * 0.95, 1, 1, 1, ang + 0.6, 0.4 + rand() * 0.4));
+   215→      }
+   216→    }
+   217→    parts.push([mergeGeometries(trunk)!, mergeGeometries(canopy)!]);
+   218→  }
+   219→
+   220→  return parts;
+   221→}
+   222→
+   223→/** Average canopy color per species (billboard tint & minimap). */
+   224→export const TREE_BILLBOARD_COLOR = [
+   225→  new THREE.Color(0x44632e), // oak
+   226→  new THREE.Color(0x274c33), // pine
+   227→  new THREE.Color(0x76923f), // birch
+   228→  new THREE.Color(0xc99a34), // maple
+   229→  new THREE.Color(0x1f3d2a), // spruce
+   230→  new THREE.Color(0x5c5044), // dead
+   231→];
+   232→
+   233→/** Procedural billboard texture: a soft tree silhouette (impostor LOD). */
+   234→function makeBillboardTexture(): THREE.Texture {
+   235→  const c = document.createElement('canvas');
+   236→  c.width = 128;
+   237→  c.height = 128;
+   238→  const ctx = c.getContext('2d')!;
+   239→  ctx.clearRect(0, 0, 128, 128);
+   240→  // Trunk
+   241→  ctx.fillStyle = 'rgba(70,52,36,0.95)';
+   242→  ctx.fillRect(60, 70, 8, 56);
+   243→  // Canopy blobs (layered, soft edges via radial gradients)
+   244→  const blob = (x: number, y: number, r: number, a: number) => {
+   245→    const g = ctx.createRadialGradient(x, y, r * 0.1, x, y, r);
+   246→    g.addColorStop(0, `rgba(255,255,255,${a})`);
+   247→    g.addColorStop(0.75, `rgba(255,255,255,${a * 0.85})`);
+   248→    g.addColorStop(1, 'rgba(255,255,255,0)');
+   249→    ctx.fillStyle = g;
+   250→    ctx.beginPath();
+   251→    ctx.arc(x, y, r, 0, Math.PI * 2);
+   252→    ctx.fill();
+   253→  };
+   254→  blob(64, 46, 40, 0.95);
+   255→  blob(40, 58, 26, 0.85);
+   256→  blob(88, 58, 26, 0.85);
+   257→  blob(64, 26, 24, 0.9);
+   258→  blob(46, 38, 20, 0.8);
+   259→  blob(82, 38, 20, 0.8);
+   260→  const tex = new THREE.CanvasTexture(c);
+   261→  tex.colorSpace = THREE.SRGBColorSpace;
+   262→  return tex;
+   263→}
+   264→
+   265→/** Crossed-plane impostor geometry (~2 tris × 2 planes per tree). */
+   266→function buildBillboardGeometry(): THREE.BufferGeometry {
+   267→  const parts: THREE.BufferGeometry[] = [];
+   268→  for (let i = 0; i < 2; i++) {
+   269→    const g = new THREE.PlaneGeometry(7.5, 10.5);
+   270→    g.translate(0, 5.25, 0);
+   271→    parts.push(transformGeo(g, 0, 0, 0, 1, 1, 1, (i / 2) * Math.PI));
+   272→  }
+   273→  return mergeGeometries(parts)!;
+   274→}
+   275→
+   276→function buildRockGeometry(): THREE.BufferGeometry {
+   277→  const g = new THREE.IcosahedronGeometry(1, 1);
+   278→  const pos = g.attributes.position as THREE.BufferAttribute;
+   279→  const rand = mulberry32(777);
+   280→  for (let i = 0; i < pos.count; i++) {
+   281→    pos.setXYZ(
+   282→      i,
+   283→      pos.getX(i) * (0.8 + rand() * 0.4),
+   284→      pos.getY(i) * (0.55 + rand() * 0.3),
+   285→      pos.getZ(i) * (0.8 + rand() * 0.4),
+   286→    );
+   287→  }
+   288→  g.computeVertexNormals();
+   289→  colorize(g, new THREE.Color(0x6e6a62), 0.16, 60);
+   290→  return g;
+   291→}
+   292→
+   293→/** Denser grass blade geometry: fine single-blade field handled by GrassField. */
+   294→
+   295→interface TreeInstance { species: number; matrix: THREE.Matrix4; color: THREE.Color }
+   296→interface RockInstance { matrix: THREE.Matrix4; color: THREE.Color }
+   297→
+   298→interface ChunkVegetation {
+   299→  trees: TreeInstance[];
+   300→  rocks: RockInstance[];
+   301→  near?: number;
+   302→}
+   303→
+   304→/** Vegetation is instanced per CLUSTER (2×2 chunks of 64 m = 128 m cell) so the
+   305→ *  renderer can frustum-cull distant geometry. */
+   306→const CLUSTER_CHUNKS = 2;
+   307→const CLUSTER_SIZE = 64 * CLUSTER_CHUNKS;
+   308→/** Beyond this distance clusters swap to billboard impostors. */
+   309→const LOD_IMPOSTOR_DIST = 250;
+   310→
+   311→interface ClusterMeshes {
+   312→  trees: THREE.InstancedMesh[];
+   313→  billboards: THREE.InstancedMesh;
+   314→  rock: THREE.InstancedMesh;
+   315→  centerX: number;
+   316→  centerZ: number;
+   317→  /** 0 = full detail, 1 = impostors. */
+   318→  lod: number;
+   319→}
+   320→
+   321→interface ClusterData {
+   322→  key: string;
+   323→  ccx: number;
+   324→  ccz: number;
+   325→  chunks: Set<string>;
+   326→  meshes: ClusterMeshes | null;
+   327→  dirty: boolean;
+   328→  /** All instances (kept for billboard rebuilds). */
+   329→  allTrees: TreeInstance[];
+   330→}
+   331→
+   332→const SPECIES_COUNT = 6;
+   333→
+   334→export class VegetationSystem {
+   335→  /** Per-species [trunk, canopy] geometries + the merged two-group geo. */
+   336→  private speciesParts: Array<[THREE.BufferGeometry, THREE.BufferGeometry]> = [];
+   337→  private treeGeos: THREE.BufferGeometry[];
+   338→  private treeMat: THREE.MeshStandardMaterial;
+   339→  private barkMat: THREE.MeshStandardMaterial;
+   340→  private leafMat: THREE.MeshStandardMaterial;
+   341→  private billboardMat: THREE.MeshStandardMaterial;
+   342→  private billboardGeo: THREE.BufferGeometry;
+   343→  private rockGeo: THREE.BufferGeometry;
+   344→  private rockMat: THREE.MeshStandardMaterial;
+   345→  private speciesCapacity = 300;
+   346→  private rockCapacity = 44;
+   347→  private billboardCapacity = 1300;
+   348→
+   349→  private chunkData = new Map<string, ChunkVegetation>();
+   350→  private clusters = new Map<string, ClusterData>();
+   351→  private grassDensity: number;
+   352→  private sceneRef: THREE.Scene;
+   353→  /** Fase 6 — el prado de briznas finas que envuelve al jugador. */
+   354→  private grassField: GrassField;
+   355→  /** Fase 9 — la pradera lejana del mundo entero (mattas instanciadas
+   356→   *  cubriendo ~0.5 km: el pasto 3D existe en todas las regiones). */
+   357→  private farGrass: FarGrass;
+   358→
+   359→  private treeColliderSink?: (x: number, z: number, r: number, key: string) => void;
+   360→  private treeColliderRemove?: (prefix: string) => void;
+   361→
+   362→  constructor(
+   363→    private terrain: TerrainHeight,
+   364→    grassDensity: number,
+   365→    scene: THREE.Scene,
+   366→    mapleTextures?: { bark: THREE.Texture; leaf: THREE.Texture },
+   367→  ) {
+   368→    this.grassDensity = grassDensity;
+   369→    this.sceneRef = scene;
+   370→
+   371→    this.treeMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, metalness: 0 });
+   372→    patchWind(this.treeMat, { strength: 0.10, minHeight: 2.0, maxHeight: 6.0 });
+   373→
+   374→    // Fase 12 — EVERY species wears real textures: bark on trunks/branches,
+   375→    // leaf on canopies, vertex colours as per-species hue tints.
+   376→    if (mapleTextures) {
+   377→      const bark = mapleTextures.bark.clone();
+   378→      bark.repeat.set(2, 2);
+   379→      bark.needsUpdate = true;
+   380→      const leaf = mapleTextures.leaf.clone();
+   381→      leaf.repeat.set(2, 2);
+   382→      leaf.needsUpdate = true;
+   383→      this.barkMat = new THREE.MeshStandardMaterial({
+   384→        map: bark, vertexColors: true, roughness: 0.95, metalness: 0,
+   385→      });
+   386→      this.leafMat = new THREE.MeshStandardMaterial({
+   387→        map: leaf, vertexColors: true, roughness: 0.82, metalness: 0,
+   388→      });
+   389→    } else {
+   390→      this.barkMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 });
+   391→      this.leafMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.82, metalness: 0 });
+   392→    }
+   393→    patchWind(this.barkMat, { strength: 0.08, minHeight: 2.0, maxHeight: 6.5 });
+   394→    patchWind(this.leafMat, { strength: 0.15, minHeight: 2.5, maxHeight: 7.5 });
+   395→
+   396→    // Billboard impostor material (alpha-tested)
+   397→    this.billboardMat = new THREE.MeshStandardMaterial({
+   398→      map: makeBillboardTexture(),
+   399→      transparent: true,
+   400→      alphaTest: 0.32,
+   401→      depthWrite: true,
+   402→      roughness: 0.95,
+   403→      metalness: 0,
+   404→      side: THREE.DoubleSide,
+   405→    });
+   406→    this.billboardGeo = buildBillboardGeometry();
+   407→
+   408→    this.rockMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0.02 });
+   409→    this.rockGeo = buildRockGeometry();
+   410→
+   411→    const built = buildTreeGeometries();
+   412→    this.speciesParts = built;
+   413→    this.treeGeos = built.map(([trunk, canopy]) => {
+   414→      const g = mergeGeometries([trunk, canopy])!;
+   415→      g.clearGroups();
+   416→      g.addGroup(0, trunk.attributes.position.count, 0);
+   417→      g.addGroup(trunk.attributes.position.count, canopy.attributes.position.count, 1);
+   418→      return g;
+   419→    });
+   420→
+   421→    // Fase 6 — prado de briznas individuales (sustituye a los matas de planos)
+   422→    this.grassField = new GrassField(terrain, scene, {
+   423→      density: grassDensity,
+   424→      timeUniform: windTime,
+   425→      gustUniform: windGust,
+   426→    });
+   427→    // Fase 9 — capa lejana: mattas por todo el mundo visible (misma ventana
+   428→    // de exclusiónes y mismo viento que el prado fino)
+   429→    this.farGrass = new FarGrass(terrain, scene, {
+   430→      density: Math.min(1, grassDensity * 1.1),
+   431→      timeUniform: windTime,
+   432→      gustUniform: windGust,
+   433→    });
+   434→  }
+   435→
+   436→  setColliderSinks(
+   437→    add: (x: number, z: number, r: number, key: string) => void,
+   438→    removePrefix: (prefix: string) => void,
+   439→  ): void {
+   440→    this.treeColliderSink = add;
+   441→    this.treeColliderRemove = removePrefix;
+   442→  }
+   443→
+   444→  setGrassDensity(d: number): void {
+   445→    if (Math.abs(d - this.grassDensity) < 0.001) return;
+   446→    this.grassDensity = d;
+   447→    this.grassField.setDensity(d);
+   448→    this.farGrass.setDensity(Math.min(1, d * 1.1));
+   449→  }
+   450→
+   451→  /** Fase 6 — el GrassField se autogestiona por frame en update(); esta
+   452→   *  entrada forcea una comprobación inmediata de la ventana de tiles. */
+   453→  refreshGrassNear(px: number, pz: number): void {
+   454→    this.grassField.update(px, pz);
+   455→  }
+   456→
+   457→  onChunkScatter(scatter: ChunkScatter): void {
+   458→    const trees: TreeInstance[] = [];
+   459→    const rocks: RockInstance[] = [];
+   460→    const m = new THREE.Matrix4();
+   461→    const q = new THREE.Quaternion();
+   462→    const euro = new THREE.Euler();
+   463→    const pos = new THREE.Vector3();
+   464→    const scl = new THREE.Vector3();
+   465→
+   466→    for (const t of scatter.trees) {
+   467→      euro.set(0, t.rot, 0);
+   468→      q.setFromEuler(euro);
+   469→      pos.set(t.x, t.y - 0.15, t.z);
+   470→      scl.set(t.scale, t.scale * (0.9 + (t.x % 1) * 0.25), t.scale);
+   471→      m.compose(pos, q, scl);
+   472→      const c = new THREE.Color().setHSL(0.28 + ((t.z * 13.7) % 1) * 0.04, 0.32, 0.5 + ((t.x * 7.3) % 1) * 0.08);
+   473→      trees.push({ species: t.species, matrix: m.clone(), color: c });
+   474→      this.treeColliderSink?.(t.x, t.z, 0.42 * t.scale, `tree:${scatter.key}:${trees.length}`);
+   475→    }
+   476→    for (const r of scatter.rocks) {
+   477→      euro.set(0, r.rot, 0);
+   478→      q.setFromEuler(euro);
+   479→      pos.set(r.x, r.y - r.scale * 0.35, r.z);
+   480→      scl.set(r.scale, r.scale, r.scale);
+   481→      m.compose(pos, q, scl);
+   482→      rocks.push({ matrix: m.clone(), color: new THREE.Color().setHSL(0.08, 0.05, 0.42 + ((r.x * 3.1) % 1) * 0.12) });
+   483→    }
+   484→    this.chunkData.set(scatter.key, { trees, rocks });
+   485→    this.markClusterDirty(scatter.cx, scatter.cz, scatter.key);
+   486→  }
+   487→
+   488→  onChunkRemoved(key: string): void {
+   489→    const data = this.chunkData.get(key);
+   490→    if (!data) return;
+   491→    this.chunkData.delete(key);
+   492→    this.treeColliderRemove?.(`tree:${key}:`);
+   493→    this.markClusterDirtyByKey(key);
+   494→  }
+   495→
+   496→  // ------------------------------------------------------------- clusters
+   497→
+   498→  private clusterKey(ccx: number, ccz: number): string {
+   499→    return `${ccx},${ccz}`;
+   500→  }
+   501→
+   502→  private markClusterDirty(cx: number, cz: number, chunkKey: string): void {
+   503→    const ccx = Math.floor(cx / CLUSTER_CHUNKS);
+   504→    const ccz = Math.floor(cz / CLUSTER_CHUNKS);
+   505→    const key = this.clusterKey(ccx, ccz);
+   506→    let cluster = this.clusters.get(key);
+   507→    if (!cluster) {
+   508→      cluster = { key, ccx, ccz, chunks: new Set(), meshes: null, dirty: true, allTrees: [] };
+   509→      this.clusters.set(key, cluster);
+   510→    }
+   511→    cluster.chunks.add(chunkKey);
+   512→    cluster.dirty = true;
+   513→  }
+   514→
+   515→  private markClusterDirtyByKey(chunkKey: string): void {
+   516→    const [cx, cz] = chunkKey.split(',').map(Number);
+   517→    const ccx = Math.floor(cx / CLUSTER_CHUNKS);
+   518→    const ccz = Math.floor(cz / CLUSTER_CHUNKS);
+   519→    const key = this.clusterKey(ccx, ccz);
+   520→    const cluster = this.clusters.get(key);
+   521→    if (!cluster) return;
+   522→    cluster.chunks.delete(chunkKey);
+   523→    cluster.dirty = true;
+   524→    if (cluster.chunks.size === 0 && cluster.meshes) {
+   525→      this.disposeClusterMeshes(cluster.meshes);
+   526→      cluster.meshes = null;
+   527→      this.clusters.delete(key);
+   528→    }
+   529→  }
+   530→
+   531→  private disposeClusterMeshes(meshes: ClusterMeshes): void {
+   532→    for (const mesh of meshes.trees) {
+   533→      this.sceneRef.remove(mesh);
+   534→      mesh.dispose();
+   535→    }
+   536→    this.sceneRef.remove(meshes.billboards);
+   537→    meshes.billboards.dispose();
+   538→    this.sceneRef.remove(meshes.rock);
+   539→    meshes.rock.dispose();
+   540→  }
+   541→
+   542→  /** (Re)build the instanced meshes of one cluster from its member chunks. */
+   543→  private buildCluster(cluster: ClusterData): void {
+   544→    if (!cluster.meshes) {
+   545→      const trees: THREE.InstancedMesh[] = [];
+   546→      for (let s = 0; s < SPECIES_COUNT; s++) {
+   547→        // Fase 12 — every species is a two-group geometry (bark + leaf);
+   548→        // the dead tree keeps bark on BOTH groups (bare branches, no foliage)
+   549→        const mesh = new THREE.InstancedMesh(
+   550→          this.treeGeos[s],
+   551→          s === 5 ? [this.barkMat, this.barkMat] : [this.barkMat, this.leafMat],
+   552→          this.speciesCapacity,
+   553→        );
+   554→        mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+   555→        mesh.castShadow = true;
+   556→        mesh.receiveShadow = false;
+   557→        mesh.count = 0;
+   558→        mesh.frustumCulled = true;
+   559→        this.sceneRef.add(mesh);
+   560→        trees.push(mesh);
+   561→      }
+   562→      const billboards = new THREE.InstancedMesh(this.billboardGeo, this.billboardMat, this.billboardCapacity);
+   563→      billboards.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+   564→      billboards.castShadow = false;
+   565→      billboards.receiveShadow = false;
+   566→      billboards.count = 0;
+   567→      billboards.frustumCulled = true;
+   568→      billboards.visible = false;
+   569→      this.sceneRef.add(billboards);
+   570→      const rock = new THREE.InstancedMesh(this.rockGeo, this.rockMat, this.rockCapacity);
+   571→      rock.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+   572→      rock.castShadow = true;
+   573→      rock.receiveShadow = true;
+   574→      rock.count = 0;
+   575→      rock.frustumCulled = true;
+   576→      this.sceneRef.add(rock);
+   577→      cluster.meshes = {
+   578→        trees, billboards, rock,
+   579→        centerX: (cluster.ccx + 0.5) * CLUSTER_SIZE,
+   580→        centerZ: (cluster.ccz + 0.5) * CLUSTER_SIZE,
+   581→        lod: 0,
+   582→      };
+   583→    }
+   584→    const meshes = cluster.meshes!;
+   585→    const speciesCount = new Array(SPECIES_COUNT).fill(0);
+   586→    let rockCount = 0;
+   587→    const allTrees: TreeInstance[] = [];
+   588→    for (const chunkKey of cluster.chunks) {
+   589→      const data = this.chunkData.get(chunkKey);
+   590→      if (!data) continue;
+   591→      for (const t of data.trees) {
+   592→        allTrees.push(t);
+   593→        if (speciesCount[t.species] < this.speciesCapacity) {
+   594→          meshes.trees[t.species].setMatrixAt(speciesCount[t.species], t.matrix);
+   595→          meshes.trees[t.species].setColorAt(speciesCount[t.species], t.color);
+   596→          speciesCount[t.species]++;
+   597→        }
+   598→      }
+   599→      for (const r of data.rocks) {
+   600→        if (rockCount >= this.rockCapacity) continue;
+   601→        meshes.rock.setMatrixAt(rockCount, r.matrix);
+   602→        meshes.rock.setColorAt(rockCount, r.color);
+   603→        rockCount++;
+   604→      }
+   605→    }
+   606→    cluster.allTrees = allTrees;
+   607→    meshes.trees.forEach((mesh, i) => {
+   608→      mesh.count = speciesCount[i];
+   609→      mesh.visible = mesh.count > 0;
+   610→      mesh.instanceMatrix.needsUpdate = true;
+   611→      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+   612→      if (mesh.count > 0) mesh.computeBoundingSphere();
+   613→    });
+   614→    // Billboard impostors: one plane per tree (used when far away)
+   615→    let bb = 0;
+   616→    for (const t of allTrees) {
+   617→      if (bb >= this.billboardCapacity) break;
+   618→      meshes.billboards.setMatrixAt(bb, t.matrix);
+   619→      meshes.billboards.setColorAt(bb, TREE_BILLBOARD_COLOR[t.species] ?? TREE_BILLBOARD_COLOR[0]);
+   620→      bb++;
+   621→    }
+   622→    meshes.billboards.count = bb;
+   623→    meshes.billboards.instanceMatrix.needsUpdate = true;
+   624→    if (meshes.billboards.instanceColor) meshes.billboards.instanceColor.needsUpdate = true;
+   625→    if (bb > 0) meshes.billboards.computeBoundingSphere();
+   626→    meshes.rock.count = rockCount;
+   627→    meshes.rock.visible = rockCount > 0;
+   628→    meshes.rock.instanceMatrix.needsUpdate = true;
+   629→    if (meshes.rock.instanceColor) meshes.rock.instanceColor.needsUpdate = true;
+   630→    if (rockCount > 0) meshes.rock.computeBoundingSphere();
+   631→    cluster.dirty = false;
+   632→  }
+   633→
+   634→  // -------------------------------------------------------------- update
+   635→
+   636→  /** Rebuild at most 2 dirty clusters per frame + LOD swap by distance.
+   637→   *  Fase 6: el prado de briznas se actualiza aquí también (envuelve al jugador). */
+   638→  update(px = NaN, pz = NaN): void {
+   639→    let budget = 2;
+   640→    for (const cluster of this.clusters.values()) {
+   641→      if (!cluster.dirty) continue;
+   642→      this.buildCluster(cluster);
+   643→      budget--;
+   644→      if (budget <= 0) break;
+   645→    }
+   646→    // LOD: full detail near, billboards far (Fase 4)
+   647→    if (!Number.isNaN(px)) {
+   648→      for (const cluster of this.clusters.values()) {
+   649→        const meshes = cluster.meshes;
+   650→        if (!meshes) continue;
+   651→        const d = Math.hypot(meshes.centerX - px, meshes.centerZ - pz);
+   652→        const wantLod = d > LOD_IMPOSTOR_DIST ? 1 : 0;
+   653→        if (wantLod !== meshes.lod) {
+   654→          meshes.lod = wantLod;
+   655→          for (const t of meshes.trees) t.visible = wantLod === 0 && t.count > 0;
+   656→          meshes.billboards.visible = wantLod === 1 && meshes.billboards.count > 0;
+   657→        }
+   658→      }
+   659→      // Fase 6 — el prado sigue al jugador (ventana envolvente de tiles)
+   660→      this.grassField.update(px, pz);
+   661→      // Fase 9 — la pradera lejana también (ventana de 1.1 km)
+   662→      this.farGrass.update(px, pz);
+   663→    }
+   664→  }
+   665→
+   666→  dispose(): void {
+   667→    for (const cluster of this.clusters.values()) {
+   668→      if (cluster.meshes) this.disposeClusterMeshes(cluster.meshes);
+   669→    }
+   670→    this.clusters.clear();
+   671→    this.treeGeos.forEach((g) => g.dispose());
+   672→    for (const [t, c] of this.speciesParts) { t.dispose(); c.dispose(); }
+   673→    this.billboardGeo.dispose();
+   674→    this.rockGeo.dispose();
+   675→    this.treeMat.dispose();
+   676→    this.barkMat.dispose();
+   677→    this.leafMat.dispose();
+   678→    (this.billboardMat.map as THREE.Texture)?.dispose();
+   679→    this.billboardMat.dispose();
+   680→    this.rockMat.dispose();
+   681→    this.grassField.dispose();
+   682→    this.farGrass.dispose();
+   683→    this.chunkData.clear();
+   684→  }
+   685→
+   686→  /** Debug/stats: clusters + el prado de briznas + la pradera lejana. */
+   687→  get stats(): { clusters: number; drawCalls: number; blades: number } {
+   688→    let meshes = 0;
+   689→    for (const cluster of this.clusters.values()) {
+   690→      if (!cluster.meshes) continue;
+   691→      meshes += 2 + cluster.meshes.trees.length;
+   692→    }
+   693→    return {
+   694→      clusters: this.clusters.size,
+   695→      drawCalls: meshes,
+   696→      blades: this.grassField.stats.blades + this.farGrass.stats.clumps,
+   697→    };
+   698→  }
+   699→}
+   700→

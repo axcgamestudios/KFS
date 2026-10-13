@@ -47,13 +47,13 @@ export default function IntroCinematic() {
         {isTitleShot && (
           <div className="kotfs-fade-in mb-2 text-center">
             <p className="kotfs-title mb-2 text-[0.6rem] tracking-[0.5em] text-[color:var(--kotfs-gold)] md:text-xs">
-              EL MAR TE ESTÁ LLAMANDO
+              THE SEA IS CALLING YOU
             </p>
             <h2
               className="kotfs-title text-2xl text-[color:var(--kotfs-parchment)] md:text-4xl"
               style={{ textShadow: '0 0 34px rgba(201,162,39,0.35), 0 4px 12px #000' }}
             >
-              CAPÍTULO I <span className="kotfs-gold-text">— EL LEGADO DE EIRIK</span>
+              CHAPTER I <span className="kotfs-gold-text">— THE LEGACY OF EIRIK</span>
             </h2>
           </div>
         )}
@@ -75,7 +75,7 @@ export default function IntroCinematic() {
           className="mt-1 text-[0.65rem] tracking-[0.35em] text-[color:var(--kotfs-parchment-dim)] opacity-60 transition hover:opacity-100"
           onClick={() => gameApi.skipIntro()}
         >
-          SALTAR — ESPACIO
+          SKIP — SPACE
         </button>
       </div>
     </div>

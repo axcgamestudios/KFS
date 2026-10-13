@@ -1,0 +1,923 @@
+     1→/** Dialogue trees — fully data-driven, resolved by the DialogueSystem. */
+     2→
+     3→export type DialogueActionSingle =
+     4→  | { t: 'flag'; flag: string }
+     5→  | { t: 'item'; id: string; count: number }
+     6→  | { t: 'takeItem'; id: string; count: number }
+     7→  | { t: 'quest'; id: string }
+     8→  | { t: 'xp'; amount: number }
+     9→  | { t: 'talk'; target: string }
+    10→  /** Fase 16 — open a merchant's shop panel and close the dialogue. */
+    11→  | { t: 'shop'; vendor: string }
+    12→  | { t: 'close' };
+    13→
+    14→/** Actions can be a single action or a list applied in order. */
+    15→export type DialogueAction = DialogueActionSingle | DialogueActionSingle[];
+    16→
+    17→export interface DialogueOption {
+    18→  text: string;
+    19→  next?: string;
+    20→  action?: DialogueAction;
+    21→  cond?: string;   // flag must be set to show
+    22→  notCond?: string; // flag must NOT be set to show
+    23→}
+    24→
+    25→export interface DialogueNode {
+    26→  text: string;
+    27→  options: DialogueOption[];
+    28→}
+    29→
+    30→export interface DialogueTree {
+    31→  /** First matching tree for an NPC is used. */
+    32→  cond?: string;
+    33→  notCond?: string;
+    34→  /** Marks a required item count (id>=count) for this tree to trigger. */
+    35→  requireItem?: { id: string; count: number };
+    36→  /** Fase 16 — player level gates (inclusive). Used by the smiths. */
+    37→  minLevel?: number;
+    38→  maxLevel?: number;
+    39→  nodes: Record<string, DialogueNode>;
+    40→  start: string;
+    41→}
+    42→
+    43→export interface NPCDialogue {
+    44→  npcId: string;
+    45→  name: string;
+    46→  trees: DialogueTree[];
+    47→}
+    48→
+    49→export const DIALOGUES: Record<string, NPCDialogue> = {
+    50→  aldric: {
+    51→    npcId: 'aldric',
+    52→    name: 'Maestre Aldric',
+    53→    trees: [
+    54→      {
+    55→        notCond: 'talked_aldric',
+    56→        start: 'a1',
+    57→        nodes: {
+    58→          a1: {
+    59→            text: '¡Por las mareas! ¿Eres tú, muchacho? Eres el spitting image de Eirik cuando tenía tu edad… Saludos. Soy Aldric, maestre de este puerto. Tu padre era mi mejor amigo… y mi peor cliente de taberna.',
+    60→            options: [
+    61→              { text: 'He vuelto por su herencia. ¿Qué dejó para mí?', next: 'a2' },
+    62→              { text: '¿Erais amigos? Cuéntame cómo era.', next: 'a3' },
+    63→            ],
+    64→          },
+    65→          a3: {
+    66→            text: 'Terco como un ancla en el fango, y dos veces más leal. Reparaba barcos ajenos antes que el suyo. Los últimos meses hablaba de cartas antiguas, de rumbos que ningún mapamundi muestra… y de un cuervo de tres cabezas que según él le seguía.',
+    67→            options: [{ text: 'Un cuervo de tres cabezas…', next: 'a2' }],
+    68→          },
+    69→          a2: {
+    70→            text: 'Dejó un cofre de mar. Está en mi almacén, junto al muelle, cerrado con un cierre que solo abre un amuleto de cobre. Eirik confió el amuleto a Maren, la herborista. Si quieres lo que hay dentro… habla con ella.',
+    71→            options: [
+    72→              { text: 'Iré a verla. Gracias, Aldric.', next: 'a4', action: { t: 'flag', flag: 'talked_aldric' } },
+    73→              { text: '¿Y por qué no lo abriste vos mismo?', next: 'a5' },
+    74→            ],
+    75→          },
+    76→          a5: {
+    77→            text: '¿Y profanar la herencia de un amigo muerto? Nunca. Además… ese cierre no es cosa de herreros. Hay grabados en el metal que no vi ni en los archivos del castillo. Cosa de la Orden de la Marea, decía Eirik. Vete a ver a Maren: ella sabe más de lo que cuenta.',
+    78→            options: [
+    79→              { text: 'Iré a verla.', next: 'a4', action: { t: 'flag', flag: 'talked_aldric' } },
+    80→            ],
+    81→          },
+    82→          a4: {
+    83→            text: 'Un consejo, chico: Maren no regala nada. Te pedirá algo a cambio — pétalos, setas, paciencia. Cualquier cosa menos oro. Ah… y bienvenido a casa. Puerto Cuervo te necesita más de lo que crees.',
+    84→            options: [
+    85→              {
+    86→                text: 'Hasta pronto, Aldric.',
+    87→                action: [
+    88→                  { t: 'talk', target: 'aldric' },
+    89→                  { t: 'close' },
+    90→                ],
+    91→              },
+    92→            ],
+    93→          },
+    94→        },
+    95→      },
+    96→      {
+    97→        cond: 'chest_opened',
+    98→        notCond: 'aldric_ship_talked',
+    99→        start: 's1',
+   100→        nodes: {
+   101→          s1: {
+   102→            text: 'Así que lo has abierto. Vaya… la espada de Eirik. La última vez que la vi partía esa vela vieja hacia el noroeste, jurando que volvería en una semana. Llevo doce inviernos esperándole.',
+   103→            options: [
+   104→              { text: 'La carta habla de la Isla del Cuervo Viejo. Y de dragones.', next: 's2' },
+   105→              { text: 'El Colibrí de Mar… ¿puede volver a navegar?', next: 's2' },
+   106→            ],
+   107→          },
+   108→          s2: {
+   109→            text: 'Con madera buena, lona nueva y tres semanas de trabajo, el Colibrí volará sobre las olas. La quilla está sana — tu padre la hizo reposar en el fondo de la bahía para que la marea no la secara. Yo mismo supervisaré la carena… si me dejas ir contigo cuando zarpe.',
+   110→            options: [
+   111→              { text: 'Es un trato, maestre.', next: 's3' },
+   112→              { text: '¿Por qué ayudarías a un desconocido?', next: 's4' },
+   113→            ],
+   114→          },
+   115→          s4: {
+   116→            text: 'Porque Eirik era un Guardián de la Marea, y los Guardianes no eligen sucesores: la sal los elige. Tú has vuelto al puerto con su espada. En Aldmor eso solo significa una cosa… El mar te está llamando, muchacho.',
+   117→            options: [{ text: 'Entonces que me llame. Reparemos el Colibrí.', next: 's3' }],
+   118→          },
+   119→          s3: {
+   120→            text: '¡JA! ¡Esa chispa tenías que tener! Mientras trabajo el casco, tú hazte a la mar de otra forma: explora Aldmor, reúne provisiones, aprende sus senderos. Cuando el Colibrí esté listo, el Capítulo II de tu historia comenzará: Los Mares Olvidados te esperan.',
+   121→            options: [
+   122→              {
+   123→                text: 'Nos vemos en el muelle, Aldric.',
+   124→                action: [
+   125→                  { t: 'flag', flag: 'aldric_ship_talked' },
+   126→                  { t: 'talk', target: 'aldric_ship' },
+   127→                  { t: 'xp', amount: 30 },
+   128→                  { t: 'close' },
+   129→                ],
+   130→              },
+   131→            ],
+   132→          },
+   133→        },
+   134→      },
+   135→      {
+   136→        cond: 'morwen_defeated',
+   137→        notCond: 'aldric_dragons_talked',
+   138→        start: 'w1',
+   139→        nodes: {
+   140→          w1: {
+   141→            text: '¡Has vuelto! Todo el puerto habla del incendio del Cuervo... y de otra cosa. Los pastores bajan de las Garrahielo con los rebaños mermados: juran que una sombra con alas cruza el cielo al atardecer. Y los guardias del castillo dicen que las ruinas de Vaelthara «respiran».',
+   142→            options: [
+   143→              { text: '¿Dragones? Aquí, en Aldmor?', next: 'w2' },
+   144→              { text: 'La carta de mi padre los mencionaba.', next: 'w2' },
+   145→            ],
+   146→          },
+   147→          w2: {
+   148→            text: 'Los archivos de la Orden que custodio hablan de tres despertares: la guardiana de las ruinas, el cazador del mar y el que duerme en la cumbre. Si uno solo despierta, los demás lo oyen. Eirik murió intentando averiguar por qué despiertan.',
+   149→            options: [
+   150→              { text: 'Entonces iré a las ruinas de Vaelthara.', next: 'w3' },
+   151→              { text: '¿Qué sabéis de la guardiana?', next: 'w4' },
+   152→            ],
+   153→          },
+   154→          w4: {
+   155→            text: 'Territorial, vieja, más lenta en tierra que en el aire pero con un aliento que derrite el acero. Custodia Vaelthara como un perro custodia la tumba de su amo. Ve con el acero de tu padre... y cuando su cabeza se eche hacia atrás, corre: el fuego ya está cargando.',
+   156→            options: [{ text: 'Iré con cuidado.', next: 'w3' }],
+   157→          },
+   158→          w3: {
+   159→            text: 'Las ruinas están al suroeste, más allá del bosque: columnas rotas con espirales de agua talladas. Mira con tus propios ojos y vuelve a contarme. Y muchacho... si de verdad hay un dragón allí, no lo despiertes tú.',
+   160→            options: [
+   161→              {
+   162→                text: 'Volveré con noticias, Aldric.',
+   163→                action: [
+   164→                  { t: 'flag', flag: 'aldric_dragons_talked' },
+   165→                  { t: 'talk', target: 'aldric_dragons' },
+   166→                  { t: 'close' },
+   167→                ],
+   168→              },
+   169→            ],
+   170→          },
+   171→        },
+   172→      },
+   173→      {
+   174→        cond: 'vaelthara_seen',
+   175→        notCond: 'aldric_report_talked',
+   176→        start: 'r1',
+   177→        nodes: {
+   178→          r1: {
+   179→            text: 'Tu cara lo dice todo. La has visto. Dime que no te ha seguido hasta el muelle y te creo.',
+   180→            options: [
+   181→              { text: 'Es enorme, Aldric. Y nos ha visto.', next: 'r2' },
+   182→              { text: 'Custodia las ruinas como algo sagrado.', next: 'r2' },
+   183→            ],
+   184→          },
+   185→          r2: {
+   186→            text: 'Entonces es ella. La guardiana de Vaelthara. Los archivos dicen que los Guardianes le hablaban... y que cuando la Orden se disolvió, se quedó sola con un juramento que nadie más recuerda. No es malvada, muchacho. Pero es leal a un mundo muerto.',
+   187→            options: [
+   188→              { text: '¿Qué hago si se interpone en mi camino?', next: 'r3' },
+   189→              { text: 'Necesito llegar a las cumbres.', next: 'r3' },
+   190→            ],
+   191→          },
+   192→          r3: {
+   193→            text: 'Toma esto de la vieja armería de la Orden: el hacha con que los Guardianes sometían bestias. Pesa, pero un golpe pesado tambalea incluso a un dragón. Y busca a Bram cuando la venzas: con sus escamas forjará algo que te salve la vida.',
+   194→            options: [
+   195→              {
+   196→                text: 'Gracias, Aldric. Por todo.',
+   197→                action: [
+   198→                  { t: 'flag', flag: 'aldric_report_talked' },
+   199→                  { t: 'talk', target: 'aldric_report' },
+   200→                  { t: 'close' },
+   201→                ],
+   202→              },
+   203→            ],
+   204→          },
+   205→        },
+   206→      },
+   207→      {
+   208→        cond: 'vaelthara_dead',
+   209→        notCond: 'skarnvind_hint',
+   210→        start: 'k1',
+   211→        nodes: {
+   212→          k1: {
+   213→            text: 'El Corazón de Marea... Vivió para ver otro Guardián con las manos llenas de escamas. Escucha: al sur, entre la bahía y las Islas de la Bruma, los pescadores ven «una vela con garras». Es Skarnvind, el cazador del mar. Mientras vuele, no habrá paso al sur.',
+   214→            options: [
+   215→              {
+   216→                text: 'Zarparé hacia el sur.',
+   217→                action: [
+   218→                  { t: 'flag', flag: 'skarnvind_hint' },
+   219→                  { t: 'close' },
+   220→                ],
+   221→              },
+   222→              { text: '¿Un wyvern en el mar abierto?', next: 'k2' },
+   223→            ],
+   224→          },
+   225→          k2: {
+   226→            text: 'Caza desde el cielo lo que no puede nadar. Tus bordadas son tu espada allí: apunta cuando se pare frente a la proa, que es cuando carga su fuego. Y reza para que el Colibrí recuerde cómo esquivar truenos.',
+   227→            options: [
+   228→              {
+   229→                text: 'Con viento a favor, Aldric.',
+   230→                action: [
+   231→                  { t: 'flag', flag: 'skarnvind_hint' },
+   232→                  { t: 'close' },
+   233→                ],
+   234→              },
+   235→            ],
+   236→          },
+   237→        },
+   238→      },
+   239→      {
+   240→        cond: 'ancestro_dead',
+   241→        notCond: 'aldric_final_talked',
+   242→        start: 'f1',
+   243→        nodes: {
+   244→          f1: {
+   245→            text: 'El colmillo... Los archivos decían la verdad, entonces. No lo mataste por oro ni por gloria: lo hiciste porque alguien debía sostener la guardia. Tu padre estaría orgulloso. La Orden de la Marea tiene de nuevo un Guardián.',
+   246→            options: [
+   247→              { text: '¿Y ahora qué, Aldric?', next: 'f2' },
+   248→              { text: 'Los dragones no eran lo que decían las canciones.', next: 'f2' },
+   249→            ],
+   250→          },
+   251→          f2: {
+   252→            text: 'Ahora, el mar. Hay más islas al sur del horizonte, más sellos rotos que reparar y más canciones que aún no se atreven a contar la verdad. Bebe, descansa... y cuando el viento cambie, zarpa. Eldoria entera te debe un capítulo más.',
+   253→            options: [
+   254→              {
+   255→                text: 'Por los mares olvidados, Aldric.',
+   256→                action: [
+   257→                  { t: 'flag', flag: 'aldric_final_talked' },
+   258→                  { t: 'close' },
+   259→                ],
+   260→              },
+   261→            ],
+   262→          },
+   263→        },
+   264→      },
+   265→      {
+   266→        start: 'd1',
+   267→        nodes: {
+   268→          d1: {
+   269→            text: 'El puerto está inquieto. Los mercantes dicen que hay una vela negra patrullando el paso del noroeste. Piratas… o algo peor. Si vas a explorar la costa, vuelve antes del anochecer.',
+   270→            options: [
+   271→              { text: '¿Piratas tan cerca de la bahía?', next: 'd2' },
+   272→              { text: 'Que los mares te sean leves, Aldric.', action: { t: 'close' } },
+   273→            ],
+   274→          },
+   275→          d2: {
+   276→            text: 'Los mares cambian, muchacho. Antes los dragones mantenían la paz de las rutas; luego, los reinos; ahora… nadie. Solo el oro manda sobre las olas. Por eso este puerto necesita gente como tú.',
+   277→            options: [{ text: 'Lo tendré en cuenta.', action: { t: 'close' } }],
+   278→          },
+   279→        },
+   280→      },
+   281→    ],
+   282→  },
+   283→
+   284→  maren: {
+   285→    npcId: 'maren',
+   286→    name: 'Maren la Herborista',
+   287→    trees: [
+   288→      {
+   289→        notCond: 'maren_met',
+   290→        start: 'm1',
+   291→        nodes: {
+   292→          m1: {
+   293→            text: 'Ahí estás. Te esperaba desde que la gaviota anunció tu vela. Tienes los ojos de tu padre… y su tozudez, apuesto. Soy Maren. Curo verrugas, miedos y… guardo recuerdos ajenos, como el amuleto que buscas.',
+   294→            options: [
+   295→              { text: 'Aldric dice que tenéis el amuleto de Eirik.', next: 'm2' },
+   296→              { text: '¿Cómo sabíais que venía a buscarlo?', next: 'm3' },
+   297→            ],
+   298→          },
+   299→          m3: {
+   300→            text: 'Porque las mareas traen más que algas, muchacho. Traen noticias, presagios… y a veces traen a la gente justa al lugar justo. El amuleto de cobre lleva años esperándote en mi arcón. Pero nada regalado se aprecia: tendrás que ganártelo.',
+   301→            options: [{ text: '¿Qué queréis a cambio?', next: 'm2' }],
+   302→          },
+   303→          m2: {
+   304→            text: 'Tres pétalos de marfil. Florecen donde el agua canta: junto al sendero de la cascada del norte, y entre las ruinas del bosque occidental, donde la umbría es honda. Con ellos preparo el remedio del invierno para el pueblo.',
+   305→            options: [
+   306→              {
+   307→                text: 'Los traeré. Esperadme.',
+   308→                next: 'm4',
+   309→                action: [
+   310→                  { t: 'flag', flag: 'maren_met' },
+   311→                  { t: 'talk', target: 'maren' },
+   312→                ],
+   313→              },
+   314→              { text: '¿No hay otra forma de ganármelo?', next: 'm5' },
+   315→            ],
+   316→          },
+   317→          m5: {
+   318→            text: 'La hay: robarlo. Pero entonces la marea te daría la espalda, y créeme: vas a necesitar que el mar te mire con buenos ojos. Los pétalos, muchacho. El norte y el oeste.',
+   319→            options: [
+   320→              {
+   321→                text: 'De acuerdo. Pétalos de marfil.',
+   322→                next: 'm4',
+   323→                action: [
+   324→                  { t: 'flag', flag: 'maren_met' },
+   325→                  { t: 'talk', target: 'maren' },
+   326→                ],
+   327→              },
+   328→            ],
+   329→          },
+   330→          m4: {
+   331→            text: 'Sigue el arroyo hacia las cumbres y encontrarás la cascada que susurra. Y en el bosque del oeste, las ruinas de los antiguos… ve con respeto: ese lugar recuerda a los que fueron. Que la umbría te sea piadosa.',
+   332→            options: [{ text: 'Volveré con los pétalos.', action: { t: 'close' } }],
+   333→          },
+   334→        },
+   335→      },
+   336→      {
+   337→        cond: 'maren_met',
+   338→        notCond: 'maren_herbs_done',
+   339→        requireItem: { id: 'petalo', count: 3 },
+   340→        start: 't1',
+   341→        nodes: {
+   342→          t1: {
+   343→            text: 'Hueles a rocío de cascada y a piedra antigua… Déjalos ver. ¡Vaya! Tres pétalos, ni uno marchito. Eirik recogía igual: con manos de pescador y paciencia de santo.',
+   344→            options: [
+   345→              {
+   346→                text: 'Entregar los tres pétalos',
+   347→                next: 't2',
+   348→                action: { t: 'takeItem', id: 'petalo', count: 3 },
+   349→              },
+   350→            ],
+   351→          },
+   352→          t2: {
+   353→            text: 'Están perfectos. Toma, lo prometido: el amuleto de cobre de tu padre. Y una cosa más, porque los ojos te delatan: tu familia no eran pescadores, muchacho. Eran Guardianes de la Marea. Custodios del pacto con los que duermen bajo el mar.',
+   354→            options: [
+   355→              { text: '¿El pacto… con los dragones?', next: 't3' },
+   356→              { text: '¿Por qué no me lo contaron nunca?', next: 't4' },
+   357→            ],
+   358→          },
+   359→          t3: {
+   360→            text: 'Con los dragones, sí. Los que cantan las canciones de taberna y los que de verdad vuelan sobre las Garrahielo. La Orden velaba el equilibrio: que los reyes no codiciaran lo hundido, y que lo hundido no codiciara la superficie. Tu padre fue el último Guardián… que yo conozca.',
+   361→            options: [{ text: 'Y ahora ¿qué soy yo?', next: 't5' }],
+   362→          },
+   363→          t4: {
+   364→            text: 'Porque los Guardianes juran silencio, y el silencio protege. Un Guardián que grita su nombre en la taberna pone una diana sobre su familia. Eirik te calló la verdad para que pudieras dormir de niño. Ahora ya puedes despertar.',
+   365→            options: [{ text: 'Entonces despertaré.', next: 't5' }],
+   366→          },
+   367→          t5: {
+   368→            text: 'Eres lo que la sal elija. Ahora ve: el cofre de tu padre espera en el almacén del puerto. Y cuando la carta que guardo en mi memoria llegue a tus manos… recuerda que las viejas órdenes nunca mueren mientras alguien recuerde sus votos. Toma también estas pociones: vas a necesitarlas.',
+   369→            options: [
+   370→              {
+   371→                text: 'Gracias, Maren.',
+   372→                action: [
+   373→                  { t: 'item', id: 'amuleto', count: 1 },
+   374→                  { t: 'flag', flag: 'maren_herbs_done' },
+   375→                  { t: 'close' },
+   376→                ],
+   377→              },
+   378→            ],
+   379→          },
+   380→        },
+   381→      },
+   382→      {
+   383→        cond: 'maren_met',
+   384→        notCond: 'maren_herbs_done',
+   385→        start: 'w1',
+   386→        nodes: {
+   387→          w1: {
+   388→            text: '¿Los pétalos, muchacho? Recuerda: florecen en la umbría. La cascada del norte, junto al sendero… y el bosque occidental, entre las ruinas que el musgo reclama. La naturaleza solo abre sus tesoros a quien camina despacio.',
+   389→            options: [
+   390→              { text: 'Sigo buscando.', action: { t: 'close' } },
+   391→              { text: '¿Cómo llego a la cascada?', next: 'w2' },
+   392→            ],
+   393→          },
+   394→          w2: {
+   395→            text: 'Del pozo de la plaza, camina al norte siguiendo el arroyo hasta las estribaciones. Oye el agua cantar antes de verla: por eso la llaman la Susurrante. Y de vuelta… cuidado con los lobos al anochecer. El bosque tiene hambre este año.',
+   396→            options: [{ text: 'Iré con cuidado.', action: { t: 'close' } }],
+   397→          },
+   398→        },
+   399→      },
+   400→      {
+   401→        start: 'f1',
+   402→        nodes: {
+   403→          f1: {
+   404→            text: 'Las hierbas me contaron que subiste a las Garrahielo. Pocos vuelven de allí con la cabeza girada hacia el cielo… Los pastores dicen que una sombra alada cruza las cumbres al atardecer. Yo digo: reza para que siga durmiendo.',
+   405→            options: [
+   406→              { text: '¿Creéis en los dragones, Maren?', next: 'f2' },
+   407→              { text: 'Debo irme.', action: { t: 'close' } },
+   408→            ],
+   409→          },
+   410→          f2: {
+   411→            text: 'Creo en lo que curan mis hierbas y en lo que hunden los mares. Los dragones… son ambas cosas, muchacho. Fueron remedio del mundo una vez. Y fueron su veneno. La Orden lo sabía. Por eso existían Guardianes.',
+   412→            options: [{ text: 'Como mi padre.', action: { t: 'close' } }],
+   413→          },
+   414→        },
+   415→      },
+   416→    ],
+   417→  },
+   418→
+   419→  rosa: {
+   420→    npcId: 'rosa',
+   421→    name: 'Rosa, tabernera del Ancla Rota',
+   422→    trees: [
+   423→      {
+   424→        notCond: 'rosa_started',
+   425→        start: 'r1',
+   426→        nodes: {
+   427→          r1: {
+   428→            text: '¡Un cara nueva que no me debe dinero! Bienvenido al Ancla Rota, el único lugar de Aldmor donde la cerveza es más honesta que los precios. ¿Pinta? ¿Rumores? ¿Trabajo?',
+   429→            options: [
+   430→              { text: 'Has dicho ¿trabajo?', next: 'r2' },
+   431→              { text: 'Solo miraba la taberna. Adelante con la noche.', action: { t: 'close' } },
+   432→            ],
+   433→          },
+   434→          r2: {
+   435→            text: 'La tormenta del mes pasado partió al Espejismo contra la costa oeste. Se llevó medio cargamento de especias con que pagaba la letra de mi taberna. Si me lo traes del naufragio… oro contante y una poción de la casa. Yo no voy: el mar me escupe y yo le escupo a él.',
+   436→            options: [
+   437→              {
+   438→                text: 'Buscaré tu cargamento en la costa oeste.',
+   439→                next: 'r3',
+   440→                action: { t: 'flag', flag: 'rosa_started' },
+   441→              },
+   442→              { text: 'Suena a trabajo de marea baja… Lo pensaré.', action: { t: 'close' } },
+   443→            ],
+   444→          },
+   445→          r3: {
+   446→            text: '¡Esa es! Sigue la playa del oeste hasta ver el casco partido. Mi caja lleva el sello del ancla rota grabado a fuego. Y cuidado con lo que el mar devuelve… no todo lo que trae la marea está muerto.',
+   447→            options: [
+   448→              {
+   449→                text: 'Volveré con la caja.',
+   450→                action: [
+   451→                  { t: 'quest', id: 'q_rosa' },
+   452→                  { t: 'close' },
+   453→                ],
+   454→              },
+   455→            ],
+   456→          },
+   457→        },
+   458→      },
+   459→      {
+   460→        cond: 'rosa_started',
+   461→        notCond: 'rosa_done',
+   462→        requireItem: { id: 'cargamento', count: 1 },
+   463→        start: 'r4',
+   464→        nodes: {
+   465→          r4: {
+   466→            text: '¡Por el ancla de mi bisabuela! ¡La caja de especias! Huele… a canela y a beneficio. Toma tu recompensa, marinero: el oro prometido y la poción de la casa — la beben los pescadores cuando el mar les escupe mal heridos.',
+   467→            options: [
+   468→              {
+   469→                text: 'Un trato es un trato, Rosa.',
+   470→                action: [
+   471→                  { t: 'takeItem', id: 'cargamento', count: 1 },
+   472→                  { t: 'talk', target: 'rosa_return' },
+   473→                  { t: 'close' },
+   474→                ],
+   475→              },
+   476→            ],
+   477→          },
+   478→        },
+   479→      },
+   480→      {
+   481→        cond: 'aldric_ship_talked',
+   482→        notCond: 'canvas_given',
+   483→        requireItem: { id: 'petalo', count: 3 },
+   484→        start: 'rc1',
+   485→        nodes: {
+   486→          rc1: {
+   487→            text: '¿Tres pétalos de marfil más? La luna me sonría. Con el baño de pétalo la lona queda encerada, teñida y tres veces más fuerte — el secreto de las velas que no se rompen. Dame un minuto… ya está: tres piezas de primera, listas para el Colibrí.',
+   488→            options: [
+   489→              {
+   490→                text: 'Un arte, Rosa. Tomad.',
+   491→                action: [
+   492→                  { t: 'takeItem', id: 'petalo', count: 3 },
+   493→                  { t: 'item', id: 'lona', count: 3 },
+   494→                  { t: 'flag', flag: 'canvas_given' },
+   495→                  { t: 'close' },
+   496→                ],
+   497→              },
+   498→            ],
+   499→          },
+   500→        },
+   501→      },
+   502→      {
+   503→        cond: 'aldric_ship_talked',
+   504→        notCond: 'canvas_given',
+   505→        requireItem: { id: 'coin', count: 20 },
+   506→        start: 'rc2',
+   507→        nodes: {
+   508→          rc2: {
+   509→            text: 'Sin pétalos también se puede, aunque la lona sale blanca y menos noble: lino del norte a veinte monedas las tres piezas. Elige tú: la marea no espera y Bram tampoco.',
+   510→            options: [
+   511→              {
+   512→                text: 'Tomo el lino. Aquí tenéis.',
+   513→                action: [
+   514→                  { t: 'takeItem', id: 'coin', count: 20 },
+   515→                  { t: 'item', id: 'lona', count: 3 },
+   516→                  { t: 'flag', flag: 'canvas_given' },
+   517→                  { t: 'close' },
+   518→                ],
+   519→              },
+   520→              { text: 'Volveré con pétalos de marfil.', action: { t: 'close' } },
+   521→            ],
+   522→          },
+   523→        },
+   524→      },
+   525→      {
+   526→        cond: 'aldric_ship_talked',
+   527→        notCond: 'canvas_given',
+   528→        start: 'rc3',
+   529→        nodes: {
+   530→          rc3: {
+   531→            text: '¿La lona para el Colibrí? Claro que sé hacerla — lavé las velas de tu padre años enteros. Tráeme tres pétalos de marfil para el baño de encerado… o veinte monedas si la naturaleza no te sonríe esta semana.',
+   532→            options: [
+   533→              { text: 'Ya os traigo una cosa u otra.', action: { t: 'close' } },
+   534→            ],
+   535→          },
+   536→        },
+   537→      },
+   538→      {
+   539→        start: 'r5',
+   540→        nodes: {
+   541→          r5: {
+   542→            text: 'Sabías que tu padre pagaba sus deudas cantando? Mal, pero cantando. Si heredaste la voz, la casa invita. Si heredaste la sed… la casa cobra doble.',
+   543→            options: [
+   544→              { text: 'Tomaré algo y escucharé los rumores.', next: 'r6' },
+   545→              { text: 'Otra noche será.', action: { t: 'close' } },
+   546→            ],
+   547→          },
+   548→          r6: {
+   549→            text: 'Pues apunta: un mercante jura que vio luces bajo el agua al noroeste, donde se dice que se hundió la vieja capital. Y el viejo Jorund asegura que las piedras del círculo cantan las noches sin luna. Yo solo sé que la marea trae cosas raras este año…',
+   550→            options: [{ text: 'Cosas raras… las mías son las peores. Salud.', action: { t: 'close' } }],
+   551→          },
+   552→        },
+   553→      },
+   554→    ],
+   555→  },
+   556→
+   557→  bram: {
+   558→    npcId: 'bram',
+   559→    name: 'Bram el Herrero',
+   560→    trees: [
+   561→      {
+   562→        cond: 'aldric_ship_talked',
+   563→        notCond: 'ship_repaired',
+   564→        start: 'rf1',
+   565→        nodes: {
+   566→          rf1: {
+   567→            text: 'Así que el Colibrí volverá al agua y tú eres el nuevo dueño. Bien. Aldric ya me adelantó la mitad del pago — la otra mitad me la debes en madera, lona y cuerda. Yo pongo los clavos, el sudor y los juramentos.',
+   568→            options: [
+   569→              { text: '¿Qué necesita exactamente el casco?', next: 'rf2' },
+   570→              { text: '¿Y vos no os hacéis a la mar?', next: 'rf3' },
+   571→            ],
+   572→          },
+   573→          rf2: {
+   574→            text: 'Cuatro tablones de roble curado — hay cajas marcadas con mi sello en el muelle, en la costa del naufragio y en el sendero de la cascada. Tres piezas de lona encerada, que Rosa sabe preparar como nadie. Y dos cuerdas de cáñamo del buenísimo de Tom. Cuando lo tengas todo, deja los materiales junto al casco y yo me encargo del resto.',
+   575→            options: [
+   576→              {
+   577→                text: 'Con esa lista, a trabajar. Buena forja, Bram.',
+   578→                action: [
+   579→                  { t: 'talk', target: 'bram_refit' },
+   580→                  { t: 'close' },
+   581→                ],
+   582→              },
+   583→              { text: '¿Y si falta algo?', next: 'rf3' },
+   584→            ],
+   585→          },
+   586→          rf3: {
+   587→            text: 'El Colibrí no zarpa a medias, muchacho. Ni los barcos ni los hombres. Consigue la lista completa y hablamos de mareas. Y una cosa más: cuando navegues, escucha al casco. La madera avisa antes de romperse… si sabes escuchar.',
+   588→            options: [
+   589→              {
+   590→                text: 'Aprenderé a escuchar. Adiós, Bram.',
+   591→                action: [
+   592→                  { t: 'talk', target: 'bram_refit' },
+   593→                  { t: 'close' },
+   594→                ],
+   595→              },
+   596→            ],
+   597→          },
+   598→        },
+   599→      },
+   600→      {
+   601→        cond: 'ship_repaired',
+   602→        start: 'rf4',
+   603→        nodes: {
+   604→          rf4: {
+   605→            text: '¡Ahí está el nuevo capitán! El casco canta bien, ¿verdad? Le puse refuerzos dobles en la quilla, donde a tu padre le gustaba rozar los arrecifes. Si oyes un crujido raro a babor… es el recuerdo de Eirik protestando, no la madera.',
+   606→            options: [{ text: 'Ojalá proteste muchos años. Buena forja.', action: { t: 'close' } }],
+   607→          },
+   608→        },
+   609→      },
+   610→      {
+   611→        start: 'b1',
+   612→        nodes: {
+   613→          b1: {
+   614→            text: '¡Chispas! Acércate al fuego, que el norte corta esta temporada. ¿Hierro que reparar? ¿Uñas de barco? ¿O vienes a que te hable de la vez que vi una escama del tamaño de un escudo caer del cielo?',
+   615→            options: [
+   616→              { text: '¿Una escama… del cielo?', next: 'b2' },
+   617→              { text: '¿Trabajo tienes para mí?', next: 'b3' },
+   618→              { text: 'Solo pasaba. Buena forja.', action: { t: 'close' } },
+   619→            ],
+   620→          },
+   621→          b2: {
+   622→            text: 'Iba yo con mi abuelo por el paso alto, hace treinta inviernos. Cayó girando como una hoja plateada y clavóse en el hielo a un pie de mi bota. Mi abuelo la miró, la dejó ahí y dijo: «Donde cae una escama, pronto cae su dueño. Corre.» Corrimos. Nunca volvimos por aquel paso.',
+   623→            options: [
+   624→              { text: '¿Y aún conserváis la escama?', next: 'b4' },
+   625→              { text: 'Buena historia para la taberna.', action: { t: 'close' } },
+   626→            ],
+   627→          },
+   628→          b4: {
+   629→            text: 'La fundí, muchacho. De ella salieron diez hoces y dos espadas… y te juro por la forja que el acero salió cantando. Aún me despierto algunas noches y oigo el eco de ese canto bajo la tierra. El metal recuerda, como el mar.',
+   630→            options: [{ text: 'Entonces el metal y yo nos entenderemos. Adiós.', action: { t: 'close' } }],
+   631→          },
+   632→          b3: {
+   633→            text: 'Para un muchacho con piernas: traeme carbón del monte y te afilo lo que lleves. Pero, entre nosotros, mejor trabajo es el que te da Aldric: el puerto paga… y el mar enseña.',
+   634→            options: [{ text: 'Iré a verle. Buena forja, Bram.', action: { t: 'close' } }],
+   635→          },
+   636→        },
+   637→      },
+   638→    ],
+   639→  },
+   640→
+   641→  tom: {
+   642→    npcId: 'tom',
+   643→    name: 'Tom el Pescador',
+   644→    trees: [
+   645→      {
+   646→        cond: 'aldric_ship_talked',
+   647→        notCond: 'rope_given',
+   648→        requireItem: { id: 'coin', count: 10 },
+   649→        start: 'tr1',
+   650→        nodes: {
+   651→          tr1: {
+   652→            text: '¿Eso que suena en tu bolsa? Exacto: monedas. Diez, contadas. Y estas son mis dos mejores cuerdas de cáñamo, trenzadas por mí, aguanta un mástil en plena galerna. Trato hecho, ¿eh? Nada de devoluciones: el cáñamo ya conoce tu olor.',
+   653→            options: [
+   654→              {
+   655→                text: 'Trato hecho, Tom.',
+   656→                action: [
+   657→                  { t: 'takeItem', id: 'coin', count: 10 },
+   658→                  { t: 'item', id: 'cuerda', count: 2 },
+   659→                  { t: 'flag', flag: 'rope_given' },
+   660→                  { t: 'close' },
+   661→                ],
+   662→              },
+   663→            ],
+   664→          },
+   665→        },
+   666→      },
+   667→      {
+   668→        cond: 'aldric_ship_talked',
+   669→        notCond: 'rope_given',
+   670→        start: 'tr2',
+   671→        nodes: {
+   672→          tr2: {
+   673→            text: 'Cuerda de cáñamo para el Colibrí, ¿eh? Tengo las mejores del puerto… pero ya no regalo nada desde que un lobo me debía una red. Diez monedas por las dos cuerdas. El cáñamo no crece en las piedras, muchacho.',
+   674→            options: [
+   675→              { text: 'Volveré con las monedas.', action: { t: 'close' } },
+   676→              { text: '¿Y no bajáis el precio para el hijo de Eirik?', next: 'tr3' },
+   677→            ],
+   678→          },
+   679→          tr3: {
+   680→            text: 'Para el hijo de Eirik bajo la charla y subo el cariño: diez monedas igual, pero con un nudo de suerte regalado. Los precios de pescador son como las mareas, muchacho: firmes.',
+   681→            options: [{ text: 'Tendrá razón la marea. Hasta luego.', action: { t: 'close' } }],
+   682→          },
+   683→        },
+   684→      },
+   685→      {
+   686→        start: 't1',
+   687→        nodes: {
+   688→          t1: {
+   689→            text: '¡Eh! Tú el de la barba de Eirik. Bienvenido al muelle: donde los peces son listos y los hombres no tanto. ¿Vienes a pescar o a perderte como tu padre?',
+   690→            options: [
+   691→              { text: '¿Perderse? Cuéntame.', next: 't2' },
+   692→              { text: '¿Qué se pesca por aquí?', next: 't3' },
+   693→            ],
+   694→          },
+   695→          t2: {
+   696→            text: 'Eirik se perdía a propósito, muchacho. Tomaba el Colibrí y desaparecía semanas, rumbo al noroeste, donde las cartas se quedan blancas. Volvía con la bodega llena de cosas… raras. Pergaminos. Piedras que brillan. Y una vez, juro por la marea, un diente más largo que mi brazo.',
+   697→            options: [
+   698→              { text: '¿Un diente? ¿De qué bestia?', next: 't4' },
+   699→              { text: 'Parecía otro hombre.', action: { t: 'close' } },
+   700→            ],
+   701→          },
+   702→          t4: {
+   703→            text: 'De la que no se pesca con caña, eso seguro. Lo cambió en el mercado del sur por un saco de plata. El comprador llevaba capa con… bah, ya ni lo recuerdo. El mar borra los detalles y se queda con las historias.',
+   704→            options: [{ text: 'Gracias, Tom.', action: { t: 'close' } }],
+   705→          },
+   706→          t3: {
+   707→            text: 'Beso de dragón al amanecer, lubina entre las rocas del este y peces espada cuando el agua hierve en agosto. Y mentiras de pescador todo el año — las más sabrosas. Si el Colibrí vuelve a navegar, apúntame: echo el anzuelo y una canción.',
+   708→            options: [{ text: 'Te tendré presente.', action: { t: 'close' } }],
+   709→          },
+   710→        },
+   711→      },
+   712→    ],
+   713→  },
+   714→
+   715→  elin: {
+   716→    npcId: 'elin',
+   717→    name: 'Elin, tendera',
+   718→    trees: [
+   719→      {
+   720→        start: 'e1',
+   721→        nodes: {
+   722→          e1: {
+   723→            text: '¡Fruta, queso y cintas de colores! Perdona el desorden, es día de mercado. ¿Sabes que eres el tema de la semana? El hijo del Guardián… digo, del capitán Eirik, vuelve al puerto. La gente habla.',
+   724→            options: [
+   725→              { text: '¿Y qué dice la gente?', next: 'e2' },
+   726→              { text: '¿Qué se vende hoy?', next: 'e3' },
+   727→            ],
+   728→          },
+   729→          e2: {
+   730→            text: 'Que los mares se agitan. Que la pesca escasea desde que esa vela negra merodea el paso. Y que las cabras del norte se niegan a pastar en la ladera de las Garrahielo. Los animales saben, muchacho. Siempre saben antes que nosotros.',
+   731→            options: [{ text: 'Lo recordaré. Buen mercado.', action: { t: 'close' } }],
+   732→          },
+   733→          e3: {
+   734→            text: 'Queso de cabra de las colinas, manzanas de huerta y sal del este. Todo a precio de amigo del puerto. Ah, y si subes a la cascada del norte, tráeme plumas de halcón: pago bien por ellas, dicen que dan suerte… a los que navegan.',
+   735→            options: [{ text: 'Quizá suba a por ellas.', action: { t: 'close' } }],
+   736→          },
+   737→        },
+   738→      },
+   739→    ],
+   740→  },
+   741→
+   742→  jorund: {
+   743→    npcId: 'jorund',
+   744→    name: 'Guardia Jorund',
+   745→    trees: [
+   746→      {
+   747→        start: 'j1',
+   748→        nodes: {
+   749→          j1: {
+   750→            text: 'Alto ahí… bah, tranquilo, muchacho. Todo el pueblo sabe quién eres. Jorund, guardia de la puerta. Mantén la paz dentro de los muros y no tendremos palabras… salvo las amistosas.',
+   751→            options: [
+   752→              { text: '¿Paz? ¿Pasa algo en el pueblo?', next: 'j2' },
+   753→              { text: '¿Algún consejo de guardia veterano?', next: 'j3' },
+   754→            ],
+   755→          },
+   756→          j2: {
+   757→            text: 'Bandidos en los caminos del sur, lobos con hambre en el bosque y algo que aúlla cerca del círculo de piedras las noches sin luna. El viejo señor del castillo duplicó la guardia. Yo solo digo: Puerto Cuervo duerme con un ojo abierto.',
+   758→            options: [
+   759→              { text: '¿El círculo de piedras dices?', next: 'j4' },
+   760→              { text: 'Dormiréis bien vigilados.', action: { t: 'close' } },
+   761→            ],
+   762→          },
+   763→          j4: {
+   764→            text: 'No vayas, muchacho. En serio. Mi abuelo enterró a dos compañeros que fueron a «ver las runas brillar». Los encontró la marea: mirando al cielo, sonriendo, sin marca alguna. Hay bellezas que no se miran dos veces. Esa es una.',
+   765→            options: [{ text: '…Lo recordaré. Gracias, Jorund.', action: { t: 'close' } }],
+   766→          },
+   767→          j3: {
+   768→            text: 'Uno: en las ruinas, pisa fuerte, que las serpientes huyen del ruido. Dos: si el bosque calla de golpe, no corras: cuenta hasta diez y camina despacio. Y tres… la cerveza de Rosa cobra intereses. Cuídate de las tres cosas y vivirás más que yo.',
+   769→            options: [{ text: 'Sabiduría de guardia. Me la quedo.', action: { t: 'close' } }],
+   770→          },
+   771→        },
+   772→      },
+   773→    ],
+   774→  },
+   775→
+   776→  sigrid: {
+   777→    npcId: 'sigrid',
+   778→    name: 'Sigrid la Lavandera',
+   779→    trees: [
+   780→      {
+   781→        start: 'sg1',
+   782→        nodes: {
+   783→          sg1: {
+   784→            text: 'Cuidado con las baldosas, que el jabón no perdona. Ay, sí, tú eres el hijo de Eirik… Yo lavé sus velas años, sabes. En una encontré una carta cosida al doblez. Se la devolví sin leer… aunque la tentación fue grande, eso sí.',
+   785→            options: [
+   786→              { text: '¿Una carta cosida? ¿Qué decía?', next: 'sg2' },
+   787→              { text: 'Buena persona era mi padre.', action: { t: 'close' } },
+   788→            ],
+   789→          },
+   790→          sg2: {
+   791→            text: 'No lo sé, muchacho, y que los dioses me perdonen: no la leí. Pero recuerdo el sello de lacre: un círculo de mareas alrededor de una llama. Días después, tu padre se hizo a la mar con ese mismo sello colgado del cuello… y no volvió más.',
+   792→            options: [{ text: 'Un círculo de mareas… como el amuleto.', action: { t: 'close' } }],
+   793→          },
+   794→        },
+   795→      },
+   796→    ],
+   797→  },
+   798→
+   799→  // ---- Fase 16 — LA HERRERÍA: Torvald, el Herrero Estándar (nivel 6+) ----
+   800→  herrero: {
+   801→    npcId: 'herrero',
+   802→    name: 'Torvald',
+   803→    trees: [
+   804→      {
+   805→        // Too green: no shop, no small talk
+   806→        maxLevel: 5,
+   807→        start: 't_low',
+   808→        nodes: {
+   809→          t_low: {
+   810→            text: 'Vuelve cuando te hayas curtido un poco, ¿eh? El nivel 6 es lo mínimo para tocarme el yunque. Todavía hueles a pueblo.',
+   811→            options: [{ text: 'Volveré con más barba.', action: { t: 'close' } }],
+   812→          },
+   813→        },
+   814→      },
+   815→      {
+   816→        start: 't1',
+   817→        nodes: {
+   818→          t1: {
+   819→            text: 'Torvald, para servirte. Acero, cuero y unas alas que son la envidia de las gaviotas. Todo lo que sale de mi fraga lleva mi sello… y un precio justo. ¿Qué se te ofrece?',
+   820→            options: [
+   821→              { text: 'Veamos la mercancía.', action: { t: 'shop', vendor: 'herrero' } },
+   822→              { text: '¿Alas? ¿De qué estás hablando?', next: 't2' },
+   823→              { text: 'Otra vez será.', action: { t: 'close' } },
+   824→            ],
+   825→          },
+   826→          t2: {
+   827→            text: 'Lona encerada sobre costillas de ballena, muchacho. Te las calzas, saltas desde una torre… y mantienes ESPACIO en el aire. El viento hace el resto: desciendes planeando como un albatros con deudas.',
+   828→            options: [
+   829→              { text: 'Las quiero. Ver la mercancía.', action: { t: 'shop', vendor: 'herrero' } },
+   830→              { text: 'Un día de estos.', action: { t: 'close' } },
+   831→            ],
+   832→          },
+   833→        },
+   834→      },
+   835→    ],
+   836→  },
+   837→
+   838→  // ---- Fase 16 — EL HERRERO ENANO: Borin, Comercio Avanzado (nivel 10+) ----
+   839→  enano: {
+   840→    npcId: 'enano',
+   841→    name: 'Borin',
+   842→    trees: [
+   843→      {
+   844→        maxLevel: 9,
+   845→        start: 'b_low',
+   846→        nodes: {
+   847→          b_low: {
+   848→            text: '¡Fuera de mi bosque! Vuelve al nivel 10, crío. Aquí abajo el acero se rompe solo en manos que lo merecen.',
+   849→            options: [{ text: '(retroceder despacio)', action: { t: 'close' } }],
+   850→          },
+   851→        },
+   852→      },
+   853→      {
+   854→        start: 'b1',
+   855→        nodes: {
+   856→          b1: {
+   857→            text: '¿Un humano que llega hasta aquí? Ja. Soy Borin, y ésa que oyes respirar es la fraga. Vendo versiones ROTAS de lo que hace Torvald: las rompo a propósito. El acero no entiende de lástimas.',
+   858→            options: [
+   859→              { text: 'Muéstrame lo roto.', action: { t: 'shop', vendor: 'enano' } },
+   860→              { text: '¿"Rompida a propósito"?', next: 'b2' },
+   861→              { text: 'Demasiado oro para mí.', action: { t: 'close' } },
+   862→            ],
+   863→          },
+   864→          b2: {
+   865→            text: 'La templé al revés tres veces, hasta que el metal se rindió. Quedó más dura que la cabeza de un Ancestro. Los enanos rompemos las cosas hasta que funcionan. Trae monedas: muchas.',
+   866→            options: [
+   867→              { text: 'Ver el acero roto.', action: { t: 'shop', vendor: 'enano' } },
+   868→              { text: 'Volveré… con más monedas.', action: { t: 'close' } },
+   869→            ],
+   870→          },
+   871→        },
+   872→      },
+   873→    ],
+   874→  },
+   875→};
+   876→
+   877→/** Narrator-style lore interactions (tablets, stones, doors). */
+   878→export interface LoreInteraction {
+   879→  id: string;
+   880→  title: string;
+   881→  text: string[];
+   882→}
+   883→
+   884→export const LORE: Record<string, LoreInteraction> = {
+   885→  tablet_ruins: {
+   886→    id: 'tablet_ruins',
+   887→    title: 'Tablilla de Vaelthara',
+   888→    text: [
+   889→      'La piedra está fría pese al sol. Los caracteres, medio borrados por el musgo, parecen ondular como agua estancada.',
+   890→      '«…y juraron los Siete Velar el Suebre de los Señores del Fuego, y sellaron la ciudad bajo la marea…»',
+   891→      '«…cuando el cuervo de tres cabezas alce vuelo, despertarán los que duermen. Guardad la Marea. Guardad el pacto…»',
+   892→      'Debajo, con caligrafía distinta y más reciente, alguien grabó: «E. estuvo aquí. La Orden vive.»',
+   893→    ],
+   894→  },
+   895→  stones_center: {
+   896→    id: 'stones_center',
+   897→    title: 'El Altar del Círculo',
+   898→    text: [
+   899→      'Colocas la mano sobre la piedra del altar. Está tibia, como un animal dormido.',
+   900→      'Un zumbido grave recorre el círculo. Las runas de los monolitos laten con una luz verdosa, sincronizadas… con tu pulso.',
+   901→      'En cuanto retiras la mano, todo se apaga. El silencio del prado vuelve, pero tarda en volverse natural, como si el aire dudara.',
+   902→    ],
+   903→  },
+   904→  tower_door: {
+   905→    id: 'tower_door',
+   906→    title: 'Torre del Vigía',
+   907→    text: [
+   908→      'La puerta está tapiada con maderos podridos. Por las juntas asoman telarañas del tamaño de pañuelos.',
+   909→      'Una placa oxidada recuerda mejores tiempos: «Aquí veló Halvor el Alerta, cuarenta años mirando el mar. Ninguna vela enemiga cruzó su horizonte.»',
+   910→      'Alguien arrancó la campana de su soporte. En el suelo, marcas de arrastre se pierden monte abajo, hacia el oeste.',
+   911→    ],
+   912→  },
+   913→  ship_colibri: {
+   914→    id: 'ship_colibri',
+   915→    title: 'Colibrí de Mar',
+   916→    text: [
+   917→      'La vieja carabela descansa junto al muelle, rodeada de andamios. El casco muestra remiendos recientes y parches de madera nueva.',
+   918→      'En la popa, medio borrada por la sal, una figura de colibrí persigue una estrella. Bajo la línea de flotación, en la quilla, hay un sello que te pone la piel de gallina: un círculo de mareas alrededor de una llama.',
+   919→      'El mismo sello que describía Sigrid. El barco de tu padre era algo más que un barco.',
+   920→    ],
+   921→  },
+   922→};
+   923→

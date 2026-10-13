@@ -47,6 +47,9 @@ export const MAT = {
     emissiveIntensity: 0.9,
     roughness: 0.5,
   }),
+  /** Fase 16 — white concrete: the merchants' establishments (smithies).
+   *  Photo-based albedo comes from AssetSystem (white_concrete PBR set). */
+  concreteWhite: new THREE.MeshStandardMaterial({ color: 0xf2f0ec, roughness: 0.88, metalness: 0 }),
 } as const;
 
 export type MatKey = keyof typeof MAT;
@@ -57,6 +60,7 @@ const TEX_WORLD_SCALE: Partial<Record<MatKey, number>> = {
   stone: 3.2, stoneDark: 3.2, stoneMoss: 3.2, cobble: 2.6, dirt: 3.0,
   wood: 2.2, woodDark: 2.2, woodLight: 2.2, timber: 2.0, woodShip: 2.4, woodPirate: 2.4,
   roofRed: 1.9, roofSlate: 1.9, roofThatch: 1.7,
+  concreteWhite: 3.0,
 };
 
 /** Scale a BoxGeometry's UVs so each face tiles the texture at world size.

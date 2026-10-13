@@ -14,6 +14,12 @@ export interface PlayerStats {
   walkSpeed: number;
   runSpeed: number;
   swimSpeed: number;
+  /** Fase 16 — armor: fraction of damage removed from every landed hit. */
+  damageReduction?: number;
+  /** Fase 16 — wings: glide descent (m/s, negative) while gliding. */
+  glideSink?: number;
+  /** Fase 16 — wings: forward glide speed (m/s) sustained in the air. */
+  glideSpeed?: number;
 }
 
 export class Player {
@@ -25,6 +31,8 @@ export class Player {
   stamina = 100;
   grounded = true;
   swimming = false;
+  /** Fase 15 — underwater dive state (Mayús = down, Espacio = up). */
+  diving = false;
   attackT = 0;
   lanternOn = false;
   /** Fase 8 — admin free-fly: WASD + ESPACIO sube / E baja. */
@@ -35,14 +43,21 @@ export class Player {
    *  spin (360 sweep), uppercut (launcher), plunge (air dive) and
    *  aircut (floating air slash). */
   attackKind: 'light1' | 'light2' | 'heavy' | 'thrust' | 'bowRelease'
-    | 'spin' | 'uppercut' | 'plunge' | 'aircut' = 'light1';
+    | 'spin' | 'uppercut' | 'plunge' | 'aircut'
+    | 'sweep' | 'hookkick' = 'light1';
+  /** Fase 17 — HOOK DASH in flight (CombatSystem drives it; the mover
+   *  suspends normal control while the rope pulls). */
+  dashing = false;
+  /** Fase 17 — the dash connects a flying kick (pose hint for the model). */
+  dashKick = false;
   /** Fase 11 — a plunge is in flight: extra gravity until the ground, then
    *  onPlungeImpact fires the AoE. */
   plunging = false;
   onPlungeImpact?: () => void;
   /** Fase 11 — an incoming hit was dodged with i-frames (perfect dodge):
-   *  CombatSystem opens a counter window. */
-  onPerfectDodge?: () => void;
+   *  CombatSystem opens a counter window. Fase 17: the source coordinates
+   *  let the counter THROW itself (knife/sand at the attacker). */
+  onPerfectDodge?: (fromX?: number, fromZ?: number) => void;
   /** Fase 11 — dodge style: 'roll' = full somersault (forward),
    *  'step' = quick low dash (side/back). Set by CombatSystem. */
   dodgeStyle: 'roll' | 'step' = 'roll';
@@ -73,6 +88,19 @@ export class Player {
   moveMult = 1;
   /** Damage taken while blocking is also paid with stamina. */
   hasShieldEquipped = false;
+
+  /** Fase 17 — set by CombatSystem when it consumes the Space press (the
+   *  Shift+Space finisher) — the jump must not also fire that frame. */
+  suppressJump = false;
+
+  /** Fase 16 — WINGS: true while the equipped wings carry the fall. */
+  gliding = false;
+  /** Fase 16 — the equipped wings item (visuals + glide stats owner). */
+  wingsItemId: string | null = null;
+  /** Fase 16 — wing rig: two pivots, spread 0..1 animated in update(). */
+  private wingsRig: { root: THREE.Group; pivotL: THREE.Object3D; pivotR: THREE.Object3D } | null = null;
+  private wingSpread = 0;
+  private wingFlapT = 0;
 
   verticalVel = 0; // (admin fly needs to reset it externally)
   private stepTimer = 0;
@@ -151,12 +179,97 @@ export class Player {
     this.jumpsUsed = 0;
     this.bowDraw = -1;
     this.invulnT = 0;
+    this.gliding = false;
+    this.dashing = false;
+    this.dashKick = false;
+    this.plunging = false;
     this.model.root.rotation.x = 0;
   }
 
   toggleLantern(): void {
     this.lanternOn = !this.lanternOn;
     this.lanternFlame.visible = this.lanternOn;
+  }
+
+  // ---------------------------------------------------------------- wings
+
+  /**
+   * Fase 16 — equip/unequip the wings VISUAL (the glide stats live in
+   * `stats`). Pass the item id (or null to take them off). The rig is built
+   * lazily once and toggled visible; both pivots animate in update().
+   */
+  setWingsVisual(itemId: string | null): void {
+    this.wingsItemId = itemId;
+    if (itemId && !this.wingsRig) {
+      this.wingsRig = this.buildWings();
+      this.model.root.add(this.wingsRig.root);
+    }
+    if (this.wingsRig) this.wingsRig.root.visible = !!itemId;
+    if (!itemId) this.gliding = false;
+  }
+
+  /** Lona encerada over whalebone ribs: two pivots at the shoulder blades. */
+  private buildWings(): { root: THREE.Group; pivotL: THREE.Object3D; pivotR: THREE.Object3D } {
+    const root = new THREE.Group();
+    root.name = 'wings_rig';
+    root.position.set(0, 1.16, -0.30);
+    const canvas = new THREE.MeshStandardMaterial({
+      color: 0xd8cfba, roughness: 0.9, metalness: 0, side: THREE.DoubleSide,
+    });
+    const ribMat = new THREE.MeshStandardMaterial({ color: 0x402c15, roughness: 0.9 });
+
+    const makeSide = (mirror: 1 | -1): THREE.Object3D => {
+      const pivot = new THREE.Object3D();
+      pivot.position.set(0.10 * mirror, 0, 0);
+      // three feather slats, tapering out and swept back; span ~1.05 m/side
+      const slats: Array<[number, number, number, number]> = [
+        // [length, chord, xOffset, zSweep]
+        [0.62, 0.34, 0.34, -0.10],
+        [0.5, 0.26, 0.82, -0.26],
+        [0.34, 0.16, 1.18, -0.40],
+      ];
+      slats.forEach(([len, chord, xo, zs], i) => {
+        const slat = new THREE.Mesh(new THREE.BoxGeometry(len, 0.035, chord), canvas);
+        slat.position.set((xo + len / 2 - 0.05) * mirror, 0.02 * i, zs * mirror);
+        slat.rotation.z = -0.06 * i * mirror;
+        slat.castShadow = true;
+        pivot.add(slat);
+        // leading rib
+        const rib = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, chord + 0.1), ribMat);
+        rib.position.set(xo * mirror, 0.045, zs * mirror);
+        pivot.add(rib);
+      });
+      // shoulder yoke
+      const yoke = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.07, 0.3), ribMat);
+      yoke.position.set(0.05 * mirror, 0.05, 0.02);
+      pivot.add(yoke);
+      root.add(pivot);
+      return pivot;
+    };
+
+    const pivotR = makeSide(1);
+    const pivotL = makeSide(-1);
+    // folded pose (visible but closed against the back)
+    pivotR.rotation.z = -1.32;
+    pivotL.rotation.z = 1.32;
+    return { root, pivotL, pivotR };
+  }
+
+  /** One frame of the wing rig: fold/spread + a soft flap while gliding. */
+  private updateWings(dt: number): void {
+    if (!this.wingsRig || !this.wingsItemId) return;
+    const want = this.gliding ? 1 : 0.16;
+    this.wingSpread = damp(this.wingSpread, want, 9, dt);
+    if (this.gliding) {
+      this.wingFlapT += dt;
+    } else {
+      this.wingFlapT = 0;
+    }
+    const flap = this.gliding ? Math.sin(this.wingFlapT * 3.1) * 0.05 : 0;
+    // folded -1.32 rad (hanging on the back) → spread -0.16 (out & level)
+    const r = -1.32 + this.wingSpread * 1.16;
+    this.wingsRig.pivotR.rotation.z = r + flap;
+    this.wingsRig.pivotL.rotation.z = -r + flap;
   }
 
   // ---------------------------------------------------------------- combat
@@ -194,7 +307,7 @@ export class Player {
   takeHit(damage: number, fromX?: number, fromZ?: number, opts?: { unblockable?: boolean }): number {
     if (this.invulnerable) {
       // rolling THROUGH a blow that would have connected = perfect dodge
-      if (this.rollT > 0 && this.rollT < 0.8) this.onPerfectDodge?.();
+      if (this.rollT > 0 && this.rollT < 0.8) this.onPerfectDodge?.(fromX, fromZ);
       return 0;
     }
     // Blocking: absorb if the source is roughly in front (±60°)
@@ -246,7 +359,14 @@ export class Player {
       this.stamina = Math.max(0, this.stamina - damage * 0.8);
       this.model.blockImpact?.();
     }
-    this.health = Math.max(0, this.health - damage);
+    // Fase 16 — ARMOR: the smith's cuero/malla/placas eat a fraction of
+    // every hit that actually LANDS (unblocked). Never below 0.2 damage.
+    const dr = Math.min(0.8, Math.max(0, this.stats.damageReduction ?? 0));
+    const dealt = Math.max(0.2, damage * (1 - dr));
+    if (dr > 0 && dealt < damage) {
+      this.onArmored?.(damage - dealt);
+    }
+    this.health = Math.max(0, this.health - dealt);
     this.invulnT = 0.7;
     this.model.flash();
     // Fase 9 — hit reaction: a light knockback impulse away from the source
@@ -260,8 +380,11 @@ export class Player {
         this.knockT = 0.22;
       }
     }
-    return damage;
+    return dealt;
   }
+
+  /** Fase 16 — fired when the armor absorbs part of a hit (absorbed amount). */
+  onArmored?: (absorbed: number) => void;
 
   /** Fase 9 — knockback impulse state (decays fast, read by the mover). */
   knockX = 0;
@@ -341,7 +464,8 @@ export class Player {
     let speed = this.swimming ? this.stats.swimSpeed : wantRun ? this.stats.runSpeed : this.stats.walkSpeed;
     if (this.wading) speed = this.stats.walkSpeed * 0.62; // pushing through chest-deep water
     // Combat movement modifiers (Fase 3)
-    if (this.rollT > 0) speed = 7.6;                 // dodge roll burst
+    if (this.dashing) speed = 0;                       // the rope owns the body
+    else if (this.rollT > 0) speed = 7.6;              // dodge roll burst
     else speed *= this.moveMult;                     // block / bow-draw slow
 
     // --- Stamina ---
@@ -353,7 +477,12 @@ export class Player {
     // --- Horizontal velocity (smooth accel) ---
     let targetVX: number;
     let targetVZ: number;
-    if (this.rollT > 0) {
+    if (this.dashing) {
+      // Fase 17 — hook dash: CombatSystem sets the velocity directly;
+      // the mover only damps toward it so the rope snap reads clean.
+      targetVX = this.velocity.x;
+      targetVZ = this.velocity.z;
+    } else if (this.rollT > 0) {
       // Dodge roll: fixed burst along the roll direction, input ignored
       targetVX = this.rollDir.x * speed;
       targetVZ = this.rollDir.z * speed;
@@ -416,6 +545,8 @@ export class Player {
       // Entry splash (bigger when diving from a height)
       const impact = clamp((-this.verticalVel + 2) / 10, 0.4, 1.6);
       this.onWaterEvent?.('enter', impact);
+      // Fase 16 — a glide that splashes into the sea folds the wings
+      this.gliding = false;
     } else if (!this.swimming && wasSwimming) {
       this.onWaterEvent?.('exit', 0.7);
     }
@@ -426,7 +557,11 @@ export class Player {
     // Fase 10 — DOUBLE JUMP: a second press mid-air launches a marometa
     // (forward somersault). The flip itself is pure animation — the impulse
     // is a fresh vertical boost so it always feels responsive.
-    if (!dialogueActive && input.pressed('jump') && !this.swimming && this.stamina > 10) {
+    // Fase 17 — suppressJump: CombatSystem may claim Shift+Space for the
+    // cinematic finisher; the jump then waits a frame.
+    if (this.suppressJump) {
+      this.suppressJump = false;
+    } else if (!dialogueActive && input.pressed('jump') && !this.swimming && this.stamina > 10) {
       if (this.grounded && !this.wading) {
         this.verticalVel = 7.4;
         this.grounded = false;
@@ -442,63 +577,97 @@ export class Player {
     }
 
     if (this.swimming) {
-      // --- Surface swimming: float ON the waving surface ---
-      // Head & shoulders stay above water; the body bobs with the waves.
-      const targetY = surfaceY - 0.52;
-      this.verticalVel = damp(this.verticalVel, (targetY - this.position.y) * 4.2, 5.5, dt);
-      this.position.y += this.verticalVel * dt;
       this.grounded = false;
       this.airTime = 0;
-      // Climb out: when a shore/dock edge is within arm's reach, jump boosts
-      // the player up onto it (no more being trapped in the water).
-      if (!dialogueActive && input.pressed('jump')) {
-        // The vault edge: highest walkable top near the swimmer — docks,
-        // decks (platformProbe) and rising terrain all count. Unlike the
-        // standing ground check, this scan has NO y-precondition: a dock
-        // top 1 m above the water is exactly what we want to grab.
-        let edge = groundH;
-        let edgeDirX = 0;
-        let edgeDirZ = 0;
-        for (const c of colliders.query(this.position.x, this.position.z, 3)) {
-          if (c.kind !== 'box' || c.maxY - c.minY > 0.5) continue; // walkable slabs only
-          if (
-            this.position.x >= c.minX - 1.4 && this.position.x <= c.maxX + 1.4 &&
-            this.position.z >= c.minZ - 1.4 && this.position.z <= c.maxZ + 1.4 &&
-            c.maxY > edge && c.maxY < this.position.y + 2.6 && c.maxY > this.position.y - 1.2
-          ) {
-            edge = c.maxY;
-            // Direction toward the platform (the climb lands ON it, not beside it)
-            edgeDirX = (c.minX + c.maxX) / 2 - this.position.x;
-            edgeDirZ = (c.minZ + c.maxZ) / 2 - this.position.z;
-            const dl = Math.hypot(edgeDirX, edgeDirZ) || 1;
-            edgeDirX /= dl;
-            edgeDirZ /= dl;
-          }
+      // --- Fase 15 — DIVE: free 3D swimming anywhere in the sea ---
+      // Mayús (sprint) descends, Espacio (jump) ascends. Not just at the
+      // shore: anywhere the water is deep enough to swim.
+      const wantDive = !dialogueActive && input.isDown('sprint') && this.stamina > 1;
+      const wantRise = !dialogueActive && input.isDown('jump');
+      if (!this.diving && wantDive) {
+        this.diving = true;
+        this.verticalVel = Math.min(this.verticalVel, -1.4); // the plunge
+      }
+      if (this.diving) {
+        // Underwater: neutral buoyancy, input-driven vertical motion
+        let targetVy = -0.35; // gentle sink when idle
+        if (wantDive) targetVy = -3.2;
+        else if (wantRise) targetVy = 3.4;
+        this.verticalVel = damp(this.verticalVel, targetVy, 4.5, dt);
+        this.position.y += this.verticalVel * dt;
+        // Breath: stamina is the air supply while submerged
+        this.stamina = Math.max(0, this.stamina - dt * (wantDive ? 1.6 : 0.8));
+        if (this.stamina <= 0) this.diving = false; // out of air: float up
+        // The seabed is solid
+        if (this.position.y < terrainH + 0.8) {
+          this.position.y = terrainH + 0.8;
+          this.verticalVel = Math.max(0, this.verticalVel);
         }
-        if (this.platformProbe) {
-          const deck = this.platformProbe(this.position.x, this.position.z);
-          if (deck !== null && deck > edge && deck < this.position.y + 2.6 && deck > this.position.y - 1.2) {
-            edge = deck;
-            edgeDirX = 0;
-            edgeDirZ = 0;
-          }
+        // Break the surface while ascending → back to surface swim
+        if (this.position.y >= surfaceY - 0.6 && this.verticalVel > 0) {
+          this.diving = false;
+          this.position.y = surfaceY - 0.6;
+          this.verticalVel = 0.9;
+          this.onWaterEvent?.('exit', 0.5);
         }
-        if (edge > this.position.y - 0.6 && edge < this.position.y + 2.6) {
-          // Vault out of the water toward the edge — a strong climbing boost
-          // (reaches ~2.4 m above the feet) plus an undamped lunge ONTO it.
-          this.swimming = false;
-          this.verticalVel = 9.6;
-          this.velocity.x = edgeDirX * 4.2;
-          this.velocity.z = edgeDirZ * 4.2;
-          this.vaultT = 0.5;
-          this.stamina = Math.max(0, this.stamina - 8);
-          this.position.y += 0.12;
-        } else {
-          // Just a paddle hop in deep water
-          this.verticalVel = 2.4;
+      } else {
+        // --- Surface swimming: float ON the waving surface ---
+        // Head & shoulders stay above water; the body bobs with the waves.
+        const targetY = surfaceY - 0.52;
+        this.verticalVel = damp(this.verticalVel, (targetY - this.position.y) * 4.2, 5.5, dt);
+        this.position.y += this.verticalVel * dt;
+        // Climb out: when a shore/dock edge is within arm's reach, jump boosts
+        // the player up onto it (no more being trapped in the water).
+        if (!dialogueActive && input.pressed('jump')) {
+          // The vault edge: highest walkable top near the swimmer — docks,
+          // decks (platformProbe) and rising terrain all count. Unlike the
+          // standing ground check, this scan has NO y-precondition: a dock
+          // top 1 m above the water is exactly what we want to grab.
+          let edge = groundH;
+          let edgeDirX = 0;
+          let edgeDirZ = 0;
+          for (const c of colliders.query(this.position.x, this.position.z, 3)) {
+            if (c.kind !== 'box' || c.maxY - c.minY > 0.5) continue; // walkable slabs only
+            if (
+              this.position.x >= c.minX - 1.4 && this.position.x <= c.maxX + 1.4 &&
+              this.position.z >= c.minZ - 1.4 && this.position.z <= c.maxZ + 1.4 &&
+              c.maxY > edge && c.maxY < this.position.y + 2.6 && c.maxY > this.position.y - 1.2
+            ) {
+              edge = c.maxY;
+              // Direction toward the platform (the climb lands ON it, not beside it)
+              edgeDirX = (c.minX + c.maxX) / 2 - this.position.x;
+              edgeDirZ = (c.minZ + c.maxZ) / 2 - this.position.z;
+              const dl = Math.hypot(edgeDirX, edgeDirZ) || 1;
+              edgeDirX /= dl;
+              edgeDirZ /= dl;
+            }
+          }
+          if (this.platformProbe) {
+            const deck = this.platformProbe(this.position.x, this.position.z);
+            if (deck !== null && deck > edge && deck < this.position.y + 2.6 && deck > this.position.y - 1.2) {
+              edge = deck;
+              edgeDirX = 0;
+              edgeDirZ = 0;
+            }
+          }
+          if (edge > this.position.y - 0.6 && edge < this.position.y + 2.6) {
+            // Vault out of the water toward the edge — a strong climbing boost
+            // (reaches ~2.4 m above the feet) plus an undamped lunge ONTO it.
+            this.swimming = false;
+            this.verticalVel = 9.6;
+            this.velocity.x = edgeDirX * 4.2;
+            this.velocity.z = edgeDirZ * 4.2;
+            this.vaultT = 0.5;
+            this.stamina = Math.max(0, this.stamina - 8);
+            this.position.y += 0.12;
+          } else {
+            // Just a paddle hop in deep water
+            this.verticalVel = 2.4;
+          }
         }
       }
     } else {
+      if (this.diving) this.diving = false; // left the water: reset the dive
       // Fase 11 — aircut hover: an air slash carries the knight (anime float)
       if (
         this.attackT > 0 && this.attackKind === 'aircut'
@@ -512,7 +681,40 @@ export class Player {
         this.velocity.x = damp(this.velocity.x, this.rollDir.x * 2.2, 10, dt);
         this.velocity.z = damp(this.velocity.z, this.rollDir.z * 2.2, 10, dt);
       }
-      this.verticalVel -= 19 * dt;
+      // Fase 17 — hook dash: the rope carries the body, gravity waits
+      // (a flying kick must not sag mid-flight)
+      if (this.dashing) {
+        this.verticalVel = damp(this.verticalVel, 0.8, 8, dt);
+      }
+      // --------------------------------------------------------------
+      // Fase 16 — WINGS: elytra-style glide. Falling with the wings on and
+      // holding ESPACE opens the glide: the descent locks to glideSink
+      // (~-2.6 m/s) and the body surges FORWARD along the facing at
+      // glideSpeed. Release (or touch water) and it folds back. Landing
+      // speed stays under the fall-damage threshold, so a glide never hurts.
+      // --------------------------------------------------------------
+      const canGlide = !!this.wingsItemId
+        && this.stats.glideSink !== undefined
+        && !this.plunging
+        && this.verticalVel < -1.2
+        && this.airTime > 0.25;
+      const wantGlide = canGlide && input.isDown('jump');
+      this.gliding = wantGlide;
+      if (wantGlide) {
+        const sink = this.stats.glideSink ?? -2.6;
+        const speed = this.stats.glideSpeed ?? 10.5;
+        // vertical: settle on the sink rate (no 19 m/s² gravity while held)
+        this.verticalVel = damp(this.verticalVel, Math.max(sink, -12), 4.5, dt);
+        // horizontal: the wings carry the body along the facing — steer with
+        // the mouse/A-D as usual; velocity snaps toward the facing heading
+        const fx = Math.sin(this.yaw);
+        const fz = Math.cos(this.yaw);
+        this.velocity.x = damp(this.velocity.x, fx * speed, 6, dt);
+        this.velocity.z = damp(this.velocity.z, fz * speed, 6, dt);
+      }
+      if (!this.gliding && !this.dashing) {
+        this.verticalVel -= 19 * dt;
+      }
       this.position.y += this.verticalVel * dt;
       const groundY = groundH;
       if (this.position.y <= groundY) {
@@ -535,6 +737,7 @@ export class Player {
         this.grounded = true;
         this.airTime = 0;
         this.jumpsUsed = 0;
+        this.gliding = false;
         // Landing mid-flip: the somersault snaps upright over a beat
         if (this.flipT > 0 && this.flipT < 1) this.flipT = Math.max(this.flipT, 0.82);
       } else {
@@ -552,13 +755,14 @@ export class Player {
     this.position.z += this.velocity.z * dt;
     this.resolveCollisions(colliders, terrain.height(this.position.x, this.position.z));
 
-    // --- Facing ---
-    const hSpeed = Math.hypot(this.velocity.x, this.velocity.z);
-    this.speedSm = damp(this.speedSm, hSpeed, 8, dt);
-    if (hSpeed > 0.4) {
-      const targetYaw = Math.atan2(this.velocity.x, this.velocity.z);
-      this.yaw = dampAngle(this.yaw, targetYaw, 12, dt);
-    }
+      // Facing: the dash steers — a kick flies along the rope, the body
+      // faces the target the whole way (no yaw fighting the steer).
+      const hSpeed = Math.hypot(this.velocity.x, this.velocity.z);
+      this.speedSm = damp(this.speedSm, hSpeed, 8, dt);
+      if (hSpeed > 0.4 && !this.dashing) {
+        const targetYaw = Math.atan2(this.velocity.x, this.velocity.z);
+        this.yaw = dampAngle(this.yaw, targetYaw, 12, dt);
+      }
     this.group.rotation.y = this.yaw;
 
     // --- Swim pitch (lean body forward in water) + whole-body spins ---
@@ -569,9 +773,18 @@ export class Player {
     if (spinT > 0) {
       this.model.root.rotation.x = spinT * Math.PI * 2;
     } else {
-      this.model.root.rotation.x = damp(this.model.root.rotation.x, this.swimming ? 1.15 : 0, 8, dt);
+      // Fase 16 — gliding leans the whole body forward into the wind
+      this.model.root.rotation.x = damp(
+        this.model.root.rotation.x,
+        this.swimming ? 1.15 : this.gliding ? 0.34 : 0,
+        8,
+        dt,
+      );
     }
     this.model.root.position.y = damp(this.model.root.position.y, this.swimming ? 0.55 : 0, 8, dt);
+
+    // Fase 16 — wings fold/spread (skip while a flip owns the body pose)
+    this.updateWings(dt);
 
     // --- Combat timers (Fase 3) ---
     if (this.rollT > 0) {
@@ -618,6 +831,7 @@ export class Player {
       rollT: this.rollT > 0 ? this.rollT : this.flipT,
       dodgeStep: this.rollT > 0 && this.dodgeStyle === 'step',
       bowDraw: this.bowDraw,
+      dashKick: this.dashKick,
     });
 
     // --- Footsteps ---

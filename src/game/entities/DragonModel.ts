@@ -384,7 +384,6 @@ export class DragonModel {
     let shL = { x: 0, y: 0.15, z: 0.25 };  // folded against the body
     let shR = { x: 0, y: -0.15, z: -0.25 };
     let elb = 0.85;
-
     switch (s.mode) {
       case 'sleep': {
         // Curled up: neck and tail wrapped, legs folded
@@ -441,49 +440,96 @@ export class DragonModel {
       }
       case 'fly':
       case 'takeoff': {
-        const amp = s.mode === 'takeoff' ? 1.15 : 0.85;
-        const flap = Math.sin(ph) * amp;
-        shL = { x: -0.1, y: 0.25 + flap * 0.55, z: -0.5 - flap * 0.75 };
-        shR = { x: -0.1, y: -0.25 - flap * 0.55, z: 0.5 + flap * 0.75 };
-        elb = 0.55 + Math.sin(ph - 0.9) * 0.35;
-        // Body undulates slightly with each beat; tail streams a wave
-        this.body.position.y = Math.sin(ph) * 0.1;
+        // Fase 17 — CINEMATIC FLIGHT: a shaped stroke (violent short
+        // downstroke, long folded recovery), elbow lag so the wing WHIPS,
+        // body undulation, tail wave on both axes + spine ripple, and the
+        // inside wing folding a touch tighter in the turn.
+        const amp = s.mode === 'takeoff' ? 1.3 : 0.9;
+        const cyc = (ph / (Math.PI * 2)) % 1;
+        let flap: number;
+        if (cyc < 0.36) {
+          flap = Math.sin((cyc / 0.36) * Math.PI) * amp;      // power stroke
+        } else {
+          const u = (cyc - 0.36) / 0.64;
+          flap = -Math.sin(u * Math.PI) * 0.62 * amp;          // slow recovery
+        }
+        // elbow trails the shoulder — the membrane snaps taut on the drive
+        const cycElb = (((ph - 0.9) / (Math.PI * 2)) % 1 + 1) % 1;
+        const elbFlap = cycElb < 0.36
+          ? Math.sin((cycElb / 0.36) * Math.PI)
+          : -Math.sin(((cycElb - 0.36) / 0.64) * Math.PI) * 0.62;
+        elb = 0.62 - elbFlap * 0.42;                          // 0.2 (drive, open) .. 1.04 (fold)
+        const turnFold = s.turn * 0.18;                       // inside wing bites less
+        const yBase = 0.3 + flap * 0.62;
+        const zBase = -0.62 - flap * 0.95;
+        shL = { x: -0.08 + flap * 0.1, y: yBase + turnFold, z: zBase - turnFold * 0.4 };
+        shR = { x: -0.08 + flap * 0.1, y: -yBase - turnFold, z: -zBase + turnFold * 0.4 };
+        // Body rides the stroke (breathing pitch + bob), chest swells on the drive
+        this.body.position.y = Math.sin(ph) * 0.09 + 0.04;
+        this.body.rotation.x = -flap * 0.05;
+        // Neck: S-curve counter-wave, head locked forward
         for (let i = 0; i < this.neckSegs.length; i++) {
-          lerpTo(this.neckSegs[i], 0.1 + Math.sin(ph - i * 0.5) * 0.06, 0, 0);
+          lerpTo(this.neckSegs[i], 0.08 + flap * 0.04 + Math.sin(ph - i * 0.55) * 0.07, Math.sin(this.t * 1.7 - i * 0.6) * 0.035, 0);
         }
-        lerpTo(this.head, -0.12, 0, 0);
+        lerpTo(this.head, -0.14 - flap * 0.03, 0, 0);
+        // Tail: travelling wave both axes — it WHIPS at the tip
         for (let i = 0; i < this.tailSegs.length; i++) {
-          lerpTo(this.tailSegs[i], Math.sin(this.t * 2.6 - i * 0.7) * 0.1, Math.sin(ph * 0.5 - i * 0.5) * 0.08, 0, 6 * dt);
+          const k = i / this.tailSegs.length;
+          lerpTo(
+            this.tailSegs[i],
+            Math.sin(this.t * 2.8 - i * 0.85) * 0.05 + flap * 0.06 * (1 - k),
+            Math.sin(ph * 1.9 - i * 0.9 - s.turn * 1.2) * (0.08 + k * 0.16) - s.turn * 0.2 * (0.3 + k),
+            0,
+            6 * dt,
+          );
         }
-        // Legs tucked in flight
+        // Spine spikes ripple with the beat (cheap: a phase-shifted scale)
+        for (let i = 0; i < this.spineSpikes.length; i++) {
+          const s2 = 1 + Math.sin(ph - i * 0.5) * 0.12;
+          this.spineSpikes[i].scale.y = s2;
+        }
+        // Legs tucked tight in flight
         this.foldLegs(8 * dt, false, true);
-        this.chest.scale.setScalar(1);
+        this.chest.scale.setScalar(1 + Math.max(0, flap) * 0.05);
         this.jaw.rotation.x = 0.08 + Math.sin(this.t * 1.3) * 0.04;
         break;
       }
       case 'glide': {
-        // Wings wide and still, banking with the turn
+        // Fase 17 — the glide: wings wide with dihedral, membrane trembling
+        // in the wind, tail as rudder, the whole body a held breath.
         const bank = s.turn;
-        shL = { x: -0.05, y: 0.55 + bank * 0.2, z: -1.05 };
-        shR = { x: -0.05, y: -0.55 - bank * 0.2, z: 1.05 };
-        elb = 0.22 + Math.sin(this.t * 1.4) * 0.04;
+        const tremble = Math.sin(this.t * 9.1) * 0.04 + Math.sin(this.t * 16.3) * 0.022;
+        const breath = Math.sin(this.t * 1.1) * 0.035;
+        shL = { x: -0.04 + breath, y: 0.72 + bank * 0.16, z: -1.18 + tremble };
+        shR = { x: -0.04 + breath, y: -0.72 - bank * 0.16, z: 1.18 - tremble };
+        elb = 0.16 + tremble * 0.4;
         for (let i = 0; i < this.neckSegs.length; i++) {
-          lerpTo(this.neckSegs[i], 0.06, 0, 0);
+          lerpTo(this.neckSegs[i], 0.05 + Math.sin(this.t * 1.2 - i * 0.5) * 0.03, 0, 0);
         }
-        lerpTo(this.head, -0.05, 0, 0);
+        lerpTo(this.head, -0.06, 0, 0);
         for (let i = 0; i < this.tailSegs.length; i++) {
-          lerpTo(this.tailSegs[i], 0, -bank * 0.22 + Math.sin(this.t * 2 - i * 0.6) * 0.05, 0, 5 * dt);
+          const k = i / this.tailSegs.length;
+          lerpTo(
+            this.tailSegs[i],
+            Math.sin(this.t * 1.7 - i * 0.7) * 0.035,
+            -bank * 0.26 * (0.35 + k) + Math.sin(this.t * 2 - i * 0.8) * 0.045,
+            0,
+            5 * dt,
+          );
         }
         this.foldLegs(8 * dt, false, true);
         this.body.position.y = 0;
+        this.body.rotation.x = 0;
+        this.chest.scale.setScalar(1);
         break;
       }
       case 'land': {
-        // Wings flared wide to brake, legs reaching down
+        // Wings flare wide & cup to brake, legs reaching, tail thrown up
         const k = s.t;
-        shL = { x: 0.1, y: 0.7, z: -1.25 - k * 0.15 };
-        shR = { x: 0.1, y: -0.7, z: 1.25 + k * 0.15 };
-        elb = 0.15;
+        shL = { x: 0.14, y: 0.78, z: -1.4 - k * 0.12 };
+        shR = { x: 0.14, y: -0.78, z: 1.4 + k * 0.12 };
+        elb = 0.12;
+        this.body.rotation.x = 0.1 * k;                       // braking pitch-up
         const reach = k * 0.5;
         for (const [leg, knee] of [[this.legFL, this.kneeFL], [this.legFR, this.kneeFR], [this.legBL, this.kneeBL], [this.legBR, this.kneeBR]] as Array<[THREE.Group, THREE.Group]>) {
           if (!leg.visible) continue;
@@ -493,9 +539,10 @@ export class DragonModel {
         for (let i = 0; i < this.neckSegs.length; i++) {
           lerpTo(this.neckSegs[i], 0.05, 0, 0);
         }
-        lerpTo(this.head, 0.1, 0, 0);
+        lerpTo(this.head, 0.12, 0, 0);
         for (let i = 0; i < this.tailSegs.length; i++) {
-          lerpTo(this.tailSegs[i], 0, Math.sin(i * 0.5) * 0.1, 0, 6 * dt);
+          const tk = i / this.tailSegs.length;
+          lerpTo(this.tailSegs[i], -0.06 * k, Math.sin(i * 0.5 + this.t * 3) * 0.09 * (0.4 + tk), 0, 6 * dt);
         }
         break;
       }

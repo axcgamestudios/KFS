@@ -180,7 +180,7 @@ export default function MapUI() {
       <div className="kotfs-panel kotfs-panel-corner relative flex h-full w-full max-w-4xl flex-col p-5">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="kotfs-title text-lg tracking-[0.25em] text-[color:var(--kotfs-gold)]">
-            CARTA DE NAVEGACIÓN — ALDMOR
+            NAUTICAL CHART — ALDMOR
           </h2>
           <button
             className="text-[color:var(--kotfs-parchment-dim)] transition hover:text-[color:var(--kotfs-parchment)]"
@@ -222,10 +222,10 @@ export default function MapUI() {
           <p className="text-xs italic text-[color:var(--kotfs-parchment-dim)]">
             {hovered
               ? `${hovered.name} — ${hovered.journal.slice(0, 90)}…`
-              : 'El mapa se revela a medida que exploras. Las zonas oscuras guardan secretos.'}
+              : 'The map reveals itself as you explore. The uncharted dark keeps its secrets.'}
           </p>
           <p className="text-[0.6rem] tracking-[0.3em] text-[color:var(--kotfs-parchment-dim)] opacity-50">
-            M / ESC PARA CERRAR
+            M / ESC TO CLOSE
           </p>
         </div>
       </div>

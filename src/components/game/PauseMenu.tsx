@@ -57,11 +57,11 @@ export default function PauseMenu({ initialTab = 'principal' }: { initialTab?: T
       <div className="kotfs-panel kotfs-panel-corner w-full max-w-2xl p-6">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="kotfs-title text-lg tracking-[0.25em] text-[color:var(--kotfs-gold)]">
-            {tab === 'principal' ? 'PAUSA' : tab === 'guardar' ? 'GUARDAR PARTIDA' : 'AJUSTES'}
+            {tab === 'principal' ? 'PAUSED' : tab === 'guardar' ? 'SAVE GAME' : 'SETTINGS'}
           </h2>
           <p className="flex items-center gap-2 text-xs text-[color:var(--kotfs-parchment-dim)]">
             <Clock size={12} className="text-[color:var(--kotfs-gold)]" />
-            Día {dayCount} · {clock} · Nivel {level} · {SaveSystem.formatPlaytime(gameApi.playtime())}
+            Day {dayCount} · {clock} · Level {level} · {SaveSystem.formatPlaytime(gameApi.playtime())}
           </p>
         </div>
         <hr className="kotfs-hr mb-5" />
@@ -69,16 +69,16 @@ export default function PauseMenu({ initialTab = 'principal' }: { initialTab?: T
         {tab === 'principal' && (
           <div className="flex flex-col gap-2.5">
             <button className="kotfs-btn kotfs-btn-primary" onClick={resume}>
-              Reanudar
+              Resume
             </button>
             <div className="grid grid-cols-2 gap-2.5">
               <button className="kotfs-btn" onClick={() => switchTab('guardar')}>
                 <span className="flex items-center justify-center gap-2">
-                  <Save size={14} /> Guardar
+                  <Save size={14} /> Save
                 </span>
               </button>
               <button className="kotfs-btn" onClick={() => switchTab('ajustes')}>
-                Ajustes
+                Settings
               </button>
             </div>
             <button
@@ -92,10 +92,10 @@ export default function PauseMenu({ initialTab = 'principal' }: { initialTab?: T
                 }
               }}
             >
-              {confirmExit ? '¿Seguro? Pulsa de nuevo para salir' : 'Salir al menú principal'}
+              {confirmExit ? 'Are you sure? Press again to quit' : 'Quit to main menu'}
             </button>
             <p className="mt-3 text-center text-[0.62rem] italic text-[color:var(--kotfs-parchment-dim)] opacity-60">
-              La partida se guarda automáticamente al completar misiones y cada dos minutos.
+              The game saves automatically when you complete quests and every two minutes.
             </p>
           </div>
         )}
@@ -114,28 +114,28 @@ export default function PauseMenu({ initialTab = 'principal' }: { initialTab?: T
                   <span className="flex items-center justify-between">
                     <span>
                       <span className="kotfs-title mr-2 text-[color:var(--kotfs-gold)]">
-                        RANURA {slot + 1}
+                        SLOT {slot + 1}
                       </span>
                       {meta ? (
                         <span className="text-xs text-[color:var(--kotfs-parchment-dim)]">
-                          Nivel {meta.level} · Día {meta.dayCount} ·{' '}
+                          Level {meta.level} · Day {meta.dayCount} ·{' '}
                           {SaveSystem.formatPlaytime(meta.playtime)}
                         </span>
                       ) : (
                         <span className="text-xs text-[color:var(--kotfs-parchment-dim)] opacity-50">
-                          — vacía —
+                          — empty —
                         </span>
                       )}
                     </span>
                     <span className="kotfs-title text-[0.6rem] text-[color:var(--kotfs-gold)]">
-                      {meta ? 'SOBRESCRIBIR' : 'GUARDAR'}
+                      {meta ? 'OVERWRITE' : 'SAVE'}
                     </span>
                   </span>
                 </button>
                 {meta && (
                   <button
                     className="kotfs-btn !px-3"
-                    title="Borrar ranura"
+                    title="Delete slot"
                     onClick={() => {
                       if (confirmDelete === slot) {
                         SaveSystem.delete(slot);
@@ -154,16 +154,20 @@ export default function PauseMenu({ initialTab = 'principal' }: { initialTab?: T
             ))}
             {confirmDelete !== null && (
               <p className="text-center text-xs italic text-[color:#c05656]">
-                Pulsa de nuevo el cubo para confirmar el borrado.
+                Press the bin again to confirm deletion.
               </p>
             )}
             <button className="kotfs-btn mt-1" onClick={() => switchTab('principal')}>
-              Volver
+              Back
             </button>
           </div>
         )}
 
-        {tab === 'ajustes' && <SettingsPanel onBack={() => switchTab('principal')} />}
+        {tab === 'ajustes' && (
+          <div className="kotfs-scroll max-h-[64vh] overflow-y-auto pr-2">
+            <SettingsPanel onBack={() => switchTab('principal')} />
+          </div>
+        )}
       </div>
     </div>
   );

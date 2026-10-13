@@ -83,7 +83,8 @@ export interface AnimParams {
   /** Attack animation variant (Fase 3). Default keeps the classic diagonal slash.
    *  Fase 11 adds the cinematic set: spin / uppercut / plunge / aircut. */
   attackKind?: 'light1' | 'light2' | 'heavy' | 'thrust' | 'bowRelease'
-    | 'spin' | 'uppercut' | 'plunge' | 'aircut';
+    | 'spin' | 'uppercut' | 'plunge' | 'aircut'
+    | 'sweep' | 'hookkick';
   /** Block pose blend 0..1. */
   blockT?: number;
   /** Dodge roll progress 0..1 (drives the whole-body forward roll). */
@@ -92,6 +93,8 @@ export interface AnimParams {
   dodgeStep?: boolean;
   /** Bow draw blend 0..1 (aim pose while drawing). */
   bowDraw?: number;
+  /** Fase 17 — flying-kick pose while a hook dash connects. */
+  dashKick?: boolean;
   /** Fase 4 — riding pose on horseback (legs bent around the saddle, reins). */
   riding?: boolean;
   /** Fase 4 — riding bounce phase (0..1), driven by the horse gait. */

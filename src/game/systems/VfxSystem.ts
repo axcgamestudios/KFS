@@ -1,104 +1,16 @@
 import * as THREE from 'three';
 import { getFlameFX } from '../world/FlameFX';
 import { gfxRuntime } from '../core/Graphics';
+import { InstancedSpritePool as SpritePool } from './InstancedSpritePool';
 
 /**
  * Pooled combat/creature VFX (Fase 3): dragon fire, embers, smoke, weapon
  * sparks, block clangs and landing dust. Everything is pre-allocated and
  * recycled — strict caps keep the GPU load bounded no matter how many
  * dragons breathe at once.
+ * Fase 15 — every pool renders as ONE instanced batch (was: one draw call
+ * per sprite; a dragon breath alone cost ~90 extra transparent draws).
  */
-
-interface PooledSprite {
-  sp: THREE.Sprite;
-  t: number;
-  dur: number;
-  grow: number;
-  vel: THREE.Vector3;
-  drag: number;
-  gravity: number;
-  fade: number;
-}
-
-class SpritePool {
-  private sprites: THREE.Sprite[] = [];
-  private active: PooledSprite[] = [];
-
-  constructor(
-    scene: THREE.Scene,
-    count: number,
-    color: string,
-    private additive: boolean,
-  ) {
-    const canvas = document.createElement('canvas');
-    canvas.width = canvas.height = 64;
-    const ctx = canvas.getContext('2d')!;
-    const grad = ctx.createRadialGradient(32, 32, 2, 32, 32, 30);
-    grad.addColorStop(0, color);
-    grad.addColorStop(0.55, additive ? color : 'rgba(0,0,0,0)');
-    grad.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, 64, 64);
-    const tex = new THREE.CanvasTexture(canvas);
-    for (let i = 0; i < count; i++) {
-      const sp = new THREE.Sprite(new THREE.SpriteMaterial({
-        map: tex,
-        transparent: true,
-        depthWrite: false,
-        opacity: 0,
-        blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
-      }));
-      sp.visible = false;
-      sp.frustumCulled = false;
-      scene.add(sp);
-      this.sprites.push(sp);
-    }
-  }
-
-  spawn(
-    pos: THREE.Vector3,
-    scale: number,
-    dur: number,
-    vel: THREE.Vector3,
-    opts: { grow?: number; drag?: number; gravity?: number; fade?: number; opacity?: number } = {},
-  ): void {
-    const sp = this.sprites.find((s) => !s.visible);
-    if (!sp) return; // cap reached — silently drop
-    sp.position.copy(pos);
-    sp.scale.setScalar(scale);
-    (sp.material as THREE.SpriteMaterial).opacity = opts.opacity ?? 0.9;
-    sp.visible = true;
-    this.active.push({
-      sp, t: 0, dur,
-      grow: opts.grow ?? 1.4,
-      vel: vel.clone(),
-      drag: opts.drag ?? 0.4,
-      gravity: opts.gravity ?? 0,
-      fade: opts.fade ?? 1,
-    });
-  }
-
-  update(dt: number): void {
-    for (let i = this.active.length - 1; i >= 0; i--) {
-      const a = this.active[i];
-      a.t += dt;
-      const k = a.t / a.dur;
-      if (k >= 1) {
-        a.sp.visible = false;
-        this.active.splice(i, 1);
-        continue;
-      }
-      const mat = a.sp.material as THREE.SpriteMaterial;
-      mat.opacity = (0.9 - 0.9 * Math.pow(k, a.fade)) * 1;
-      a.sp.scale.multiplyScalar(1 + a.grow * dt);
-      // Velocity integration with drag + gravity
-      const damp = Math.max(0, 1 - a.drag * dt);
-      a.vel.multiplyScalar(damp);
-      a.vel.y += a.gravity * dt;
-      a.sp.position.addScaledVector(a.vel, dt);
-    }
-  }
-}
 
 export class VfxSystem {
   private embers: SpritePool;   // small rising sparks
