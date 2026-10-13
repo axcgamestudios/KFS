@@ -267,7 +267,7 @@ export class Game {
 
     // Fase 4 — repository music (ambient sea theme) as a soft bed under the
     // procedural score. Starts muted until a user gesture unlocks audio.
-    this.musicEl = new Audio(`${ASSET_BASE}/game/audio/ambient_sea.mp3`);
+    this.musicEl = new Audio(`${ASSET_BASE}game/audio/ambient_sea.mp3`);
     this.musicEl.loop = true;
     this.musicEl.volume = 0;
 
@@ -1901,6 +1901,14 @@ export class Game {
     }
     const cine = this.cinematics.active;
 
+    // --- Fase 20 — FREE CAM (P): detach the lens from the hero ---
+    if (
+      !cine && !this.endings?.isPlaying && !dialogueActive &&
+      this.input.anyPressed('KeyP')
+    ) {
+      this.toggleFreeCam(store);
+    }
+
     // --- Naval layer: wind, fleets, cannonballs, boarding, effects ---
     const sailingHud: SailingHud | null = naval.update(dt, p.position);
 
@@ -1923,14 +1931,14 @@ export class Game {
 
     // --- Fase 3: dragons + combat VFX (both on foot and at sea) ---
     this.dragons?.update(
-      dt, p.position, !this.dead, sailing,
+      dt, p.position, !this.dead && !rig.freeCam, sailing,
       sailing && naval.activeShip ? naval.activeShip.pos : null,
     );
     this.vfx?.update(dt);
 
     // --- Fase 10: red knight bandits (AI frozen during cinematics/dialogue) ---
     if (!cine && !this.endings?.isPlaying) {
-      this.bandits?.update(dt, p.position, !this.dead && !dialogueActive && !sailing);
+      this.bandits?.update(dt, p.position, !this.dead && !dialogueActive && !sailing && !rig.freeCam);
     }
 
     // --- Fase 11 — combat framing: the rig widens while enemies are hot ---
@@ -2003,7 +2011,7 @@ export class Game {
       // No personal weapons while steering — the cannons are the weapon
       p.blocking = false;
       p.bowDraw = -1;
-      if (!dialogueActive && !cine) {
+      if (!dialogueActive && !cine && !rig.freeCam) {
         // Sails: W raises, S furls
         if (this.input.anyPressed('KeyW')) {
           naval.setSailState(Math.min(2, ship.sailState + 1) as 0 | 1 | 2);
@@ -2039,7 +2047,17 @@ export class Game {
       // Camera input & combat (Fase 3) before physics so anims stay in sync
       if (!cine) rig.handleInput(this.input, dt);
 
-      if (dragonRiding && riddenDragon) {
+      if (rig.freeCam) {
+        // --- Fase 20 — FREE CAM: the lens is away. The hero holds a
+        // heroic stillness (same freeze the cinematics use), mounts graze,
+        // and no steering/combat input is consumed — WASD belongs to the
+        // camera now. Toggling back (P) resumes physics exactly as it was. ---
+        this.mounts?.update(dt, this.input, p.position, false, (x, z) => w.water.waveHeightAt(x, z));
+        this.ridingGait = '';
+        p.blocking = false;
+        p.bowDraw = -1;
+        p.model.update({ dt, speed: 0, moving: false, grounded: true, swimming: false, attackT: p.attackT });
+      } else if (dragonRiding && riddenDragon) {
         // --- Fase 15: DRAGON RIDING — the hero flies the beast ---
         this.dragons!.rideUpdate(dt, this.input, this.input.leftDown, w.terrainHeight);
         // Horses keep grazing while the hero is away
@@ -2121,7 +2139,7 @@ export class Game {
       }
 
       // --- Lantern ---
-      if (!dialogueActive && !cine && this.input.pressed('lantern')) {
+      if (!dialogueActive && !cine && !rig.freeCam && this.input.pressed('lantern')) {
         p.toggleLantern();
         this.audio.playEvent('pickup');
       }
@@ -2131,6 +2149,9 @@ export class Game {
     if (cine) {
       // Fase 9 — the narrative sequence drives the camera directly
       this.cinematics.update(dt);
+    } else if (rig.freeCam) {
+      // Fase 20 — the lens flies free: no follow spring, no shake
+      rig.updateFree(dt, this.input);
     } else {
       const sprinting = this.input.isDown('sprint') && !dialogueActive;
       rig.update(dt, p.position, sprinting, w.terrainHeight, this.colliders);
@@ -2219,8 +2240,12 @@ export class Game {
         }
       }
     }
-    const focusX = sailing ? (naval.activeShip ?? naval.playerShip)!.pos.x : p.position.x;
-    const focusZ = sailing ? (naval.activeShip ?? naval.playerShip)!.pos.z : p.position.z;
+    const focusX = rig.freeCam
+      ? this.engine.camera.position.x
+      : sailing ? (naval.activeShip ?? naval.playerShip)!.pos.x : p.position.x;
+    const focusZ = rig.freeCam
+      ? this.engine.camera.position.z
+      : sailing ? (naval.activeShip ?? naval.playerShip)!.pos.z : p.position.z;
     w.terrain.update(focusX, focusZ);
     w.vegetation.update(focusX, focusZ);
     this.refreshGrass(focusX, focusZ);
@@ -2502,9 +2527,37 @@ export class Game {
     this.world!.vegetation.refreshGrassNear(px, pz);
   }
 
+  /** Fase 20 — toggle the FREE CAM (P). Handoff is seamless both ways:
+   *  entering keeps the current view, leaving lets the follow spring glide
+   *  the rig back behind the hero. The store flag drives the HUD chip. */
+  private toggleFreeCam(store: ReturnType<typeof useGameStore.getState>): void {
+    const rig = this.rig!;
+    const p = this.player!;
+    const on = !rig.freeCam;
+    rig.setFreeCam(on);
+    // Drop any combat stance so the hero idles cleanly
+    p.blocking = false;
+    if (p.bowDraw >= 0) p.bowDraw = -1;
+    store.setFreeCam(on);
+    if (on) {
+      store.notify(
+        'info', 'Free camera',
+        'The lens is yours: WASD fly · SPACE rise · SHIFT sink / hold for speed · wheel tunes speed · P returns to the hero.',
+      );
+    } else {
+      store.notify('info', 'Back with the hero', 'The camera falls back into step behind you.');
+    }
+  }
+
   // Interactions -----------------------------------------------------------
 
   private updateInteractions(store: ReturnType<typeof useGameStore.getState>, dialogueActive: boolean): void {
+    // Fase 20 — while the free cam flies, prompts stand down (clean framing)
+    if (this.rig?.freeCam) {
+      if (store.prompt) store.setHud({ prompt: null });
+      this.interactionPromptActive = false;
+      return;
+    }
     const w = this.world!;
     const p = this.player!;
     let best: { prompt: string; run: () => void } | null = null;

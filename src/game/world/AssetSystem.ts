@@ -19,8 +19,8 @@ export interface PbrSet {
 
 import { ASSET_BASE } from '../core/Graphics';
 
-const TEX_BASE = `${ASSET_BASE}/game/textures/`;
-const MODEL_BASE = `${ASSET_BASE}/game/models/`;
+const TEX_BASE = `${ASSET_BASE}game/textures/`;
+const MODEL_BASE = `${ASSET_BASE}game/models/`;
 
 function loadTexture(
   loader: THREE.TextureLoader,

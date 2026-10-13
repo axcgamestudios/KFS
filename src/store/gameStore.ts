@@ -134,6 +134,9 @@ interface GameStore {
   mount: MountHud | null;
   /** Fase 15 — true while the player's head is under the sea (dive overlay). */
   submerged: boolean;
+  /** Fase 20 — true while the FREE CAM (P) has the camera detached from
+   *  the hero (fly camera for exploring/filming). */
+  freeCam: boolean;
   /** Fase 16 — open merchant panel (null = closed). */
   shop: { vendor: string } | null;
   /** Fase 15 — pirate toll negotiation (null = none deployed). Set while
@@ -183,6 +186,7 @@ interface GameStore {
   setWeaponSlots: (s: WeaponSlotHud[]) => void;
   setBowDraw: (v: number) => void;
   setBowHud: (s: BowHud | null) => void;
+  setFreeCam: (v: boolean) => void;
   setMount: (m: MountHud | null) => void;
   setEndingActive: (v: boolean) => void;
   setEndingCard: (c: EndingCard | null) => void;
@@ -241,6 +245,7 @@ export const useGameStore = create<GameStore>((set) => ({
   bowHud: null,
   atHelm: false,
   hurtFlash: 0,
+  freeCam: false,
   level: 1,
   xp: 0,
   xpToNext: 120,
@@ -269,6 +274,7 @@ export const useGameStore = create<GameStore>((set) => ({
   setWeaponSlots: (s) => set({ weaponSlots: s }),
   setBowDraw: (v) => set({ bowDraw: v }),
   setBowHud: (s) => set({ bowHud: s }),
+  setFreeCam: (v) => set({ freeCam: v }),
   triggerHurtFlash: () => set((s) => ({ hurtFlash: s.hurtFlash + 1 })),
   setDialogue: (d) => set({ dialogue: d }),
   setDiscovery: (d) => set({ discovery: d }),

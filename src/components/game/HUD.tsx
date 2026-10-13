@@ -6,7 +6,7 @@ import { gameApi } from '@/game/api';
 import { ASSET_BASE } from '@/game/core/Graphics';
 import {
   Compass, Heart, Wind, Anchor, Ship, Sword, Axe, Navigation, BowArrow,
-  Scroll, Package, Trophy, Save, MapPin, Info, Lock, Shield, Gauge, Rabbit, Zap, Droplets, Crosshair,
+  Scroll, Package, Trophy, Save, MapPin, Info, Lock, Shield, Gauge, Rabbit, Zap, Droplets, Crosshair, Video,
 } from 'lucide-react';
 
 /** Fase 13 — contador de FPS opcional (ajustes → Mostrar FPS). */
@@ -619,6 +619,8 @@ export default function HUD() {
   const combo = useGameStore((s) => s.combo);
   // Fase 15 — head under the sea while diving
   const submerged = useGameStore((s) => s.submerged);
+  // Fase 20 — free camera (P): detached fly lens
+  const freeCam = useGameStore((s) => s.freeCam);
   // "staminaOut" latches while the bar sits at zero (pulse warning).
   // Derived WITHOUT touching a ref during render (react-hooks/refs).
   const staminaOut = stamina <= 0.5;
@@ -635,8 +637,12 @@ export default function HUD() {
   // a whisper of the art under every frame: the menu style, in-game).
   // Uses the small PANEL texture (17 KB) — the full key art decoded per
   // panel would eat hundreds of MB of compositor memory.
+  // Fase 20 — resolve to an ABSOLUTE URL via document.baseURI: a relative
+  // `url(menu/…)` inside a stylesheet resolves against the CHUNK's location
+  // (/_next/static/css/…) and 404s under the /KFS base path.
   useEffect(() => {
-    document.documentElement.style.setProperty('--kfs-art-url', `url(${ASSET_BASE}/menu/fondo_menu_panel.jpg)`);
+    const art = new URL(`${ASSET_BASE}menu/fondo_menu_panel.jpg`, document.baseURI).href;
+    document.documentElement.style.setProperty('--kfs-art-url', `url("${art}")`);
   }, []);
   useEffect(() => {
     const id = setInterval(() => {
@@ -815,6 +821,20 @@ export default function HUD() {
         </div>
       )}
 
+      {/* --- Fase 20 — FREE CAM badge (the lens is detached) --- */}
+      {freeCam && (
+        <div
+          className="kfs-frame pointer-events-none absolute left-1/2 top-12 flex -translate-x-1/2 items-center gap-2 px-3 py-1"
+          style={{ background: 'rgba(12,10,8,0.72)' }}
+        >
+          <Video size={11} className="text-[color:#e8c96a]" />
+          <span className="kotfs-title text-[0.72rem] tracking-[0.28em] text-[color:#e8c96a]">
+            FREE CAM
+          </span>
+          <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">P</span>
+        </div>
+      )}
+
       {/* --- Naval / mount panels --- */}
       {sailing && <SailingPanel s={sailing} />}
       {mount && !atHelm && <MountPanel m={mount} />}
@@ -855,7 +875,7 @@ export default function HUD() {
       <div className="absolute bottom-5 right-5 text-right text-[0.6rem] leading-[1.7] tracking-wider text-[color:var(--kotfs-parchment-dim)] opacity-60">
         {sailing ? (
           <>
-            <p><span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">W</span><span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">S</span> sails · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">A</span><span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">D</span> rudder · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">SPACE</span> anchor</p>
+            <p><span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">W</span><span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">S</span> sails · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">A</span><span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">D</span> rudder · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">SPACE</span> anchor · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">P</span> free cam</p>
             <p>LMB/RMB broadsides · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">E</span> disembark / board</p>
             {boss && <p className="text-[color:#e8c96a]">AIM YOUR BROADSIDES AT THE WYVERN!</p>}
           </>
@@ -864,7 +884,7 @@ export default function HUD() {
             <p>CLICK combos (hold = air launch) · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">Q</span> parry · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">C</span> dodge</p>
             <p><span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">F</span> hook dash · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">E</span> rope dart · in air <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">SPACE</span>+click slam · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">R</span> tonic · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">V</span> finisher</p>
             <p><span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">1</span>–<span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">4</span> weapons (4 cycles bows) · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">SHIFT</span> sprint · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">L</span> lantern · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">E</span> interact</p>
-            <p>BOW: <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">RMB</span> aim · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">X</span> arrows · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">G</span> arrow rain · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">T</span> piercing shot</p>
+            <p>BOW: <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">RMB</span> aim · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">X</span> arrows · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">G</span> arrow rain · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">T</span> piercing shot · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">P</span> free cam</p>
           </>
         )}
       </div>

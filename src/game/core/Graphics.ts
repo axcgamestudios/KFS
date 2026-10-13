@@ -87,8 +87,17 @@ export const gfxRuntime = {
   waves: true,
 };
 
-/** Prefijo de ruta de assets — vacío en dev/sandbox, "/KFS" en GitHub Pages. */
-export const ASSET_BASE = (process.env.NEXT_PUBLIC_BASE_PATH || '') as string;
+/**
+ * Prefijo de ruta de assets — Fase 20: SIEMPRE relativo a la URL de la
+ * página. El sitio estático se sirve bajo /KFS/ en GitHub Pages mientras
+ * que dev/sandbox corren en la raíz: una URL absoluta ("/game/…") rompía
+ * TODAS las texturas/modelos/imágenes en Pages (404 silencioso → mundo
+ * sin modelos ni texturas), porque NEXT_PUBLIC_BASE_PATH no se inlinea en
+ * el bundle. Con URLs relativas ("game/…") el navegador resuelve contra
+ * la página: /KFS/game/… en Pages, /game/… en dev. Funciona bajo cualquier
+ * sub-ruta sin configurar nada al compilar.
+ */
+export const ASSET_BASE = '';
 
 /** Extrae los interruptores gráficos de un objeto Settings. */
 export function graphicsOf(s: Settings): GraphicsSettings {

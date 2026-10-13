@@ -587,3 +587,24 @@ Work Log:
 Stage Summary:
 - download/kfs_mapa_completo.png (2320x2560, 3.2 MB) — the complete world map, no fog of war, generated from the actual game terrain code so it matches the in-game world exactly.
 - Reusable pipeline kept in scripts/ (render_complete_map.ts -> map_rgba2png.js -> map_complete_shot.js; map_base.png + map_page.html intermediates) — re-run to regenerate after any world change.
+
+---
+Task ID: 20
+Agent: Super Z (main agent)
+Task: Fase 19 — "continua y subelo a github": finish the interrupted 6-feature round (ship boarding fix, British village, castle rebuild, Crow Isle enrichment, sea-monster overhaul, full archery system) and deploy v0.19.0 to GitHub.
+
+Work Log:
+- AUDIT: the previous session died mid-round but its auto-sync commit 3bcfd97 already carried most of the implementation (BritishVillage.ts 552 lines, Castle +409, SeaSerpent +265, CombatSystem archery +650, Islands crow settlement +217, NavalSystem hull-distance boarding fix, WorldConfig crow-isle nerf + castle bailey FLAT, Erica rename, Borin-into-village move). Only ONE TS error remained (CombatSystem wet-check) — fixed (bpos capture instead of non-null re-call).
+- GAPS CLOSED by this session:
+  1. Bows/arrows were UNOBTAINABLE: arco_corto + flecha_perforante/fuego/veneno now sold at Torvald (level 6), gran_arco + flecha_electrica at Borin (level 10); ShopEntry gains qty (bundles ×5/6), buyShopItem honors it, stackables never lock the buy button, ShopUI shows ×N.
+  2. Crow-settlement chests had no loot handlers: chest_crow_settlement (6 piercing + 45c), chest_crow_cove (5 fire + 30c), chest_crow_lookout (5 shock + 4 poison + 35c).
+  3. Bounty board (33,141) sat INSIDE Erica's rebuilt cottage -> moved to (27,156); cart_hitched map pin updated to the new cart spot (-8,192).
+  4. Archery HUD was unwired: CombatSystem.onBowHud -> gameStore.setBowHud (new BowHud state) -> HUD BowAmmoPanel (ammo chip + count, overdraw bar with RELEASE! warning, DEAD EYE streak, G/T cooldown pips, X/RMB/LMB hints) + keymap line for bow keys.
+  5. REAL BALANCE BUG: stamina regen (+9/+17 per s) cancelled the overdraw drain, making overdraw free forever -> Player.update now pauses ALL regen while bowDraw >= 0 (probe shows 100->81 over a 4.5 s hold, fumble reachable).
+  6. Version v0.19.0 — THE ARCHER & THE CROW tag on the main menu.
+- PROBE (scripts/e2e_f19_probe.js, playwright + X-LOW pre-seeded settings to survive SwiftShader RAM): 41/41 PASS — village anchors/fountain/stable/Erica/Borin/bounty board, cabin interiors walkable, castle bailey FLAT h=38 + courtyard, crow isle summit 21.5 (was 46) + 3 terraces + 3 caches, Bloody Gull hull-distance 1.65 m at her side + board-from-world on foot + "Climb aboard the Bloody Gull" prompt + startBoarding + abortBoarding cleanup (probe lesson: `crippled` is a GETTER — damage the hull, don't assign the flag), archery (equip/draw 100%/aim slow/overdraw burn/HUD push/live arrow/X cycle/G rain/T pierce/greatbow planted), shops carry the arsenal, King of the Sea summons.
+- VISUAL QA (VLM on 7 screenshots): village green+fountain+Tudor cottages clean; Tom's cabin interior (bed/table/hearth/crates, no sky holes); castle walls/towers/crenellations clean; KEEP INTERIOR (throne+dais+banners+tables) verified via extra shot at (85,-47); crow settlement longhouse on a usable terrace; King = wingless aquatic serpent with crown.
+- BUILD + DEPLOY: tsc src/ 0 errors; NEXT_OUTPUT=export build (out/ 71 MB, basePath verified); content markers FOUND in chunks; site -> main (6beca02..f735ef6), source -> game-source (4b9142c..c6a2d77, stray 35 MB kfs.tar.gz excluded). LIVE verified: index byte-identical, game chunk 9bef16204b529478.js (archery/boarding/Greatbow markers) 200, public assets 200.
+
+Stage Summary:
+- v0.19.0 LIVE at https://axcgamestudios.github.io/KFS/ — the complete user-requested round: the Old Crow Isle arrival quest can no longer soft-lock (hull-accurate prompts + boarding crippled quest ships on foot from the water), Crowhaven is a proper British village (6 furnished cottages + fountain green + stable, Erica renamed from Elin, Borin moved in), Aldmor Castle is big and enterable (wall-walk, hollow keep, great hall), Old Crow Isle has a corsair settlement + lowered mountains, sea monsters are true serpents (jaws/lure/crown/photophores), and the full archery system is playable end-to-end (3 bow classes, tap/full/overdraw with fumble, 4 elemental/piercing arrow families, weak-point crits, Arrow Rain + Piercing Shot, air-aim slow-mo, dedicated HUD) with the arsenal purchasable at both smiths and lootable on Crow Isle.

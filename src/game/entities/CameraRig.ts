@@ -26,6 +26,29 @@ export class CameraRig {
   shipTarget: Ship | null = null;
   private savedDistance = 4.6;
 
+  /** Fase 20 — FREE CAM (P): a detached fly camera for exploring/filming
+   *  the world. While on, the rig ignores the hero: WASD flies along the
+   *  look direction, SPACE/SHIFT rise/sink, the wheel tunes fly speed. */
+  freeCam = false;
+  freeSpeed = 14;
+  private freePos = new THREE.Vector3();
+  private freeFwd = new THREE.Vector3();
+  private freeRight = new THREE.Vector3();
+
+  /** Enter/leave free cam. Handoff is seamless both ways: entering keeps
+   *  the current view (position + yaw/pitch), leaving lets the follow
+   *  spring glide the rig back behind the hero. */
+  setFreeCam(on: boolean): void {
+    if (on === this.freeCam) return;
+    if (on) {
+      this.freeCam = true;
+      this.freePos.copy(this.camera.position);
+    } else {
+      this.freeCam = false;
+      this.currentPos.copy(this.camera.position); // spring continues from here
+    }
+  }
+
   constructor(private camera: THREE.PerspectiveCamera) {}
 
   /** Fase 9 — cinematic combat feedback: parries, counters and finishers
@@ -60,6 +83,19 @@ export class CameraRig {
   private combatFraming = false;
 
   handleInput(input: Input, dt: number): void {
+    if (this.freeCam) {
+      // Fase 20 — free cam look: wider pitch, the wheel retunes fly speed
+      // (2–90 m/s) instead of zooming.
+      if (!input.pointerLocked) return;
+      const sens = 0.0023 * this.sensitivity;
+      this.yaw -= input.mouseDX * sens;
+      this.pitch += (this.invertY ? input.mouseDY : -input.mouseDY) * sens;
+      this.pitch = clamp(this.pitch, -1.5, 1.5);
+      if (input.wheelDelta !== 0) {
+        this.freeSpeed = clamp(this.freeSpeed * (input.wheelDelta < 0 ? 1.22 : 0.82), 2, 90);
+      }
+      return;
+    }
     if (!input.pointerLocked) return;
     const sens = 0.0023 * this.sensitivity;
     this.yaw -= input.mouseDX * sens;
@@ -159,6 +195,49 @@ export class CameraRig {
     // lens (Fase 10): conversations play tighter, like a film close-up
     this.fovKick = damp(this.fovKick, 0, 7, dt);
     const targetFov = (sprinting ? 70 : 62) + this.fovKick - (this.dialogueFocus ? 7 : 0);
+    this.fov = damp(this.fov, targetFov, 5, dt);
+    if (Math.abs(this.camera.fov - this.fov) > 0.05) {
+      this.camera.fov = this.fov;
+      this.camera.updateProjectionMatrix();
+    }
+  }
+
+  /** Fase 20 — free-cam flight step. Runs INSTEAD of update() while the
+   *  camera is detached: no terrain/prop collision, no follow spring. */
+  updateFree(dt: number, input: Input): void {
+    const cosP = Math.cos(this.pitch);
+    this.freeFwd.set(Math.sin(this.yaw) * cosP, Math.sin(this.pitch), Math.cos(this.yaw) * cosP);
+    this.freeRight.set(-Math.cos(this.yaw), 0, Math.sin(this.yaw));
+
+    const shifting = input.isDown('sprint');
+    const horizontal = input.isDown('forward') || input.isDown('back') ||
+      input.isDown('left') || input.isDown('right');
+
+    let vx = 0, vy = 0, vz = 0;
+    if (input.isDown('forward')) { vx += this.freeFwd.x; vy += this.freeFwd.y; vz += this.freeFwd.z; }
+    if (input.isDown('back')) { vx -= this.freeFwd.x; vy -= this.freeFwd.y; vz -= this.freeFwd.z; }
+    if (input.isDown('right')) { vx += this.freeRight.x; vz += this.freeRight.z; }
+    if (input.isDown('left')) { vx -= this.freeRight.x; vz -= this.freeRight.z; }
+    if (input.isDown('jump')) vy += 1;
+    // SHIFT alone sinks; SHIFT held with WASD doubles as turbo instead
+    if (shifting && !horizontal) vy -= 1;
+
+    const len = Math.hypot(vx, vy, vz);
+    if (len > 1e-4) {
+      const k = (shifting ? this.freeSpeed * 2.6 : this.freeSpeed) * dt / len;
+      this.freePos.x += vx * k;
+      this.freePos.y += vy * k;
+      this.freePos.z += vz * k;
+    }
+    this.camera.position.copy(this.freePos);
+    this.camera.lookAt(
+      this.freePos.x + this.freeFwd.x,
+      this.freePos.y + this.freeFwd.y,
+      this.freePos.z + this.freeFwd.z,
+    );
+    // calm lens: settle FOV back to base while flying
+    this.fovKick = damp(this.fovKick, 0, 7, dt);
+    const targetFov = 62 + this.fovKick;
     this.fov = damp(this.fov, targetFov, 5, dt);
     if (Math.abs(this.camera.fov - this.fov) > 0.05) {
       this.camera.fov = this.fov;

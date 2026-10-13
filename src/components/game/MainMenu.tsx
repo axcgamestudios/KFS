@@ -1,6 +1,5 @@
 'use client';
 
-import Image from 'next/image';
 import { useEffect, useRef, useState } from 'react';
 import { useGameStore } from '@/store/gameStore';
 import { gameApi } from '@/game/api';
@@ -83,7 +82,7 @@ export default function MainMenu() {
 
   // Ambient menu theme from the repository (needs a user gesture to start)
   useEffect(() => {
-    const audio = new Audio(`${ASSET_BASE}/game/audio/menu_theme.mp3`);
+    const audio = new Audio(`${ASSET_BASE}game/audio/menu_theme.mp3`);
     audio.loop = true;
     audio.volume = 0;
     musicRef.current = audio;
@@ -122,13 +121,15 @@ export default function MainMenu() {
     <div className="absolute inset-0 z-40 flex overflow-hidden bg-[#070b12]">
       {/* The key art: the fortress over the forgotten sea (title baked in the sky) */}
       <div className="kotfs-kenburns">
-        <Image
-          src={`${ASSET_BASE}/menu/fondo_menu.jpg`}
+        {/* Fase 20 — plain <img>: next/image's optimizer demands absolute
+            paths, which broke under the /KFS base path. Relative + object-cover
+            renders identically in dev and in the static export. */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={`${ASSET_BASE}menu/fondo_menu.jpg`}
           alt="Kingdoms of the Forgotten Seas"
-          fill
-          priority
-          className="object-cover object-top"
-          sizes="100vw"
+          className="absolute inset-0 h-full w-full object-cover object-top"
+          draggable={false}
         />
       </div>
 
@@ -271,7 +272,7 @@ export default function MainMenu() {
       {subMenu === null && (
         <div className="absolute bottom-6 right-8 z-10 flex items-center gap-4">
           <span className="text-[0.6rem] font-semibold tracking-[0.28em] text-[#a9b4c2] opacity-60">
-            v0.19.0 — THE ARCHER &amp; THE CROW
+            v0.20.0 — THE LENS &amp; THE TIDE
           </span>
           <button
             className="flex items-center gap-2 text-[0.68rem] font-semibold tracking-[0.34em] text-[#a9b4c2] opacity-80 transition hover:text-[#e2b95c] hover:opacity-100"

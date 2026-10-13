@@ -48,7 +48,7 @@ export default function LoadingScreen() {
       {/* Key-art backdrop with slow ken-burns breathing */}
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
         <img
-          src={`${ASSET_BASE}/menu/fondo_menu.jpg`}
+          src={`${ASSET_BASE}menu/fondo_menu.jpg`}
           alt=""
           className="kfs-load-art absolute inset-0 h-full w-full object-cover object-top"
           draggable={false}
