@@ -125,9 +125,12 @@ export class WaterSystem {
         uSunColor: { value: new THREE.Color(1, 0.95, 0.85) },
         uSkyColor: { value: new THREE.Color(0.55, 0.7, 0.85) },
         uHorizonColor: { value: new THREE.Color(0.8, 0.85, 0.9) },
-        uDeepColor: { value: new THREE.Color(0.012, 0.085, 0.145) },
-        uShallowColor: { value: new THREE.Color(0.07, 0.34, 0.35) },
-        uFoamColor: { value: new THREE.Color(0.92, 0.95, 0.94) },
+        // Fase 21 — the MENU SEA look: deep navy-slate water, steel-teal
+        // shallows (the old turquoise read tropical; the key art is a cold
+        // North-Sea dusk), heavier and more opaque.
+        uDeepColor: { value: new THREE.Color(0.014, 0.052, 0.102) },
+        uShallowColor: { value: new THREE.Color(0.062, 0.185, 0.225) },
+        uFoamColor: { value: new THREE.Color(0.90, 0.93, 0.93) },
         uNightFactor: { value: 0 },
         uHeightMap: { value: heightTex },
         uWorldHalf: { value: worldHalf },
@@ -358,16 +361,16 @@ export class WaterSystem {
           vec3 halfV = normalize(viewDir + sunDir);
           float upK = gl_FrontFacing ? 1.0 : 0.0;
           float spec = pow(max(dot(n, halfV), 0.0), 260.0);
-          col += uSunColor * spec * 1.7 * upK;
+          col += uSunColor * spec * 1.25 * upK;
           // Broad glitter path with sparkle noise
           float glit = pow(max(dot(n, halfV), 0.0), 24.0);
           float sparkle = noise(vWorldPos.xz * 7.0 + uTime * 1.4);
-          col += uSunColor * glit * (0.12 + 0.22 * sparkle) * upK;
+          col += uSunColor * glit * (0.09 + 0.15 * sparkle) * upK;
 
           // Subsurface glow: light bleeding through the wave crests
           float crestK = max(0.0, vCrest);
           float backK = max(0.0, dot(-sunDir, viewDir)) * 0.5 + 0.5;
-          col += uShallowColor * crestK * crestK * 0.55 * backK * upK;
+          col += uShallowColor * crestK * crestK * 0.38 * backK * upK;
 
           // Foam — three layers:
           float fnoise = noise(vWorldPos.xz * 1.7 + uTime * 0.5) * 0.6
@@ -394,16 +397,20 @@ export class WaterSystem {
 
           // alpha follows absorption: deep sea reads opaque,
           // the shore stays transparent so the sand shows through
-          float alpha = mix(0.92, 0.62, shallowT);
-          alpha = mix(alpha, 0.95, foam);
+          // Fase 21 — heavier sea: the key-art water is opaque, not a
+          // transparent tropical lagoon
+          float alpha = mix(0.945, 0.56, shallowT);
+          alpha = mix(alpha, 0.96, foam);
           gl_FragColor = vec4(col, alpha);
         }
       `,
     });
 
     const size = 1900;
-    // 384×384: suficiente muestreo para la ola corta de 13.5 m (≈3 quads/ola)
-    const geo = new THREE.PlaneGeometry(size, size, 384, 384);
+    // Fase 21 — 320×320 (was 384×384): ~3.4 quads per 13.5 m chop still hold
+    // the crest shape, and the vertex shader loses 45k vertices of work per
+    // frame (main scene + reflection pass share this mesh).
+    const geo = new THREE.PlaneGeometry(size, size, 320, 320);
     geo.rotateX(-Math.PI / 2);
     this.mesh = new THREE.Mesh(geo, this.material);
     this.mesh.renderOrder = 5;

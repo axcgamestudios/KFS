@@ -42,7 +42,7 @@ import { QUESTS, MAIN_QUEST_ORDER, SIDE_QUESTS } from './data/quests';
 import { LORE } from './data/dialogues';
 import { useGameStore } from '../store/gameStore';
 import { gameApi, type QuestView } from './api';
-import { clamp, formatClock, smoothstep } from './core/MathUtils';
+import { clamp, dampAngle, formatClock, smoothstep } from './core/MathUtils';
 import { updateChests } from './structures/Props';
 
 interface IntroShot {
@@ -137,6 +137,8 @@ export class Game {
   /** Fase 9 — quest ids already seen completed (chapter detection). */
   private lastCompletedIds = new Set<string>();
   private postfx?: PostFX;
+  /** Fase 21 — scratch vector for the sun-shafts screen projection (no per-frame alloc). */
+  private SHAFT_SCRATCH = new THREE.Vector3();
   /** Fase 4 — ambient music bed from the asset repository (MP3). */
   private musicEl: HTMLAudioElement | null = null;
   private settings: Settings;
@@ -278,7 +280,17 @@ export class Game {
     const kits = world.kits;
     let playerVisual;
     try {
-      const knightScene = await world.assets.loadModel('knight_rigged.glb');
+      // Fase 21 — the NEW knight: the user's medieval_knight.glb, auto-rigged
+      // offline onto the game's 15-bone skeleton (scripts/rig_knight.ts), so
+      // the whole procedural animation layer (run/jump/dodge/swim/ride/block/
+      // bow/5 attack curves) drives it unchanged. Falls back to the original
+      // rigged statue knight if the file is missing.
+      let knightScene: THREE.Object3D;
+      try {
+        knightScene = await world.assets.loadModel('medieval_knight_rigged.glb');
+      } catch {
+        knightScene = await world.assets.loadModel('knight_rigged.glb');
+      }
       playerVisual = new KnightModelGLB({
         scene: knightScene,
         // Fase 11 — the player's sword is the master-forged HeroSword (real
@@ -1909,6 +1921,21 @@ export class Game {
       this.toggleFreeCam(store);
     }
 
+    // --- Fase 21 — FIRST PERSON (B): the lens rides the hero's eyes ---
+    if (
+      !cine && !this.endings?.isPlaying && !dialogueActive &&
+      !sailing && !this.mounts?.ridingId && !this.dragons?.ridingId &&
+      this.input.anyPressed('KeyB')
+    ) {
+      this.toggleFirstPerson(store);
+    }
+    // Sailing or mounting always takes the camera back to third person
+    if (rig.firstPerson && (sailing || this.mounts?.ridingId || this.dragons?.ridingId)) {
+      rig.setFirstPerson(false);
+      (this.player!.model as KnightModelGLB)?.setHeadHidden?.(false);
+      store.setFirstPerson(false);
+    }
+
     // --- Naval layer: wind, fleets, cannonballs, boarding, effects ---
     const sailingHud: SailingHud | null = naval.update(dt, p.position);
 
@@ -2154,7 +2181,16 @@ export class Game {
       rig.updateFree(dt, this.input);
     } else {
       const sprinting = this.input.isDown('sprint') && !dialogueActive;
-      rig.update(dt, p.position, sprinting, w.terrainHeight, this.colliders);
+      const moving = this.input.isDown('forward') || this.input.isDown('back') ||
+        this.input.isDown('left') || this.input.isDown('right');
+      rig.update(dt, p.position, sprinting, w.terrainHeight, this.colliders, moving);
+
+      // Fase 21 — FIRST PERSON: the hero faces where you look (strafe/backpedal
+      // like a proper FPS; CombatSystem aims along the camera anyway)
+      if (rig.firstPerson) {
+        p.yaw = dampAngle(p.yaw, rig.yawForward, 20, dt);
+        p.group.rotation.y = p.yaw;
+      }
 
       // Impact camera shake (Fase 3)
       if (this.shakeT > 0.002) {
@@ -2183,6 +2219,25 @@ export class Game {
     windGust.value = 1 + w.weather.wind * 1.7;
     this.audio.setRain(w.weather.rain);
     this.postfx?.setMoodBoost(w.weather.rain * 0.35 + w.sky.duskFactor * 0.12);
+
+    // --- Fase 21 — SUN SHAFTS (god rays) on the cinematic chain ---
+    // Project the sun into screen space and grade the strength: strongest at
+    // low sun (dawn/dusk crepuscular rays), gentle at noon, none at night or
+    // under a storm deck. The sky dome's own sun disc + bloom-lit cloud edges
+    // are the emitters, so the shafts flow through the cloud masses.
+    if (this.postfx?.enabled && this.postfx.shafts) {
+      const sunNdc = this.SHAFT_SCRATCH.copy(w.sky.sunDir).multiplyScalar(900).add(this.engine.camera.position)
+        .project(this.engine.camera);
+      const onScreen = sunNdc.z < 1 && Math.abs(sunNdc.x) < 1.25 && Math.abs(sunNdc.y) < 1.25;
+      // bell: rises 0.03..0.16, holds, fades 0.5..0.95 (zenith)
+      const elev = w.sky.sunDir.y;
+      const bell = smoothstep(0.03, 0.16, elev) * (1 - smoothstep(0.55, 0.95, elev) * 0.65);
+      const stormK = clamp(w.weather.lightMul, 0.25, 1);
+      const strength = onScreen
+        ? 0.52 * bell * stormK * w.sky.dayFactor
+        : 0;
+      this.postfx.setSun(sunNdc.x * 0.5 + 0.5, sunNdc.y * 0.5 + 0.5, strength, this.world ? this.world.sky.dayFraction * 600 : 0);
+    }
     if (w.weather.onThunder === undefined) {
       w.weather.onThunder = () => {
         this.audio.playEvent('thunder');
@@ -2534,6 +2589,8 @@ export class Game {
     const rig = this.rig!;
     const p = this.player!;
     const on = !rig.freeCam;
+    // the two lenses are exclusive
+    if (on && rig.firstPerson) this.toggleFirstPerson(store, true);
     rig.setFreeCam(on);
     // Drop any combat stance so the hero idles cleanly
     p.blocking = false;
@@ -2546,6 +2603,28 @@ export class Game {
       );
     } else {
       store.notify('info', 'Back with the hero', 'The camera falls back into step behind you.');
+    }
+  }
+
+  /** Fase 21 — toggle FIRST PERSON (B). The head bone collapses so the helm
+   *  never blocks the eye-level lens; the body, hands and cape stay visible
+   *  when you look down. `silent` = internal call (mode switch, no toast). */
+  private toggleFirstPerson(store: ReturnType<typeof useGameStore.getState>, silent = false): void {
+    const rig = this.rig!;
+    const on = !rig.firstPerson;
+    rig.setFirstPerson(on);
+    const visual = this.player?.model as KnightModelGLB | undefined;
+    visual?.setHeadHidden?.(on);
+    store.setFirstPerson(on);
+    if (!silent) {
+      if (on) {
+        store.notify(
+          'info', 'First person',
+          'Through the knight\u2019s eyes: look around, fight and sail as one — you\u2019ll see your own hands swing. B returns to third person.',
+        );
+      } else {
+        store.notify('info', 'Third person', 'The camera settles back over your shoulder.');
+      }
     }
   }
 
@@ -3330,7 +3409,7 @@ export class Game {
       this.world?.terrain.setChunkRadius(gfx.renderChunks);
       const q = this.engine.quality;
       // Fase 14 — ritmo de relleno del pasto por escalón (anti-stutter)
-      const fillsPerFrame = tier === 'ultra' ? 8 : tier === 'high' ? 6 : tier === 'medium' ? 3 : 4;
+      const fillsPerFrame = tier === 'ultra' ? 8 : tier === 'high' ? 4 : tier === 'medium' ? 3 : 4;
       this.world?.vegetation.setGrassDensity(q.grassDensity, fillsPerFrame);
       this.world?.water.applyGraphicsOptions({
         segments: q.waterSegments,

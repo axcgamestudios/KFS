@@ -6,7 +6,7 @@ import { gameApi } from '@/game/api';
 import { ASSET_BASE } from '@/game/core/Graphics';
 import {
   Compass, Heart, Wind, Anchor, Ship, Sword, Axe, Navigation, BowArrow,
-  Scroll, Package, Trophy, Save, MapPin, Info, Lock, Shield, Gauge, Rabbit, Zap, Droplets, Crosshair, Video,
+  Scroll, Package, Trophy, Save, MapPin, Info, Lock, Shield, Gauge, Rabbit, Zap, Droplets, Crosshair, Video, Eye,
 } from 'lucide-react';
 
 /** Fase 13 — contador de FPS opcional (ajustes → Mostrar FPS). */
@@ -621,6 +621,8 @@ export default function HUD() {
   const submerged = useGameStore((s) => s.submerged);
   // Fase 20 — free camera (P): detached fly lens
   const freeCam = useGameStore((s) => s.freeCam);
+  // Fase 21 — first person (B): the lens rides the hero's eyes
+  const firstPerson = useGameStore((s) => s.firstPerson);
   // "staminaOut" latches while the bar sits at zero (pulse warning).
   // Derived WITHOUT touching a ref during render (react-hooks/refs).
   const staminaOut = stamina <= 0.5;
@@ -835,6 +837,20 @@ export default function HUD() {
         </div>
       )}
 
+      {/* --- Fase 21 — FIRST PERSON badge --- */}
+      {firstPerson && !freeCam && (
+        <div
+          className="kfs-frame pointer-events-none absolute left-1/2 top-12 flex -translate-x-1/2 items-center gap-2 px-3 py-1"
+          style={{ background: 'rgba(12,10,8,0.72)' }}
+        >
+          <Eye size={11} className="text-[color:#e8c96a]" />
+          <span className="kotfs-title text-[0.72rem] tracking-[0.28em] text-[color:#e8c96a]">
+            FIRST PERSON
+          </span>
+          <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">B</span>
+        </div>
+      )}
+
       {/* --- Naval / mount panels --- */}
       {sailing && <SailingPanel s={sailing} />}
       {mount && !atHelm && <MountPanel m={mount} />}
@@ -883,7 +899,7 @@ export default function HUD() {
           <>
             <p>CLICK combos (hold = air launch) · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">Q</span> parry · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">C</span> dodge</p>
             <p><span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">F</span> hook dash · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">E</span> rope dart · in air <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">SPACE</span>+click slam · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">R</span> tonic · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">V</span> finisher</p>
-            <p><span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">1</span>–<span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">4</span> weapons (4 cycles bows) · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">SHIFT</span> sprint · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">L</span> lantern · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">E</span> interact</p>
+            <p><span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">1</span>–<span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">4</span> weapons (4 cycles bows) · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">SHIFT</span> sprint · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">L</span> lantern · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">E</span> interact · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">B</span> first person</p>
             <p>BOW: <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">RMB</span> aim · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">X</span> arrows · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">G</span> arrow rain · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">T</span> piercing shot · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">P</span> free cam</p>
           </>
         )}

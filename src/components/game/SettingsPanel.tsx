@@ -225,7 +225,7 @@ export default function SettingsPanel({ onBack }: { onBack?: () => void }) {
           </span>
         </p>
         <input
-          type="range" min={0.5} max={1.5} step={0.05} value={s.resolution}
+          type="range" min={0.5} max={2.0} step={0.05} value={s.resolution}
           onChange={(e) => setGfx('resolution', parseFloat(e.target.value))}
           className="w-full accent-[color:var(--kotfs-gold)]"
         />

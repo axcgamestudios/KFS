@@ -291,7 +291,23 @@ gl_Position = projectionMatrix * mvPosition;`,
     if (!this.fillQueue.includes(slotIndex)) this.fillQueue.push(slotIndex);
   }
 
-  private drainFillQueue(px: number, pz: number): void {
+  /** Fase 21 — synchronous drain for the LOADING screen: the meadow is
+   *  fully grown when the hero spawns instead of popping in for ~3 s
+   *  (the per-frame budget only fills 1-2 tiles — perfect while playing,
+   *  too slow for the initial window). */
+  prefill(px: number, pz: number): void {
+    if (!this.mesh) return;
+    const ctx = Math.floor(px / TILE);
+    const ctz = Math.floor(pz / TILE);
+    if (ctx !== this.lastCtx || ctz !== this.lastCtz) {
+      this.lastCtx = ctx;
+      this.lastCtz = ctz;
+      this.moveWindow(ctx, ctz);
+    }
+    this.drainFillQueue(px, pz, true);
+  }
+
+  private drainFillQueue(px: number, pz: number, all = false): void {
     if (this.fillQueue.length === 0) return;
     // los tiles más cercanos primero (el prado crece alrededor del jugador)
     if (this.fillQueue.length > 1) {
@@ -303,9 +319,15 @@ gl_Position = projectionMatrix * mvPosition;`,
         return da - db;
       });
     }
-    let n = Math.min(FILLS_PER_FRAME, this.fillQueue.length);
+    let n = all ? this.fillQueue.length : Math.min(FILLS_PER_FRAME, this.fillQueue.length);
     let touched = false;
+    // Fase 21 — time-sliced fills: a slot fill costs ~1-2 ms (each blade
+    // samples splat/color/noise). Six of them in one frame = the meadow
+    // hitching while you run. Now the drain spends at most ~3 ms; the
+    // far edge of the ring simply grows in a beat later.
+    const fillT0 = performance.now();
     while (n-- > 0) {
+      if (!all && performance.now() - fillT0 > 3 && touched) break;
       const k = this.fillQueue.shift()!;
       const s = this.slots[k];
       if (!s || !s.assigned) continue;

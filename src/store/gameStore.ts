@@ -137,6 +137,8 @@ interface GameStore {
   /** Fase 20 — true while the FREE CAM (P) has the camera detached from
    *  the hero (fly camera for exploring/filming). */
   freeCam: boolean;
+  /** Fase 21 — true while the FIRST PERSON lens (B) rides the hero's eyes. */
+  firstPerson: boolean;
   /** Fase 16 — open merchant panel (null = closed). */
   shop: { vendor: string } | null;
   /** Fase 15 — pirate toll negotiation (null = none deployed). Set while
@@ -187,6 +189,7 @@ interface GameStore {
   setBowDraw: (v: number) => void;
   setBowHud: (s: BowHud | null) => void;
   setFreeCam: (v: boolean) => void;
+  setFirstPerson: (v: boolean) => void;
   setMount: (m: MountHud | null) => void;
   setEndingActive: (v: boolean) => void;
   setEndingCard: (c: EndingCard | null) => void;
@@ -246,6 +249,7 @@ export const useGameStore = create<GameStore>((set) => ({
   atHelm: false,
   hurtFlash: 0,
   freeCam: false,
+  firstPerson: false,
   level: 1,
   xp: 0,
   xpToNext: 120,
@@ -275,6 +279,7 @@ export const useGameStore = create<GameStore>((set) => ({
   setBowDraw: (v) => set({ bowDraw: v }),
   setBowHud: (s) => set({ bowHud: s }),
   setFreeCam: (v) => set({ freeCam: v }),
+  setFirstPerson: (v) => set({ firstPerson: v }),
   triggerHurtFlash: () => set((s) => ({ hurtFlash: s.hurtFlash + 1 })),
   setDialogue: (d) => set({ dialogue: d }),
   setDiscovery: (d) => set({ discovery: d }),

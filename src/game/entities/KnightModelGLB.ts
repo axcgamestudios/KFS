@@ -164,6 +164,14 @@ export class KnightModelGLB implements CharacterVisual {
     this.blockHitDir = Math.random() < 0.5 ? -1 : 1;
   }
 
+  /** Fase 21 — FIRST PERSON: collapse the head bone so the great helm never
+   *  blocks the eye-level camera (the neck folds smoothly into the collar;
+   *  chest, hands and cape stay visible when you look down). */
+  setHeadHidden(hidden: boolean): void {
+    const head = this.bones.get('j_head');
+    if (head) head.scale.setScalar(hidden ? 0.0001 : 1);
+  }
+
   /**
    * Fase 8 — at dusk the shield gives way to a lit torch: a wooden brand
    * with a real FlameFX flame and a warm flickering light, riding the left
@@ -776,19 +784,37 @@ export class KnightModelGLB implements CharacterVisual {
         -Math.sin(ph) * 0.06,
         -Math.sin(ph) * 0.02,
       ];
+      // Fase 21 — the whole body ROLLS over the stance foot (weight shift in
+      // the ribcage, not just a positional sway: kills the stiff-plank read)
+      this.inner.rotation.z = damp(this.inner.rotation.z, Math.sin(ph) * (0.02 + runK * 0.035), 8, 1 / 60);
       this.inner.position.y = Math.abs(Math.sin(ph)) * 0.028 * (0.5 + runK + charge * 0.5) - charge * 0.05;
       // Fase 12 — subtle lateral sway of the whole body over the stance foot
       this.inner.position.x = Math.sin(ph) * 0.012 * (0.6 + runK);
+      // Fase 21 — WRIST follow-through: the hands lag the arm swing a beat
+      // (relaxed wrists are half of "not rigid"); armed, the grip stays quiet
+      if (!armed) {
+        t.j_wristR = [legPhR * 0.14 * (0.4 + runK), 0, -0.05 + Math.sin(ph * 2) * 0.03];
+        t.j_wristL = [legPhL * 0.12 * (0.4 + runK), 0, 0.05 - Math.sin(ph * 2) * 0.03];
+      } else {
+        t.j_wristR = [-0.06, 0, Math.sin(ph) * 0.025];
+        t.j_wristL = [-0.05, 0, -Math.sin(ph) * 0.025];
+      }
     } else {
       // idle: breathing, weight shift, relaxed sword arm
       const br = Math.sin(this.t * 1.7);
       const sway = Math.sin(this.t * 0.33);
       t.j_torso = [0.02 + br * 0.012, Math.sin(this.t * 0.4) * 0.02, sway * 0.012];
-      t.j_head = [0.0, Math.sin(this.t * 0.5) * 0.13, Math.sin(this.t * 0.33) * 0.05];
+      // Fase 21 — idle head GLANCES: the knight scans the horizon now and
+      // then instead of staring dead ahead
+      const glance = Math.sin(this.t * 0.21) * Math.sin(this.t * 0.07 + 1.3);
+      t.j_head = [0.0, Math.sin(this.t * 0.5) * 0.13 + glance * 0.22, Math.sin(this.t * 0.33) * 0.05];
       t.j_shoulderR = [br * 0.03 - 0.04, 0, -0.05];
       t.j_shoulderL = [-br * 0.03, 0, 0.06];
       t.j_elbowR = [-0.15 - br * 0.02, 0, 0];
       t.j_elbowL = [-0.22, 0, 0];
+      // Fase 21 — relaxed wrists at rest (a touch of life in the hands)
+      t.j_wristR = [-0.04 + br * 0.015, 0, -0.04];
+      t.j_wristL = [-0.05 - br * 0.015, 0, 0.05];
       // Fase 12 — the knees breathe with the weight shift
       t.j_kneeR = [-0.04 + Math.max(0, sway) * 0.05, 0, 0];
       t.j_kneeL = [-0.06 + Math.max(0, -sway) * 0.05, 0, 0];
@@ -796,6 +822,7 @@ export class KnightModelGLB implements CharacterVisual {
       t.j_hipL = [0, 0, sway * 0.018];
       this.inner.position.y = damp(this.inner.position.y, 0, 8, 1 / 60);
       this.inner.position.x = damp(this.inner.position.x, 0, 8, 1 / 60);
+      this.inner.rotation.z = damp(this.inner.rotation.z, sway * 0.012, 6, 1 / 60);
       if (p.talking) {
         t.j_head = [0, Math.sin(this.t * 2.1) * 0.07, 0];
         t.j_shoulderR = [Math.sin(this.t * 3.0) * 0.16 - 0.12, 0, -0.05];
@@ -988,6 +1015,8 @@ export class KnightModelGLB implements CharacterVisual {
         const u = ease((k - 0.42) / 0.26);
         t.j_shoulderR = [L(-0.4, 0.95, u), 0, L(-2.75, -0.35, u)];
         t.j_elbowR = [L(-0.6, -0.1, u), 0, 0];
+        // Fase 21 — the wrist WHIP of the overhead smash
+        t.j_wristR = [Math.sin(u * Math.PI) * -0.4, 0, 0];
         t.j_torso = [L(0.1, 0.42, u), L(-0.4, 0.42, u), 0];
         t.j_head = [L(-0.25, 0.3, u), 0, 0];
         t.j_kneeR = [0.5 * u, 0, 0];
@@ -1017,6 +1046,8 @@ export class KnightModelGLB implements CharacterVisual {
         const u = ease((k - 0.35) / 0.27);
         t.j_shoulderR = [L(-0.45, -1.55, u), 0, L(-0.15, -0.05, u)];
         t.j_elbowR = [L(-1.75, -0.05, u), 0, 0];
+        // Fase 21 — the wrist SNAP at full extension sells the pierce
+        t.j_wristR = [Math.sin(u * Math.PI) * -0.35, 0, 0];
         t.j_torso = [0.16, L(0.4, -0.32, u), 0];
         t.j_hipR = [L(0.15, -0.4, u), 0, 0];
         t.j_kneeR = [0.25, 0, 0];
@@ -1024,6 +1055,7 @@ export class KnightModelGLB implements CharacterVisual {
         const u = (k - 0.62) / 0.38;
         t.j_shoulderR = [L(-1.55, 0, u), 0, -0.05 * (1 - u)];
         t.j_elbowR = [L(-0.05, -0.2, u), 0, 0];
+        t.j_wristR = [-0.1 * (1 - u), 0, 0];
         t.j_torso = [L(0.16, 0.04, u), L(-0.32, 0, u), 0];
         t.j_hipR = [L(-0.4, 0, u), 0, 0];
       }
@@ -1070,6 +1102,9 @@ export class KnightModelGLB implements CharacterVisual {
       } else if (k < 0.74) {
         const u = ease((k - 0.34) / 0.4);
         t.j_shoulderR = [L(-2.25, 0.55, u), 0, L(-0.85, 0.5, u)];
+        // Fase 21 — wrist FLICK: the blade whips through the cut (the hand
+        // leads, the steel snaps after — the signature of a living swing)
+        t.j_wristR = [Math.sin(u * Math.PI) * 0.45, 0, Math.sin(u * Math.PI) * -0.3];
         t.j_torso = [L(0.08, 0.38, u), L(-0.42, 0.45, u), 0];
         t.j_head = [0, L(0, 0.15, u), 0];
         t.j_hipR = [-0.22 * u, 0, 0];
@@ -1078,6 +1113,7 @@ export class KnightModelGLB implements CharacterVisual {
       } else {
         const u = (k - 0.74) / 0.26;
         t.j_shoulderR = [L(0.55, 0, u), 0, L(0.5, -0.06, u)];
+        t.j_wristR = [0.18 * (1 - u), 0, -0.12 * (1 - u)];
         t.j_torso = [L(0.38, 0.04, u), L(0.45, 0, u), 0];
         t.j_head = [0, L(0.15, 0, u), 0];
         t.j_hipR = [-0.22 * (1 - u), 0, 0];

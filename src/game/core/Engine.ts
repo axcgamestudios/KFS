@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { PostFX } from '../world/PostFX';
 import type { GraphicsSettings } from './Graphics';
+import { pixelRatioFor } from './Graphics';
 
 /** Graphics quality presets. */
 export type QualityLevel = 'xlow' | 'low' | 'medium' | 'high' | 'ultra';
@@ -40,7 +41,7 @@ const SHADOW_SIZE_BY_TIER: Record<QualityLevel, number> = {
  *  se mueve despacio: a 30+ fps una sombra con 2 frames de antigüedad es
  *  invisible y ahorra un pase completo de la escena cada 2º frame). */
 const SHADOW_RATE_BY_TIER: Record<QualityLevel, number> = {
-  xlow: 4, low: 3, medium: 2, high: 1, ultra: 1,
+  xlow: 4, low: 3, medium: 2, high: 2, ultra: 1,
 };
 
 export const QUALITY_PRESETS: Record<QualityLevel, QualitySettings> = {
@@ -114,7 +115,7 @@ export class Engine {
     const prevShadows = this.quality.shadowsEnabled;
     const prevShadowSize = this.quality.shadowMapSize;
     this.quality = { ...QUALITY_PRESETS[level] };
-    const pr = Math.min(window.devicePixelRatio, this.quality.pixelRatioCap);
+    const pr = pixelRatioFor(this.quality.pixelRatioCap);
     this.renderer.setPixelRatio(pr);
     this.renderer.shadowMap.enabled = this.quality.shadowsEnabled;
     const shadowsToggled = prevShadows !== this.quality.shadowsEnabled;
@@ -181,7 +182,7 @@ export class Engine {
     this.renderer.shadowMap.type = wantSoft ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
     this.renderer.shadowMap.autoUpdate = this.shadowEvery <= 1;
     if (!this.renderer.shadowMap.autoUpdate) this.renderer.shadowMap.needsUpdate = true;
-    const pr = Math.min(window.devicePixelRatio, this.quality.pixelRatioCap);
+    const pr = pixelRatioFor(this.quality.pixelRatioCap);
     this.renderer.setPixelRatio(pr);
     this.renderer.shadowMap.enabled = this.quality.shadowsEnabled;
     const shadowsToggled = prevShadows !== this.quality.shadowsEnabled;

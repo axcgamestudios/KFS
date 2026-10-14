@@ -50,12 +50,14 @@ export const PRESET_GRAPHICS: Record<QualityLevel, GraphicsSettings> = {
     renderChunks: 5, reflections: 0, postfx: false, resolution: 1.0, showFps: true,
   },
   high: {
+    // Fase 21 — HIGH now carries the cinematic chain (bloom + realistic sun
+    // shafts): the user asked for sun rays on high graphics.
     waves: true, shadows: true, realLights: true, grass3d: true,
-    renderChunks: 6, reflections: 1, postfx: false, resolution: 1.25, showFps: true,
+    renderChunks: 6, reflections: 1, postfx: true, resolution: 1.15, showFps: true,
   },
   ultra: {
     waves: true, shadows: true, realLights: true, grass3d: true,
-    renderChunks: 7, reflections: 2, postfx: true, resolution: 1.5, showFps: true,
+    renderChunks: 7, reflections: 2, postfx: true, resolution: 1.35, showFps: true,
   },
 };
 
@@ -99,7 +101,16 @@ export const gfxRuntime = {
  */
 export const ASSET_BASE = '';
 
-/** Extrae los interruptores gráficos de un objeto Settings. */
+/** Fase 21 — the internal resolution is a MULTIPLIER OF THE DEVICE PIXEL
+ *  RATIO (it used to CAP it: on a hiDPI screen at "100%" the game rendered
+ *  at HALF the native pixels and read as pixelated). 1.0 = pixel-perfect
+ *  native, 1.15+ = supersampling. The absolute cap keeps integrated GPUs
+ *  sane on 2x-3x DPR phones/laptops. */
+export function pixelRatioFor(resolution: number): number {
+  const dpr = typeof window !== 'undefined' ? window.devicePixelRatio : 1;
+  return Math.min(Math.max(0.4, dpr * resolution), 2.5);
+}
+/** Extracts the graphics switches from a Settings object. */
 export function graphicsOf(s: Settings): GraphicsSettings {
   return {
     waves: s.waves,

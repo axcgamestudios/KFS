@@ -247,7 +247,20 @@ gl_Position = projectionMatrix * mvPosition;`,
     if (!this.fillQueue.includes(slotIndex)) this.fillQueue.push(slotIndex);
   }
 
-  private drainFillQueue(px: number, pz: number): void {
+  /** Fase 21 — synchronous drain for the loading screen. */
+  prefill(px: number, pz: number): void {
+    if (!this.mesh) return;
+    const ctx = Math.floor(px / TILE);
+    const ctz = Math.floor(pz / TILE);
+    if (ctx !== this.lastCtx || ctz !== this.lastCtz) {
+      this.lastCtx = ctx;
+      this.lastCtz = ctz;
+      this.moveWindow(ctx, ctz);
+    }
+    this.drainFillQueue(px, pz, true);
+  }
+
+  private drainFillQueue(px: number, pz: number, all = false): void {
     if (this.fillQueue.length === 0) return;
     if (this.fillQueue.length > 1) {
       const slotOf = (k: number) => this.slots[k];
@@ -258,7 +271,7 @@ gl_Position = projectionMatrix * mvPosition;`,
         return da - db;
       });
     }
-    let n = Math.min(FILLS_PER_FRAME, this.fillQueue.length);
+    let n = all ? this.fillQueue.length : Math.min(FILLS_PER_FRAME, this.fillQueue.length);
     let touched = false;
     while (n-- > 0) {
       const k = this.fillQueue.shift()!;

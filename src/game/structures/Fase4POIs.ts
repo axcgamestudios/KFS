@@ -4,6 +4,7 @@ import type { ColliderRegistry } from '../systems/ColliderRegistry';
 import { StaticBuilder, MAT } from './Materials';
 import type { AssetSystem } from '../world/AssetSystem';
 import { mulberry32 } from '../core/MathUtils';
+import { mergeStaticGroup } from '../world/MergeUtils';
 
 /**
  * Fase 4 world structures:
@@ -246,6 +247,14 @@ export function buildFase4World(
       fitToSize(tree, 17, 'y');
       tree.position.set(mx, granArcePos.y - 0.3, mz);
       tree.rotation.y = 1.2;
+      // Fase 21 — the Sketchfab maple arrives as ~2000 tiny branch meshes:
+      // 2000+ draw calls for ONE tree (and again in the shadow pass) — the
+      // single biggest render cost in the whole world. Merge by material:
+      // the same crown at a handful of draws.
+      const merged = mergeStaticGroup(tree);
+      if (typeof console !== 'undefined') {
+        console.info(`[KFS] great maple merged: ${merged.before} meshes -> ${merged.after} batches`);
+      }
       scene.add(tree);
     }).catch(() => {
       // Fallback: a big procedural golden canopy

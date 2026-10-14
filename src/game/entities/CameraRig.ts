@@ -35,6 +35,23 @@ export class CameraRig {
   private freeFwd = new THREE.Vector3();
   private freeRight = new THREE.Vector3();
 
+  /** Fase 21 — FIRST PERSON (B): the lens rides the hero's eyes. The body
+   *  stays visible (you see your chest, hands and cape when you look down);
+   *  the head bone is scaled away so the inside of the great helm never
+   *  blocks the view. Movement/aim keep working exactly like third person. */
+  firstPerson = false;
+  private fpBob = 0;
+  private fpEyeY = 1.70;
+
+  setFirstPerson(on: boolean): void {
+    if (on === this.firstPerson) return;
+    this.firstPerson = on;
+    if (!on) {
+      // hand the orbit spring the current view so the zoom-out glides
+      this.currentPos.copy(this.camera.position);
+    }
+  }
+
   /** Enter/leave free cam. Handoff is seamless both ways: entering keeps
    *  the current view (position + yaw/pitch), leaving lets the follow
    *  spring glide the rig back behind the hero. */
@@ -100,6 +117,11 @@ export class CameraRig {
     const sens = 0.0023 * this.sensitivity;
     this.yaw -= input.mouseDX * sens;
     this.pitch += (this.invertY ? input.mouseDY : -input.mouseDY) * sens;
+    if (this.firstPerson) {
+      // Fase 21 — first person: full pitch range, no wheel zoom
+      this.pitch = clamp(this.pitch, -1.45, 1.45);
+      return;
+    }
     if (this.shipTarget) {
       this.pitch = clamp(this.pitch, 0.04, 1.15);
       if (input.wheelDelta !== 0) {
@@ -119,9 +141,15 @@ export class CameraRig {
     return this.yaw;
   }
 
-  update(dt: number, playerPos: THREE.Vector3, sprinting: boolean, terrain: TerrainHeight, colliders: ColliderRegistry): void {
+  update(dt: number, playerPos: THREE.Vector3, sprinting: boolean, terrain: TerrainHeight, colliders: ColliderRegistry, moving = false): void {
     if (this.shipTarget) {
       this.updateShip(dt, this.shipTarget, terrain);
+      return;
+    }
+    // Fase 21 — first person rides the eyes (rigid, no spring: a lagging
+    // lens in first person is instant motion sickness).
+    if (this.firstPerson) {
+      this.updateFirstPerson(dt, playerPos, sprinting, moving);
       return;
     }
     this.distance = damp(this.distance, this.targetDistance, 8, dt);
@@ -195,6 +223,36 @@ export class CameraRig {
     // lens (Fase 10): conversations play tighter, like a film close-up
     this.fovKick = damp(this.fovKick, 0, 7, dt);
     const targetFov = (sprinting ? 70 : 62) + this.fovKick - (this.dialogueFocus ? 7 : 0);
+    this.fov = damp(this.fov, targetFov, 5, dt);
+    if (Math.abs(this.camera.fov - this.fov) > 0.05) {
+      this.camera.fov = this.fov;
+      this.camera.updateProjectionMatrix();
+    }
+  }
+
+  /** Fase 21 — first-person lens: eye height with a soft walk/run bob,
+   *  a touch of forward offset so the collar never clips, wide FP FOV. */
+  private updateFirstPerson(dt: number, playerPos: THREE.Vector3, sprinting: boolean, moving: boolean): void {
+    const cosP = Math.cos(this.pitch);
+    const dirX = Math.sin(this.yaw) * cosP;
+    const dirY = Math.sin(this.pitch);
+    const dirZ = Math.cos(this.yaw) * cosP;
+
+    // breathing/walk bob — only while the feet actually move
+    if (moving) this.fpBob += dt * (sprinting ? 11.6 : 8.0);
+    const bobAmp = moving ? (sprinting ? 0.032 : 0.017) : 0;
+    const bob = Math.sin(this.fpBob) * bobAmp + (moving ? Math.sin(this.fpBob * 0.5) * bobAmp * 0.35 : 0);
+    // settle the bob when stopping (no snap)
+    if (!moving) this.fpBob = 0;
+
+    const ex = playerPos.x + dirX * 0.12;
+    const ey = playerPos.y + this.fpEyeY + bob;
+    const ez = playerPos.z + dirZ * 0.12;
+    this.camera.position.set(ex, ey, ez);
+    this.camera.lookAt(ex + dirX, ey + dirY, ez + dirZ);
+
+    this.fovKick = damp(this.fovKick, 0, 7, dt);
+    const targetFov = (sprinting ? 78 : 72) + this.fovKick - (this.dialogueFocus ? 6 : 0);
     this.fov = damp(this.fov, targetFov, 5, dt);
     if (Math.abs(this.camera.fov - this.fov) > 0.05) {
       this.camera.fov = this.fov;

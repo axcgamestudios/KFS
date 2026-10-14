@@ -160,19 +160,42 @@ export const POIS: POIDef[] = [
   },
 ];
 
-/** Dirt roads as polylines (tint terrain + block trees). */
+/** Dirt roads as polylines (tint terrain + block trees).
+ *  Fase 21 — a real TRAIL NETWORK: every major location hangs off the
+ *  village hub so you can follow the earth from Crowhaven to the falls,
+ *  the ruins, the watchtower and the castle's back gate. */
 export const ROADS: Array<Array<{ x: number; z: number }>> = [
   // Village square → castle gate
   [
     { x: 30, z: 130 }, { x: 50, z: 100 }, { x: 85, z: 58 }, { x: 103, z: 16 },
   ],
-  // Village → west beach trail
+  // Village → west beach trail (→ the West Coast Wreck)
   [
     { x: -10, z: 145 }, { x: -80, z: 155 }, { x: -170, z: 175 }, { x: -260, z: 185 },
   ],
-  // Village → north meadow / stones trail
+  // Village → north meadow (→ the Whispering Falls basin)
   [
     { x: 10, z: 120 }, { x: -20, z: 60 }, { x: -60, z: 0 }, { x: -100, z: -80 },
+  ],
+  // Fase 21 — north meadow fork → the Whispering Falls
+  [
+    { x: -60, z: 0 }, { x: -78, z: -70 }, { x: -92, z: -140 }, { x: -95, z: -178 },
+  ],
+  // Fase 21 — falls → Ruins of Vaelthara (the old Dragon-Speaker road)
+  [
+    { x: -95, z: -178 }, { x: -140, z: -195 }, { x: -190, z: -180 }, { x: -228, z: -155 },
+  ],
+  // Fase 21 — castle → the Echoing Grotto (foothills trail)
+  [
+    { x: 103, z: 16 }, { x: 140, z: -40 }, { x: 165, z: -105 }, { x: 192, z: -160 },
+  ],
+  // Fase 21 — village → east coast (→ the Watchman's Tower)
+  [
+    { x: 40, z: 140 }, { x: 130, z: 130 }, { x: 210, z: 105 }, { x: 280, z: 80 },
+  ],
+  // Fase 21 — village → south shore (→ the Sanctuary of Thalassar overlook)
+  [
+    { x: 0, z: 170 }, { x: 40, z: 210 }, { x: 95, z: 245 }, { x: 145, z: 262 },
   ],
 ];
 

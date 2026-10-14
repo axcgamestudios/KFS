@@ -81,8 +81,15 @@ export class TerrainHeight {
     // --- Mountain massif (ridged) ---
     const mM = gauss(x - WORLD.mountainCenter.x, z - WORLD.mountainCenter.z, WORLD.mountainRadius);
     if (mM > 0.01) {
-      const ridge = this.nMountain.ridged(x * 0.0075, z * 0.0075, 5);
-      land += Math.pow(ridge, 1.7) * 135 * mM;
+      // Fase 21 — REAL CREST LINES: anisotropic ridged noise (the z axis
+      // samples faster, so crests stretch east-west into a range instead of
+      // symmetric blob peaks), sharpened power for rock spines, and an
+      // erosion octave that breaks the uniform pyramid slopes into gullies
+      // and shoulder terraces.
+      const ridge = this.nMountain.ridged(x * 0.0061 + 7, z * 0.0097 - 4, 5);
+      const crest = Math.pow(ridge, 1.9);
+      const erosion = 0.70 + 0.30 * this.nDetail.fbm(x * 0.028 + 51, z * 0.028 - 33, 3);
+      land += crest * erosion * 142 * mM;
     }
 
     // --- Bay carve (harbor inlet) ---
@@ -242,20 +249,35 @@ export class TerrainHeight {
     }
 
     const forest = this.forestMask(x, z);
-    if (h > 74 + macro * 10) {
-      // Snow caps
-      out[0] = 0.93;
-      out[1] = 0.95;
-      out[2] = 0.97;
+    // Fase 21 — dithered snow line (the hard cut read as a painted band)
+    const snowLine = 74 + macro * 10 + tint * 3.5;
+    if (h > snowLine && slope < 0.82) {
+      // Snow caps — slope-aware: steep faces shed their coat (rock shows)
+      const snowK = clamp(1 - smoothstep(0.52, 0.82, slope), 0, 1);
+      if (snowK > 0.94) {
+        out[0] = 0.93;
+        out[1] = 0.95;
+        out[2] = 0.97;
+        return;
+      }
+      // thinning snow: blend toward the rock color below
+      const g = 0.44 + tint * 0.06;
+      const rk = [g * 1.08, g, g * 0.94] as const;
+      out[0] = lerp(rk[0], 0.93, snowK);
+      out[1] = lerp(rk[1], 0.95, snowK);
+      out[2] = lerp(rk[2], 0.97, snowK);
       return;
     }
 
     if (slope > 0.62 || h > 58 + macro * 12) {
-      // Rock
-      const g = 0.44 + tint * 0.06;
-      out[0] = g * 1.06;
-      out[1] = g;
-      out[2] = g * 0.92;
+      // Rock — Fase 21: altitude-graded stone (warm scree at the foot,
+      // cold pale rock near the peaks) with sediment strata banding
+      const alt = clamp((h - 40) / 75, 0, 1);
+      const strata = Math.sin(h * 0.85 + tint * 4.0) * 0.028;
+      const g = 0.40 + alt * 0.13 + tint * 0.05 + strata;
+      out[0] = g * (1.10 - alt * 0.09);
+      out[1] = g * (1.00 + alt * 0.04);
+      out[2] = g * (0.90 + alt * 0.14);
       return;
     }
 
@@ -286,11 +308,13 @@ export class TerrainHeight {
 
     // Dirt roads
     const roadDist = distToRoads(x, z);
-    if (roadDist < 2.6) {
-      const k = 1 - smoothstep(1.3, 2.6, roadDist);
-      out[0] = lerp(out[0], 0.52, k);
-      out[1] = lerp(out[1], 0.43, k);
-      out[2] = lerp(out[2], 0.31, k);
+    if (roadDist < 3.4) {
+      // Fase 21 — wider, earthier paths (the old 2.6 m strip was invisible
+      // under the grass): a trodden brown ribbon with soft shoulders
+      const k = 1 - smoothstep(1.5, 3.4, roadDist);
+      out[0] = lerp(out[0], 0.50, k);
+      out[1] = lerp(out[1], 0.41, k);
+      out[2] = lerp(out[2], 0.30, k);
     }
   }
 
@@ -315,7 +339,8 @@ export class TerrainHeight {
     }
     if (h < 1.9 && slope < 0.4) { out[0] = 0; out[2] = 1; return; }        // beach sand
     const macro = this.nTint.fbm(x * 0.013, z * 0.013, 3);
-    if (h > 74 + macro * 10) { out[0] = 0; out[3] = 1; return; }           // snow (white vertex tint over stone)
+    const tint = this.nTint.noise2(x * 0.05, z * 0.05);
+    if (h > 74 + macro * 10 + tint * 3.5) { out[0] = 0; out[3] = 1; return; }  // snow (white vertex tint over stone)
     if (slope > 0.62 || h > 58 + macro * 12) { out[0] = 0; out[3] = 1; return; } // rock
     if (h < 3.2 && slope < 0.35) { out[0] = 0.25; out[2] = 0.75; return; } // wet dune sand
     const rockPatch = smoothstep(0.35, 0.65, slope);
@@ -323,8 +348,8 @@ export class TerrainHeight {
     out[0] = 1 - rockPatch;
     // dirt roads cut through everything below the snow line
     const roadDist = distToRoads(x, z);
-    if (roadDist < 3.6) {
-      const k = 1 - smoothstep(1.5, 3.6, roadDist);
+    if (roadDist < 4.2) {
+      const k = 1 - smoothstep(1.6, 4.2, roadDist);
       out[1] = k;
       const inv = 1 - k;
       out[0] *= inv; out[2] *= inv; out[3] *= inv;

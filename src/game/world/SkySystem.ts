@@ -39,10 +39,12 @@ const PALETTE_DAWN: SkyPalette = {
   hemiIntensity: 0.5, fogDensity: 0.0026,
 };
 const PALETTE_DAY: SkyPalette = {
-  zenith: new THREE.Color(0x4b7cab), horizon: new THREE.Color(0xb9cdd6),
-  fog: new THREE.Color(0xa8bcc4), sunColor: new THREE.Color(0xfff2dd),
+  // Fase 21 — deeper, colder daylight (the bright cyan-blue read arcade-y;
+  // the menu key art is a colder slate-blue sea sky)
+  zenith: new THREE.Color(0x42719f), horizon: new THREE.Color(0xaebfc9),
+  fog: new THREE.Color(0x9fb2bc), sunColor: new THREE.Color(0xfff2dd),
   hemiSky: new THREE.Color(0x9db8cc), hemiGround: new THREE.Color(0x4a5238),
-  hemiIntensity: 0.72, fogDensity: 0.0016,
+  hemiIntensity: 0.60, fogDensity: 0.0016,
 };
 
 /**
@@ -202,24 +204,27 @@ export class SkySystem {
           // scale is what reads as CLOUD; warp reads as ink.
           {
             float h = 0.16;
-            vec2 cuv = dir.xz / (dir.y * h + 0.14) * 0.34 + drift * 0.6;
-            float f = fbm(cuv * 0.5 + 11.3) * 0.72 + fbm(cuv * 1.9 + 31.7) * 0.28;
-            float thLo = mix(0.60, 0.30, uCloudCover);
-            float thHi = mix(0.82, 0.56, uCloudCover);
+            // Fase 21 — retune: LOWER frequency (0.34 -> 0.26) reads as big
+            // fair-weather cumulus masses with real sky between them, not a
+            // mottled sheet; the cauliflower grain octave got finer.
+            vec2 cuv = dir.xz / (dir.y * h + 0.14) * 0.26 + drift * 0.6;
+            float f = fbm(cuv * 0.42 + 11.3) * 0.70 + fbm(cuv * 2.3 + 31.7) * 0.30;
+            float thLo = mix(0.62, 0.36, uCloudCover);
+            float thHi = mix(0.84, 0.60, uCloudCover);
             float m = smoothstep(thLo, thHi, f);
             // soft rounded edge: the mass feather is wider than the threshold
-            m = m * (0.72 + 0.28 * smoothstep(thLo, thHi + 0.12, f));
+            m = m * (0.72 + 0.28 * smoothstep(thLo, thHi + 0.14, f));
             // depth toward the sun: denser between us and the light = darker
             // (Fase 14 — la auto-sombra es la mitad del coste de la capa:
             // solo con calidad >= 2)
             float denser = 0.0;
             if (uCloudQual >= 1.5) {
-              vec2 towardSun = sun.xz * 0.5;
-              float f2 = fbm((cuv + towardSun) * 0.5 + 11.3) * 0.72 + fbm((cuv + towardSun) * 1.9 + 31.7) * 0.28;
-              denser = clamp((f - f2) * 2.4, -0.3, 0.85);
+              vec2 towardSun = sun.xz * 0.72;
+              float f2 = fbm((cuv + towardSun) * 0.42 + 11.3) * 0.70 + fbm((cuv + towardSun) * 2.3 + 31.7) * 0.30;
+              denser = clamp((f - f2) * 2.9, -0.3, 0.9);
             }
-            vec3 lc = cloudCol * (1.0 - max(0.0, denser) * 1.1);
-            lc += cloudCol * pow(sunAmt, 6.0) * 0.35;      // rim light
+            vec3 lc = cloudCol * (1.0 - max(0.0, denser) * 1.15);
+            lc += cloudCol * pow(sunAmt, 5.0) * 0.42;      // silver rim, wider
             float horizonFade = smoothstep(0.008, 0.12, dir.y);
             skyMix += m * horizonFade * 0.9;
             col = mix(col, lc, m * horizonFade * 0.9);
@@ -237,8 +242,8 @@ export class SkySystem {
             // only the upper sky: this deck lives above the cumulus
             float band = smoothstep(0.14, 0.38, dir.y) * (1.0 - smoothstep(0.78, 0.99, dir.y) * 0.7);
             vec3 lc = cloudCol * 0.88 - vec3(0.0, 0.01, 0.02); // a hair cooler
-            skyMix += m * band * 0.40;
-            col = mix(col, lc, m * band * 0.40);
+            skyMix += m * band * 0.32;
+            col = mix(col, lc, m * band * 0.32);
           }
 
           // ---- LAYER 3 — cirrus filaments, ONLY near the zenith ----
@@ -251,8 +256,8 @@ export class SkySystem {
             float m = smoothstep(mix(0.68, 0.42, uCloudCover), mix(0.68, 0.42, uCloudCover) + 0.12, f);
             float band = smoothstep(0.42, 0.68, dir.y);
             vec3 lc = mix(cloudCol, uSunColor * 1.1 + vec3(0.3), pow(sunAmt, 3.0) * 0.75);
-            skyMix += m * band * 0.30;
-            col = mix(col, lc, m * band * 0.30);
+            skyMix += m * band * 0.22;
+            col = mix(col, lc, m * band * 0.22);
           }
 
           // unified horizon haze where all layers thin out — keeps the
@@ -284,14 +289,18 @@ export class SkySystem {
     this.sunLight = new THREE.DirectionalLight(0xfff2dd, 2.4);
     this.sunLight.castShadow = true;
     this.sunLight.shadow.mapSize.set(2048, 2048);
-    this.sunLight.shadow.camera.near = 20;
-    this.sunLight.shadow.camera.far = 460;
-    this.sunLight.shadow.camera.left = -62;
-    this.sunLight.shadow.camera.right = 62;
-    this.sunLight.shadow.camera.top = 62;
-    this.sunLight.shadow.camera.bottom = -62;
-    this.sunLight.shadow.bias = -0.0006;
-    this.sunLight.shadow.normalBias = 0.9;
+    // Fase 21 — shadow quality pass: tighter frustum (55 m instead of 62 m
+    // = crisper texels around the hero), tighter depth range, and a normal
+    // bias cut from 0.9 to 0.42 (the old value peter-panned every contact:
+    // shadows floated off the objects that cast them).
+    this.sunLight.shadow.camera.near = 30;
+    this.sunLight.shadow.camera.far = 420;
+    this.sunLight.shadow.camera.left = -55;
+    this.sunLight.shadow.camera.right = 55;
+    this.sunLight.shadow.camera.top = 55;
+    this.sunLight.shadow.camera.bottom = -55;
+    this.sunLight.shadow.bias = -0.00035;
+    this.sunLight.shadow.normalBias = 0.42;
 
     this.hemiLight = new THREE.HemisphereLight(0x9db8cc, 0x4a5238, 0.7);
   }
@@ -366,7 +375,7 @@ export class SkySystem {
     this.sunLight.color.copy(isDay ? this.sunColor : SCRATCH.moonLight);
     this.sunLight.intensity =
       (isDay
-        ? 0.35 + this.dayFactor * 2.3
+        ? 0.35 + this.dayFactor * 2.55
         : clamp(this.nightFactor, 0, 1) * 1.05) * this.weatherLightMul + this.lightning * 3.2;
     this.sunLight.position.copy(focusPoint).addScaledVector(dir, 190);
     this.sunLight.target.position.copy(focusPoint);

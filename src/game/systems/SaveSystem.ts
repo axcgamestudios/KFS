@@ -124,7 +124,7 @@ export function resolveSettings(raw: Partial<Settings> | null | undefined): Sett
     renderChunks: Math.round(clamp(raw.renderChunks ?? 5, 2, 10)),
     reflections: (clamp(raw.reflections ?? 1, 0, 2) as 0 | 1 | 2),
     postfx: raw.postfx ?? false,
-    resolution: clamp(raw.resolution ?? 1, 0.5, 1.5),
+    resolution: clamp(raw.resolution ?? 1, 0.5, 2.0),
     showFps: raw.showFps ?? true,
     settingsRev: 3,
     ...audio,

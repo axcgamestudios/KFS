@@ -273,21 +273,68 @@ function buildBillboardGeometry(): THREE.BufferGeometry {
   return mergeGeometries(parts)!;
 }
 
+/**
+ * Fase 21 — the rock the world deserved: a faceted boulder (flat-shaded
+ * icosahedron detail 2) displaced by two noise octaves — big asymmetric
+ * lumps + fine conchoidal chipping — squashed like real glacial erratics,
+ * with SEDIMENT STRATA banding in the vertex colors and cold moss dusted on
+ * the upward faces. Same vertex-count class as before (instancing budget).
+ */
 function buildRockGeometry(): THREE.BufferGeometry {
-  const g = new THREE.IcosahedronGeometry(1, 1);
+  const g = new THREE.IcosahedronGeometry(1, 2);
   const pos = g.attributes.position as THREE.BufferAttribute;
   const rand = mulberry32(777);
+  // two seeded value-noise octaves over the unit sphere directions
+  const noiseField = (dirX: number, dirZ: number, freq: number, seed: number) => {
+    const n = Math.sin(dirX * freq + seed * 13.7) * Math.cos(dirZ * freq * 1.31 + seed * 7.3)
+      + Math.sin((dirX + dirZ) * freq * 0.63 + seed * 3.1) * 0.5;
+    return n / 1.5; // ≈ -1..1
+  };
+  const v = new THREE.Vector3();
   for (let i = 0; i < pos.count; i++) {
+    v.set(pos.getX(i), pos.getY(i), pos.getZ(i)).normalize();
+    const lump = noiseField(v.x, v.z, 2.1, 1) * 0.22;
+    const chip = noiseField(v.x * 3.1, v.z * 3.1, 4.7, 2) * 0.08;
+    const tilt = v.y * 0.1; // slight lean into the ground
+    const r = 1 + lump + chip + tilt;
+    // glacial squash: wide and low, never a ball
     pos.setXYZ(
       i,
-      pos.getX(i) * (0.8 + rand() * 0.4),
-      pos.getY(i) * (0.55 + rand() * 0.3),
-      pos.getZ(i) * (0.8 + rand() * 0.4),
+      v.x * r * (1.18 + (rand() - 0.5) * 0.1),
+      v.y * r * (0.62 + (rand() - 0.5) * 0.06),
+      v.z * r * (0.95 + (rand() - 0.5) * 0.1),
     );
   }
-  g.computeVertexNormals();
-  colorize(g, new THREE.Color(0x6e6a62), 0.16, 60);
-  return g;
+  // FLAT facets: unindex + computeVertexNormals gives every triangle its own
+  // normal — the chiseled look that reads as STONE at every scale
+  const flat = g.toNonIndexed();
+  flat.computeVertexNormals();
+  // --- strata + moss vertex colors ---
+  const fp = flat.attributes.position as THREE.BufferAttribute;
+  const colors = new Float32Array(fp.count * 3);
+  const base = new THREE.Color(0x736c60);
+  const strataDark = new THREE.Color(0x55504a);
+  const moss = new THREE.Color(0x5d6b4a);
+  const c = new THREE.Color();
+  const vn = new THREE.Vector3();
+  for (let i = 0; i < fp.count; i++) {
+    const x = fp.getX(i), y = fp.getY(i), z = fp.getZ(i);
+    // sediment bands follow the squashed shape
+    const band = Math.sin(y * 6.5 + noiseField(x, z, 1.3, 5) * 2.0);
+    c.copy(base).lerp(strataDark, clamp(band * 0.5 + 0.5, 0, 1) * 0.55);
+    // per-facet variety (flat shading: 3 verts share a face — use x+z hash)
+    const face = Math.abs(Math.sin(x * 41.7 + z * 17.3)) * 0.1;
+    c.offsetHSL(0, 0, face - 0.05);
+    // moss dusts the top faces (up-facing normals near +Y)
+    if (flat.attributes.normal) {
+      vn.set(flat.attributes.normal.getX(i), flat.attributes.normal.getY(i), flat.attributes.normal.getZ(i));
+      if (vn.y > 0.45) c.lerp(moss, (vn.y - 0.45) * 1.1);
+    }
+    colors[i * 3] = c.r; colors[i * 3 + 1] = c.g; colors[i * 3 + 2] = c.b;
+  }
+  flat.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  flat.deleteAttribute('uv');
+  return flat;
 }
 
 /** Denser grass blade geometry: fine single-blade field handled by GrassField. */
@@ -405,7 +452,7 @@ export class VegetationSystem {
     });
     this.billboardGeo = buildBillboardGeometry();
 
-    this.rockMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0.02 });
+    this.rockMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.93, metalness: 0.02, flatShading: true });
     this.rockGeo = buildRockGeometry();
 
     const built = buildTreeGeometries();
@@ -488,12 +535,15 @@ export class VegetationSystem {
       this.treeColliderSink?.(t.x, t.z, 0.42 * t.scale, `tree:${scatter.key}:${trees.length}`);
     }
     for (const r of scatter.rocks) {
-      euro.set(0, r.rot, 0);
+      // Fase 21 — erratics: random tilt (they tumbled here), asymmetric
+      // stretch and a deep sit so the grass grows AROUND them
+      euro.set((r.rot % 0.5) - 0.25, r.rot, ((r.rot * 2.3) % 0.4) - 0.2);
       q.setFromEuler(euro);
-      pos.set(r.x, r.y - r.scale * 0.35, r.z);
-      scl.set(r.scale, r.scale, r.scale);
+      const stretch = 0.8 + ((r.x * 5.7) % 1) * 0.5;
+      pos.set(r.x, r.y - r.scale * 0.42, r.z);
+      scl.set(r.scale * stretch, r.scale * (0.75 + ((r.z * 3.3) % 1) * 0.35), r.scale * (1.3 - stretch * 0.35));
       m.compose(pos, q, scl);
-      rocks.push({ matrix: m.clone(), color: new THREE.Color().setHSL(0.08, 0.05, 0.42 + ((r.x * 3.1) % 1) * 0.12) });
+      rocks.push({ matrix: m.clone(), color: new THREE.Color().setHSL(0.09, 0.06, 0.46 + ((r.x * 3.1) % 1) * 0.14) });
     }
     this.chunkData.set(scatter.key, { trees, rocks });
     this.markClusterDirty(scatter.cx, scatter.cz, scatter.key);
@@ -647,15 +697,33 @@ export class VegetationSystem {
 
   // -------------------------------------------------------------- update
 
-  /** Rebuild at most 2 dirty clusters per frame + LOD swap by distance.
+  /** Rebuild dirty clusters — Fase 21: NEAREST FIRST (you see what's in
+   *  front of you pop in before the horizon does) and TIME-SLICED: at most
+   *  ~5 ms of cluster building per frame, so a teleport or a fast sail
+   *  can never land two 15 ms rebuilds in a single frame again.
    *  Fase 6: el prado de briznas se actualiza aquí también (envuelve al jugador). */
   update(px = NaN, pz = NaN): void {
-    let budget = 2;
-    for (const cluster of this.clusters.values()) {
-      if (!cluster.dirty) continue;
-      this.buildCluster(cluster);
-      budget--;
-      if (budget <= 0) break;
+    if (this.clusters.size > 0) {
+      const t0 = performance.now();
+      let rebuilt = 0;
+      // dirty clusters, nearest-first (NaN px = boot: any order)
+      const dirty: Array<{ cluster: ClusterData; d: number }> = [];
+      for (const cluster of this.clusters.values()) {
+        if (!cluster.dirty) continue;
+        const d = Number.isNaN(px)
+          ? 0
+          : Math.hypot(cluster.ccx * CLUSTER_SIZE + CLUSTER_SIZE / 2 - px, cluster.ccz * CLUSTER_SIZE + CLUSTER_SIZE / 2 - pz);
+        dirty.push({ cluster, d });
+      }
+      if (dirty.length > 0) {
+        dirty.sort((a, b) => a.d - b.d);
+        for (const { cluster } of dirty) {
+          this.buildCluster(cluster);
+          rebuilt++;
+          if (performance.now() - t0 > 5 || rebuilt >= 3) break;
+        }
+      }
+      void rebuilt;
     }
     // LOD: full detail near, billboards far (Fase 4)
     if (!Number.isNaN(px)) {
@@ -695,6 +763,12 @@ export class VegetationSystem {
     this.grassField.dispose();
     this.farGrass.dispose();
     this.chunkData.clear();
+  }
+
+  /** Fase 21 — synchronous grass prefill for the loading screen. */
+  prefillGrass(px: number, pz: number): void {
+    this.grassField.prefill(px, pz);
+    this.farGrass.prefill?.(px, pz);
   }
 
   /** Debug/stats: clusters + el prado de briznas + la pradera lejana. */

@@ -196,6 +196,22 @@ export async function buildWorld(
   streamer.register(village.mainGroup, 20, 175, 110);
   streamer.register(village.staticShip, village.shipPos.x, village.shipPos.z, 30);
 
+  // Fase 21 — PREGENERATE the terrain around the spawn DURING LOADING. The
+  // world used to stream in over the first seconds of play: every one of
+  // those frames built chunks (the launch stutter). The island is now whole
+  // when the hero opens their eyes (far rings at LOD res 16, near at full).
+  {
+    const sp = village.spawnPoint;
+    await terrain.pregenerate(sp.x, sp.z, (d, t) => {
+      prog(0.30 + 0.04 * (d / Math.max(1, t)), 'Shaping the homeland…');
+    });
+    prog(0.35, 'Sowing the home meadow…');
+    vegetation.prefillGrass(sp.x, sp.z);
+    // the clusters around the spawn build now too (nearest first)
+    vegetation.update(sp.x, sp.z);
+    for (let i = 0; i < 40; i++) vegetation.update(NaN, NaN);
+  }
+
   // --- Fase 5: the repository kits dress the world where they belong ---
   prog(0.34, 'Furnishing the world…');
   const kits = new KitSystem(assets);

@@ -21,6 +21,9 @@ interface Chunk {
   cx: number;
   cz: number;
   mesh: THREE.Mesh;
+  /** Fase 21 — LOD: resolution this chunk was built at (near ring = full
+   *  this.res, far rings = 16). Upgraded on approach. */
+  res: number;
   scatter?: ChunkScatter;
 }
 
@@ -169,12 +172,14 @@ vec3 terrainTex(sampler2D t, vec2 uv, float s1, float s2) {
       }
     }
     list.sort((a, b) => a.dist - b.dist);
-    // Only the first two rings at full detail during loading; rest stream in.
+    // Only the first two rings at full detail during loading; the rest
+    // stream in (Fase 21 — far rings now build at LOD res 16: the loading
+    // screen got faster too).
     const total = list.length;
     let done = 0;
     for (const c of list) {
       if (!this.chunks.has(this.keyOf(c.cx, c.cz))) {
-        this.buildChunk(c.cx, c.cz);
+        this.buildChunk(c.cx, c.cz, c.dist <= 2 ? this.res : 16);
         done++;
         if (onProgress && done % 6 === 0) {
           onProgress(done, total);
@@ -192,7 +197,7 @@ vec3 terrainTex(sampler2D t, vec2 uv, float s1, float s2) {
     this.lastPlayerChunkX = ccx;
     this.lastPlayerChunkZ = ccz;
 
-    // Queue missing chunks (nearest first), max 2 builds per frame.
+    // Queue missing chunks (nearest first).
     this.buildQueue.length = 0;
     for (let dz = -this.radius; dz <= this.radius; dz++) {
       for (let dx = -this.radius; dx <= this.radius; dx++) {
@@ -204,12 +209,39 @@ vec3 terrainTex(sampler2D t, vec2 uv, float s1, float s2) {
         }
       }
     }
+    // Fase 21 — TIME-SLICED building: the old flat "2 chunks per frame"
+    // could land two 8-20 ms builds in ONE frame — the stutter the player
+    // felt while exploring. Now the builder spends AT MOST ~4 ms of the
+    // frame (always at least one chunk so distant travel still streams in);
+    // the far ring simply pops in a frame or two later.
     if (this.buildQueue.length > 0) {
       this.buildQueue.sort((a, b) => a.dist - b.dist);
-      const budget = Math.min(2, this.buildQueue.length);
-      for (let i = 0; i < budget; i++) {
+      const t0 = performance.now();
+      for (let i = 0; i < this.buildQueue.length && i < 6; i++) {
         const c = this.buildQueue[i];
-        this.buildChunk(c.cx, c.cz);
+        // Fase 21 — chunk LOD: the near ring keeps full detail, far rings
+        // build at res 16 (a quarter of the vertices: 5× fewer noise evals
+        // per build, visually identical at 130+ m)
+        const ring = Math.max(Math.abs(c.cx - ccx), Math.abs(c.cz - ccz));
+        const res = ring <= 2 ? this.res : 16;
+        this.buildChunk(c.cx, c.cz, res);
+        if (performance.now() - t0 > 4) break;
+      }
+    } else {
+      // upgrades: a far-LOD chunk entering the near ring rebuilds at full
+      // detail (max one per frame — the same time-slice spirit)
+      for (const [, chunk] of this.chunks) {
+        if (
+          chunk.res < this.res &&
+          Math.abs(chunk.cx - ccx) <= 2 && Math.abs(chunk.cz - ccz) <= 2
+        ) {
+          this.sceneRef?.remove(chunk.mesh);
+          chunk.mesh.geometry.dispose();
+          this.chunks.delete(chunk.key);
+          this.onChunkRemoved?.(chunk.key);
+          this.buildChunk(chunk.cx, chunk.cz, this.res);
+          break;
+        }
       }
     }
 
@@ -237,12 +269,11 @@ vec3 terrainTex(sampler2D t, vec2 uv, float s1, float s2) {
     return `${cx},${cz}`;
   }
 
-  private buildChunk(cx: number, cz: number): void {
+  private buildChunk(cx: number, cz: number, res = this.res): void {
     if (!this.sceneRef) return;
     const key = this.keyOf(cx, cz);
     if (this.chunks.has(key)) return;
 
-    const res = this.res;
     const size = CHUNK_SIZE;
     const ox = cx * size;
     const oz = cz * size;
@@ -361,7 +392,7 @@ vec3 terrainTex(sampler2D t, vec2 uv, float s1, float s2) {
       near,
     };
 
-    this.chunks.set(key, { key, cx, cz, mesh, scatter });
+    this.chunks.set(key, { key, cx, cz, mesh, res, scatter });
     this.scatterSink?.(scatter);
   }
 
