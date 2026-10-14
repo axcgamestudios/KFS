@@ -5,6 +5,8 @@
   "j_root",
   "j_torso",
   "j_head",
+  "j_cape1",
+  "j_cape2",
   "j_shoulderR",
   "j_elbowR",
   "j_wristR",
@@ -33,6 +35,16 @@
    0.0008,
    1.7973,
    0.0961
+  ],
+  "j_cape1": [
+   0,
+   1.28,
+   -0.205
+  ],
+  "j_cape2": [
+   0,
+   0.62,
+   -0.235
   ],
   "j_shoulderR": [
    -0.276,
