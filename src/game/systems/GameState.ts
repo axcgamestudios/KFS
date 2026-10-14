@@ -111,6 +111,11 @@ export class GameState {
 
   equip(id: string): void {
     if (!ITEMS[id]?.equipable) return;
+    // Fase 22 — THE FORGE level gate: gear from the forge bands requires its
+    // level (Common 1, Rare 11, Epic 26, Legendary 30). Legacy items have no
+    // level and pass untouched.
+    const req = ITEMS[id].level ?? 0;
+    if (req > 0 && this.level < req) return;
     // Fase 16 — route by item kind: weapons keep the classic slot, armor and
     // wings get their own (a cuero chest does not replace your sword).
     const kind = ITEMS[id]?.kind;

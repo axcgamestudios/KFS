@@ -58,7 +58,9 @@ export const DRAGON_DEFS: DragonDef[] = [
     meleeRange: 5.8, fireRange: 40, fireDps: 20, meleeDamage: 14,
     speedGround: 3, speedFly: 13,
     xp: 260, deathFlag: 'skarnvind_dead', introFlag: 'skarnvind_seen',
-    drops: [{ id: 'garra_skarnvind', count: 1 }, { id: 'espada_tormenta', count: 1 }, { id: 'escama', count: 2 }],
+    drops: [{ id: 'garra_skarnvind', count: 1 }, { id: 'espada_tormenta', count: 1 }, { id: 'escama', count: 2 },
+      // Fase 22 — THE FORGE: the Twins fell from the wyvern's wing
+      { id: 'gemelas_viento', count: 1 }],
     lootGold: 90,
   },
   {
@@ -73,7 +75,13 @@ export const DRAGON_DEFS: DragonDef[] = [
     speedGround: 3.8, speedFly: 11.5,
     xp: 500, deathFlag: 'ancestro_dead', introFlag: 'ancestro_seen',
     phase2At: 0.66, phase3At: 0.33,
-    drops: [{ id: 'colmillo_ancestro', count: 1 }, { id: 'espada_escarcha', count: 1 }, { id: 'escama', count: 3 }],
+    drops: [{ id: 'colmillo_ancestro', count: 1 }, { id: 'espada_escarcha', count: 1 }, { id: 'escama', count: 3 },
+      // Fase 22 — THE FORGE: what the Elder Dragon left behind. The claw
+      // sword and the heart are guaranteed; the antlers live in the hoard.
+      { id: 'espada_garra', count: 1 },
+      { id: 'corazon_dragon_anciano', count: 1 },
+      { id: 'escama_ancestral', count: 10 },
+      { id: 'placa_sangre', count: 5 }],
     lootGold: 220,
   },
   {
@@ -105,7 +113,7 @@ export const DRAGON_DEFS: DragonDef[] = [
     meleeRange: 3.4, fireRange: 16, fireDps: 14, meleeDamage: 11,
     speedGround: 3.6, speedFly: 0,
     xp: 60, deathFlag: 'drake_stones_dead',
-    drops: [{ id: 'escama', count: 1 }, { id: 'flecha', count: 3 }],
+    drops: [{ id: 'escama', count: 1 }, { id: 'flecha', count: 3 }, { id: 'colmillo_cria', count: 1, chance: 0.65 }, { id: 'escama_quemada', count: 1, chance: 0.45 }],
     lootGold: 15,
   },
   {
@@ -119,7 +127,7 @@ export const DRAGON_DEFS: DragonDef[] = [
     meleeRange: 3.2, fireRange: 17, fireDps: 12, meleeDamage: 10,
     speedGround: 3.2, speedFly: 9,
     xp: 60, deathFlag: 'drake_grotto_dead',
-    drops: [{ id: 'escama', count: 1 }, { id: 'flecha', count: 3 }],
+    drops: [{ id: 'escama', count: 1 }, { id: 'flecha', count: 3 }, { id: 'colmillo_cria', count: 1, chance: 0.65 }, { id: 'escama_quemada', count: 1, chance: 0.45 }],
     lootGold: 15,
   },
 ];
@@ -425,7 +433,11 @@ export class DragonManager {
     if (!this.state.hasFlag(def.deathFlag)) {
       this.state.setFlag(def.deathFlag);
       // Rewards — granted exactly once thanks to the flag
-      for (const drop of def.drops ?? []) this.hooks.addItem(drop.id, drop.count);
+      for (const drop of def.drops ?? []) {
+        // Fase 22 — chance-gated drops (drakeling fangs/scales)
+        if (drop.chance !== undefined && Math.random() > drop.chance) continue;
+        this.hooks.addItem(drop.id, drop.count);
+      }
       if (def.lootGold) this.hooks.addItem('coin', def.lootGold);
       this.hooks.giveXp(def.xp);
       this.hooks.notify(

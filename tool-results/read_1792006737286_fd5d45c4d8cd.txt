@@ -1,0 +1,1474 @@
+     1→import * as THREE from 'three';
+     2→import { type AnimParams, type CharacterVisual, type WeaponKind } from './CharacterModel';
+     3→import { damp } from '../core/MathUtils';
+     4→import { gfxRuntime } from '../core/Graphics';
+     5→import { getFlameFX, type PersistentFlameHandle } from '../world/FlameFX';
+     6→import { applyHeroSwordTier, applyHeroSwordElement, type SwordElement } from '../world/HeroSword';
+     7→
+     8→/**
+     9→ * Fase 5 — KnightModelGLB.
+    10→ * The player's body: the repository's medieval knight, rigged offline into
+    11→ * knight_rigged.glb (real glTF skin + 15 landmark bones + the statue sword
+    12→ * and shield as hideable rigid props hanging from the wrists).
+    13→ *
+    14→ * This class drives the skeleton procedurally — a full animation layer:
+    15→ *   locomotion (idle / walk / run with counter-rotation, bob and knee
+    16→ *   extension), jump / fall / landing absorb, dodge roll (full somersault),
+    17→ *   surface swim, horse riding, block (shield brace), bow aim + release,
+    18→ *   five attack curves (diagonal, backhand, overhead smash, thrust, bow
+    19→ *   snap) and a hit-reaction recoil. The statue sword rests in the right
+    20→ *   hand; when the game equips a weapon it swaps for the kit model, and the
+    21→ *   statue shield yields to the kit shield on the left forearm.
+    22→ *
+    23→ * Convention: character faces +Z. RIGHT side = -X (sword arm, j_*R bones),
+    24→ * LEFT side = +X (shield arm, j_*L bones). Limb rotation about +X moves a
+    25→ * hanging limb backward (-Z); about -Z the right arm raises outward.
+    26→ */
+    27→export interface KnightVisualDeps {
+    28→  scene: THREE.Object3D;
+    29→  weaponFactory?: (kind: Exclude<WeaponKind, 'none'>) => THREE.Object3D | null;
+    30→  shieldFactory?: () => THREE.Object3D | null;
+    31→  /** Villager variant: re-tints the armour into clothes + headwear variety.
+    32→   *  When set, the statue sword & shield NEVER show. */
+    33→  villager?: { palette: import('./CharacterModel').CharacterPalette; seed: number; role?: string };
+    34→  /** Fase 10 — bandit variant: RED knights (dark crimson cloth + oxidised
+    35→   *  red-steel armour). When set the statue props never show. Fase 17:
+    36→   *  `shield: true` arms heavies with a kit shield on the left forearm.
+    37→   *  Fase 22: `tint`/`eyes` recolour legends and temple guardians. */
+    38→  bandit?: {
+    39→    seed: number; captain?: boolean; shield?: boolean;
+    40→    tint?: { h: number; s: number; l: number };
+    41→    eyes?: number;
+    42→  };
+    43→}
+    44→
+    45→type Euler3 = [number, number, number];
+    46→interface PoseTarget { [bone: string]: Euler3 }
+    47→
+    48→const BONE_NAMES = [
+    49→  'j_root', 'j_torso', 'j_head',
+    50→  'j_shoulderR', 'j_elbowR', 'j_wristR',
+    51→  'j_shoulderL', 'j_elbowL', 'j_wristL',
+    52→  'j_hipR', 'j_kneeR', 'j_ankleR',
+    53→  'j_hipL', 'j_kneeL', 'j_ankleL',
+    54→] as const;
+    55→
+    56→export class KnightModelGLB implements CharacterVisual {
+    57→  readonly root = new THREE.Group();
+    58→  private bones = new Map<string, THREE.Object3D>();
+    59→
+    60→  /** Fase 22 — public bone lookup (legends hang their hats on the head). */
+    61→  boneByName(name: string): THREE.Object3D | null {
+    62→    return this.bones.get(name) ?? null;
+    63→  }
+    64→  private inner = new THREE.Group();       // bob / pitch wrapper inside root
+    65→  private flashMats: THREE.MeshStandardMaterial[] = [];
+    66→  private swordProp: THREE.Object3D | null = null;
+    67→  private shieldProp: THREE.Object3D | null = null;
+    68→  private handSlot = new THREE.Group();    // active weapon — right wrist
+    69→  private armSlot = new THREE.Group();     // active shield — left forearm
+    70→
+    71→  private weaponKind: WeaponKind = 'none';
+    72→  private activeWeapon: THREE.Object3D | null = null;
+    73→  private activeShield: THREE.Object3D | null = null;
+    74→  private wantsShield = false;
+    75→  private isVillager = false;
+    76→  private isBandit = false;
+    77→  private banditShield = false;
+    78→  private blockHitT = 0;   // shield impact recoil (0..1)
+    79→  private blockHitDir = 1;
+    80→  // Fase 8 — night torch: replaces the shield after dusk (light source)
+    81→  private torchProp: THREE.Group | null = null;
+    82→  private torchFlame: PersistentFlameHandle | null = null;
+    83→  private torchLight: THREE.PointLight | null = null;
+    84→  private torchOn = false;
+    85→  private torchT = 0;
+    86→
+    87→  private t = 0;
+    88→  private phase = Math.random() * 8;
+    89→  private flashT = 0;
+    90→  private hitT = 0;
+    91→  private landT = 0;
+    92→  private wasGrounded = true;
+    93→  private airT = 0;
+    94→  private speedSm = 0;
+    95→  private cur: PoseTarget = {};
+    96→  // ---- Fase 22 — THE CAPE CLOTH LAYER (spring-damper secondary motion) ----
+    97→  private capeBone1: THREE.Object3D | null = null;
+    98→  private capeBone2: THREE.Object3D | null = null;
+    99→  private cape1st = { r: [0.05, 0], v: [0, 0] }; // [pitch, yaw] + velocities
+   100→  private cape2st = { r: [0.09, 0], v: [0, 0] };
+   101→  private weaponFactory?: KnightVisualDeps['weaponFactory'];
+   102→  private shieldFactory?: KnightVisualDeps['shieldFactory'];
+   103→
+   104→  constructor(deps: KnightVisualDeps) {
+   105→    this.weaponFactory = deps.weaponFactory;
+   106→    this.shieldFactory = deps.shieldFactory;
+   107→    const scene = deps.scene;
+   108→    this.isVillager = !!deps.villager;
+   109→    this.isBandit = !!deps.bandit;
+   110→    this.banditShield = !!deps.bandit?.shield;
+   111→
+   112→    // collect bones + meshes
+   113→    for (const name of BONE_NAMES) {
+   114→      const b = scene.getObjectByName(name);
+   115→      if (b) this.bones.set(name, b);
+   116→    }
+   117→    this.swordProp = scene.getObjectByName('j_sword_held') ?? null;
+   118→    this.shieldProp = scene.getObjectByName('j_shield_held') ?? null;
+   119→    // Fase 22 — the cape chain (absent in pre-F22 rigs: dynamics no-ops)
+   120→    this.capeBone1 = scene.getObjectByName('j_cape1') ?? null;
+   121→    this.capeBone2 = scene.getObjectByName('j_cape2') ?? null;
+   122→
+   123→    if (deps.villager) this.dressAsVillager(scene, deps.villager);
+   124→    if (deps.bandit) this.dressAsBandit(scene, deps.bandit);
+   125→
+   126→    scene.traverse((o) => {
+   127→      const mesh = o as THREE.Mesh;
+   128→      if (mesh.isMesh) {
+   129→        mesh.castShadow = true;
+   130→        mesh.receiveShadow = true;
+   131→        mesh.frustumCulled = false; // skeleton moves beyond the bind bbox
+   132→        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+   133→        for (const m of mats) {
+   134→          const std = m as THREE.MeshStandardMaterial;
+   135→          if (std.isMeshStandardMaterial && !this.flashMats.includes(std)) this.flashMats.push(std);
+   136→        }
+   137→      }
+   138→    });
+   139→
+   140→    // attach slots
+   141→    const wristR = this.bones.get('j_wristR');
+   142→    if (wristR) { wristR.add(this.handSlot); }
+   143→    const elbowL = this.bones.get('j_elbowL');
+   144→    if (elbowL) { elbowL.add(this.armSlot); this.armSlot.position.set(0, -0.12, 0.05); }
+   145→
+   146→    // The GLB clone root can arrive with visible=false (something in the boot
+   147→    // pipeline toggles loaded model roots); the knight must always render.
+   148→    // GLTF scene roots can arrive with visible=false after loader round-trips;
+   149→    // the player's body must always render.
+   150→    scene.visible = true;
+   151→
+   152→    this.inner.add(scene);
+   153→    this.root.add(this.inner);
+   154→    this.refreshProps();
+   155→  }
+   156→
+   157→  // ------------------------------------------------------------ state API
+   158→
+   159→  setWeapon(kind: WeaponKind): void {
+   160→    this.weaponKind = kind;
+   161→    this.refreshProps();
+   162→  }
+   163→
+   164→  setShield(visible: boolean): void {
+   165→    this.wantsShield = visible;
+   166→    this.refreshProps();
+   167→  }
+   168→
+   169→  get hasShieldVisible(): boolean {
+   170→    return this.wantsShield;
+   171→  }
+   172→
+   173→  /** Legacy API: sword shown at rest (used by boarding crews / menus). */
+   174→  setSwordEquipped(equipped: boolean): void {
+   175→    // naval-crew legacy call: sword shown at rest
+   176→    this.setEquippedState(equipped);
+   177→  }
+   178→
+   179→  /** Shield / guard just deflected a hit — recoil impulse on the arms. */
+   180→  blockImpact(): void {
+   181→    this.blockHitT = 1;
+   182→    this.blockHitDir = Math.random() < 0.5 ? -1 : 1;
+   183→  }
+   184→
+   185→  /** Fase 21 — FIRST PERSON: collapse the head bone so the great helm never
+   186→   *  blocks the eye-level camera (the neck folds smoothly into the collar;
+   187→   *  chest, hands and cape stay visible when you look down). */
+   188→  setHeadHidden(hidden: boolean): void {
+   189→    const head = this.bones.get('j_head');
+   190→    if (head) head.scale.setScalar(hidden ? 0.0001 : 1);
+   191→  }
+   192→
+   193→  /**
+   194→   * Fase 8 — at dusk the shield gives way to a lit torch: a wooden brand
+   195→   * with a real FlameFX flame and a warm flickering light, riding the left
+   196→   * forearm slot. At dawn the torch goes out and the shield returns.
+   197→   */
+   198→  setNightTorch(on: boolean): void {
+   199→    if (on === this.torchOn || this.isVillager) return;
+   200→    this.torchOn = on;
+   201→    if (on) {
+   202→      const g = new THREE.Group();
+   203→      g.name = 'night_torch';
+   204→      const wood = new THREE.MeshStandardMaterial({ color: 0x5a4028, roughness: 0.9 });
+   205→      const stick = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.042, 0.52, 6), wood);
+   206→      stick.position.y = 0.16;
+   207→      stick.castShadow = true;
+   208→      g.add(stick);
+   209→      const wrap = new THREE.Mesh(
+   210→        new THREE.CylinderGeometry(0.062, 0.05, 0.15, 8),
+   211→        new THREE.MeshStandardMaterial({ color: 0x3a2c1c, roughness: 1 }),
+   212→      );
+   213→      wrap.position.y = 0.46;
+   214→      g.add(wrap);
+   215→      this.torchLight = new THREE.PointLight(0xff9a3c, 2.4, 20, 1.7);
+   216→      this.torchLight.position.y = 0.55;
+   217→      g.add(this.torchLight);
+   218→      this.armSlot.add(g);
+   219→      g.rotation.set(-0.35, 0, 0);
+   220→      g.position.set(-0.02, -0.05, 0.1);
+   221→      this.torchProp = g;
+   222→      // the flame mesh lives at the scene root (additive) — synced every frame
+   223→      this.torchFlame = getFlameFX().addFlame(new THREE.Vector3(0, -100, 0), {
+   224→        scale: 0.17, height: 0.42, heat: 0.5,
+   225→      });
+   226→      // the shield hides while the torch burns
+   227→      if (this.activeShield) this.activeShield.visible = false;
+   228→      if (this.shieldProp) this.shieldProp.visible = false;
+   229→    } else {
+   230→      if (this.torchProp) { this.armSlot.remove(this.torchProp); this.torchProp = null; }
+   231→      if (this.torchFlame) { this.torchFlame.dispose(); this.torchFlame = null; }
+   232→      this.torchLight = null;
+   233→      this.torchOn = false;
+   234→      // the shield returns with the sun
+   235→      this.refreshProps();
+   236→    }
+   237→  }
+   238→
+   239→  get nightTorchOn(): boolean {
+   240→    return this.torchOn;
+   241→  }
+   242→
+   243→  setEquippedState(equipped: boolean): void {
+   244→    if (!equipped && this.weaponKind !== 'none') {
+   245→      this.weaponKind = 'none'; // holster: statue sword returns to the hand
+   246→    } else if (equipped && this.weaponKind === 'none') {
+   247→      this.weaponKind = 'sword';
+   248→    }
+   249→    this.refreshProps();
+   250→  }
+   251→
+   252→  faceYaw(yaw: number): void {
+   253→    this.root.rotation.y = yaw;
+   254→  }
+   255→
+   256→  flash(): void {
+   257→    this.flashT = 1;
+   258→    this.hitT = 1;
+   259→  }
+   260→
+   261→  /** Fase 10 — sword upgrade tier (Bram's forge): adds an ember/runic glow
+   262→   *  to the active blade + a subtle length boost so progress is VISIBLE. */
+   263→  setWeaponTier(tier: number): void {
+   264→    this.weaponTier = Math.max(0, Math.min(3, Math.floor(tier)));
+   265→    this.applyWeaponGlow();
+   266→  }
+   267→
+   268→  /** Fase 12 — elemental legendary form of the equipped sword. */
+   269→  setWeaponElement(element: SwordElement | null): void {
+   270→    this.weaponElement = element;
+   271→    this.applyWeaponGlow();
+   272→  }
+   273→
+   274→  /** Fase 12 — world position of the blade tip (elemental particle trail). */
+   275→  weaponTipWorld(out: THREE.Vector3): boolean {
+   276→    const w = this.activeWeapon ?? this.swordProp;
+   277→    if (!w) return false;
+   278→    out.set(0, (w.userData.height as number ?? 1) * 0.72, 0);
+   279→    w.localToWorld(out);
+   280→    return true;
+   281→  }
+   282→
+   283→  /** Fase 22 — world position of the GRIP (base of the blade). The slash-arc
+   284→   *  ribbon spans grip→tip: the swept plane of the cut, not a floating streak. */
+   285→  weaponHandWorld(out: THREE.Vector3): boolean {
+   286→    const w = this.activeWeapon ?? this.swordProp;
+   287→    if (!w) return false;
+   288→    out.set(0, 0.06, 0);
+   289→    w.localToWorld(out);
+   290→    return true;
+   291→  }
+   292→
+   293→  private weaponTier = 0;
+   294→  private weaponElement: SwordElement | null = null;
+   295→
+   296→  private applyWeaponGlow(): void {
+   297→    const w = this.activeWeapon ?? this.swordProp;
+   298→    if (!w) return;
+   299→    // Fase 11 — the master-forged sword carries its own rune-glow materials
+   300→    if (w.userData?.heroSword) {
+   301→      applyHeroSwordTier(w, this.weaponTier, false);
+   302→      if (this.weaponElement) applyHeroSwordElement(w, this.weaponElement);
+   303→      const s = 1 + this.weaponTier * 0.05 + (this.weaponElement ? 0.06 : 0);
+   304→      w.scale.set(s, s, s);
+   305→      return;
+   306→    }
+   307→    const glows = [null, 0xff9a3c, 0xe8c96a, 0x7ec8ff] as const;
+   308→    const glow = glows[this.weaponTier];
+   309→    w.traverse((o) => {
+   310→      const mesh = o as THREE.Mesh;
+   311→      if (!mesh.isMesh) return;
+   312→      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+   313→      for (const m of mats) {
+   314→        const std = m as THREE.MeshStandardMaterial;
+   315→        if (!std.isMeshStandardMaterial) continue;
+   316→        if (glow === null) {
+   317→          std.emissive?.setHex(0x000000);
+   318→        } else {
+   319→          std.emissive?.setHex(glow);
+   320→          std.emissiveIntensity = 0.55 + this.weaponTier * 0.3;
+   321→        }
+   322→        std.needsUpdate = true;
+   323→      }
+   324→    });
+   325→    // each tier forges a slightly longer, prouder blade
+   326→    const s = 1 + this.weaponTier * 0.06;
+   327→    w.scale.set(s, s, s);
+   328→  }
+   329→
+   330→  private refreshProps(): void {
+   331→    // Kit weapon in the right hand (detaches the previous one first)
+   332→    if (this.activeWeapon) {
+   333→      this.handSlot.remove(this.activeWeapon);
+   334→      if (this.activeWeapon.parent) this.activeWeapon.parent.remove(this.activeWeapon);
+   335→      this.activeWeapon = null;
+   336→    }
+   337→    const showKitWeapon = !this.isVillager && this.weaponKind !== 'none';
+   338→    if (showKitWeapon && this.weaponFactory) {
+   339→      const w = this.weaponFactory(this.weaponKind as Exclude<WeaponKind, 'none'>);
+   340→      if (w) {
+   341→        if (this.weaponKind === 'bow') {
+   342→          // bows live permanently in the LEFT hand (aim code extends the arm)
+   343→          const wristL = this.bones.get('j_wristL');
+   344→          if (wristL) {
+   345→            wristL.add(w);
+   346→            w.position.set(0.02, -0.08, 0.05);
+   347→            w.rotation.set(0, 0, 0.08);
+   348→          }
+   349→        } else {
+   350→          this.handSlot.add(w);
+   351→        }
+   352→        this.activeWeapon = w;
+   353→        this.tuneWeaponPose(this.weaponKind);
+   354→        this.applyWeaponGlow();
+   355→      }
+   356→    }
+   357→    // shields: the kit shield on the left forearm
+   358→    if (this.activeShield) {
+   359→      this.armSlot.remove(this.activeShield);
+   360→      this.activeShield = null;
+   361→    }
+   362→    if (this.wantsShield && !this.isVillager && (!this.isBandit || this.banditShield) && this.shieldFactory) {
+   363→      const s = this.shieldFactory();
+   364→      if (s) {
+   365→        this.armSlot.add(s);
+   366→        this.activeShield = s;
+   367→        this.tuneShieldPose();
+   368→      }
+   369→    }
+   370→    // Fase 7 — NOTHING is shown until equipped:
+   371→    //   · bare hands → no statue sword, no statue shield
+   372→    //   · the statue props only appear as FALLBACKS when the matching kit
+   373→    //     object could not be produced (kit GLB missing)
+   374→    if (this.swordProp) {
+   375→      this.swordProp.visible = !this.isVillager && !this.isBandit
+   376→        && this.weaponKind !== 'none'
+   377→        && this.weaponKind !== 'bow'
+   378→        && !this.activeWeapon;
+   379→    }
+   380→    if (this.shieldProp) {
+   381→      this.shieldProp.visible = !this.isVillager && this.wantsShield && !this.activeShield
+   382→        && (!this.isBandit || this.banditShield);
+   383→    }
+   384→  }
+   385→
+   386→  /**
+   387→   * Fase 7 — villager variant: the repository knight's body re-dressed as a
+   388→   * commoner. Materials are CLONED first (the AssetSystem shares them with
+   389→   * the player), the armour is re-tinted to cloth/leather tones and each NPC
+   390→   * gets seeded headwear (hood / straw hat / cap) + a work tool by role.
+   391→   */
+   392→  private dressAsVillager(scene: THREE.Object3D, v: { palette: import('./CharacterModel').CharacterPalette; seed: number; role?: string }): void {
+   393→    const r = (k: number) => {
+   394→      const x = Math.sin(v.seed * 37.71 + k * 91.13) * 43758.5453;
+   395→      return x - Math.floor(x);
+   396→    };
+   397→    const tint = new THREE.Color();
+   398→    scene.traverse((o) => {
+   399→      const mesh = o as THREE.Mesh;
+   400→      if (!mesh.isMesh) return;
+   401→      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+   402→      const clones = mats.map((m) => (m as THREE.Material).clone());
+   403→      for (const m of clones) {
+   404→        const std = m as THREE.MeshStandardMaterial;
+   405→        if (!std.isMeshStandardMaterial) continue;
+   406→        const isUpper = /upper/i.test(std.name ?? '');
+   407→        const base = isUpper ? v.palette.tunic : v.palette.pants;
+   408→        tint.setHex(base);
+   409→        // seeded shade variety per NPC (avoid clone-army look)
+   410→        const shade = 0.82 + r(9) * 0.36;
+   411→        tint.multiplyScalar(shade);
+   412→        std.color.copy(tint);
+   413→        std.roughness = 0.92;
+   414→        std.metalness = 0.04;
+   415→        std.emissive?.setHex(0x000000);
+   416→        std.needsUpdate = true;
+   417→      }
+   418→      mesh.material = clones.length === 1 ? clones[0] : clones;
+   419→    });
+   420→
+   421→    // --- headwear on the head bone (rigid props ride the skeleton) ---
+   422→    const head = this.bones.get('j_head') ?? scene.getObjectByName('j_head');
+   423→    if (head) {
+   424→      const cloth = (c: number, rough = 0.95) =>
+   425→        new THREE.MeshStandardMaterial({ color: c, roughness: rough, metalness: 0.02 });
+   426→      const wear = r(2);
+   427→      if (wear < 0.34) {
+   428→        // hood
+   429→        const hood = new THREE.Mesh(new THREE.ConeGeometry(0.155, 0.3, 8, 1, true), cloth(v.palette.tunic));
+   430→        hood.position.y = 0.22;
+   431→        hood.rotation.x = -0.14;
+   432→        hood.castShadow = true;
+   433→        hood.userData.villagerProp = true;
+   434→        head.add(hood);
+   435→      } else if (wear < 0.64) {
+   436→        // straw hat (brim + crown)
+   437→        const g = new THREE.Group();
+   438→        const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.28, 0.025, 12), cloth(0xb59a58));
+   439→        const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.15, 0.13, 10), cloth(0xa8894a));
+   440→        crown.position.y = 0.07;
+   441→        brim.castShadow = crown.castShadow = true;
+   442→        g.add(brim, crown);
+   443→        g.userData.villagerProp = true;
+   444→        g.position.y = 0.26;
+   445→        g.rotation.z = (r(3) - 0.5) * 0.24;
+   446→        head.add(g);
+   447→      } else if (wear < 0.85) {
+   448→        // soft cap
+   449→        const cap = new THREE.Mesh(
+   450→          new THREE.SphereGeometry(0.15, 10, 8, 0, Math.PI * 2, 0, Math.PI * 0.52),
+   451→          cloth(v.palette.sleeves),
+   452→        );
+   453→        cap.position.y = 0.17;
+   454→        cap.castShadow = true;
+   455→        cap.userData.villagerProp = true;
+   456→        head.add(cap);
+   457→      }
+   458→    }
+   459→
+   460→    // --- role tool in the right hand ---
+   461→    const wristR = scene.getObjectByName('j_wristR');
+   462→    if (wristR && v.role) {
+   463→      const wood = new THREE.MeshStandardMaterial({ color: 0x6a4e2e, roughness: 0.9, metalness: 0.02 });
+   464→      const steel = new THREE.MeshStandardMaterial({ color: 0x767c82, roughness: 0.42, metalness: 0.78 });
+   465→      if (v.role === 'smith') {
+   466→        const hammer = new THREE.Group();
+   467→        const haft = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.02, 0.34, 6), wood);
+   468→        haft.position.y = 0.14;
+   469→        const hm = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.055, 0.05), steel);
+   470→        hm.position.y = 0.3;
+   471→        hammer.add(haft, hm);
+   472→        hammer.rotation.x = 1.35;
+   473→        hammer.userData.villagerProp = true;
+   474→        wristR.add(hammer);
+   475→      } else if (v.role === 'merchant') {
+   476→        const sack = new THREE.Mesh(
+   477→          new THREE.SphereGeometry(0.09, 8, 6),
+   478→          new THREE.MeshStandardMaterial({ color: 0x9a8a66, roughness: 0.98, metalness: 0.0 }),
+   479→        );
+   480→        sack.scale.y = 1.2;
+   481→        sack.position.set(0.02, -0.14, 0.05);
+   482→        sack.userData.villagerProp = true;
+   483→        wristR.add(sack);
+   484→      } else if (v.role === 'fisher') {
+   485→        const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.008, 0.85, 5), wood);
+   486→        rod.position.set(0, 0.3, 0.05);
+   487→        rod.rotation.x = 0.5;
+   488→        rod.userData.villagerProp = true;
+   489→        wristR.add(rod);
+   490→      }
+   491→    }
+   492→
+   493→    // --- per-NPC build variety ---
+   494→    const build = r(1);
+   495→    const s = 0.93 + r(5) * 0.1 + (build > 0.7 ? 0.05 : 0);
+   496→    this.root.scale.setScalar(s);
+   497→  }
+   498→
+   499→  /**
+   500→   * Fase 10 — BANDIT variant: the same repository knight re-forged as a RED
+   501→   * KNIGHT — dark crimson cloth, oxidised red-steel armour, ember eyes and
+   502→   * a torn red cloak. Materials are CLONED (they are shared with the player).
+   503→   */
+   504→  private dressAsBandit(scene: THREE.Object3D, v: { seed: number; captain?: boolean; tint?: { h: number; s: number; l: number }; eyes?: number }): void {
+   505→    const r = (k: number) => {
+   506→      const x = Math.sin(v.seed * 37.71 + k * 91.13) * 43758.5453;
+   507→      return x - Math.floor(x);
+   508→    };
+   509→    const tint = new THREE.Color();
+   510→    scene.traverse((o) => {
+   511→      const mesh = o as THREE.Mesh;
+   512→      if (!mesh.isMesh) return;
+   513→      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+   514→      const clones = mats.map((m) => (m as THREE.Material).clone());
+   515→      for (const m of clones) {
+   516→        const std = m as THREE.MeshStandardMaterial;
+   517→        if (!std.isMeshStandardMaterial) continue;
+   518→        const name = (std.name ?? '').toLowerCase();
+   519→        const isUpper = /upper/i.test(name);
+   520→        if (isUpper) {
+   521→          // oxidised red steel with seeded shade variety
+   522→          // (Fase 22 — legends/guardians wear their own HSL instead)
+   523→          if (v.tint) {
+   524→            tint.setHSL(v.tint.h, v.tint.s, v.tint.l);
+   525→            std.metalness = 0.62;
+   526→            std.roughness = 0.42;
+   527→          } else {
+   528→            tint.setHSL(0.985 + r(3) * 0.012, 0.52 + r(4) * 0.2, 0.26 + r(5) * 0.08);
+   529→            std.metalness = 0.55;
+   530→            std.roughness = 0.5;
+   531→          }
+   532→          std.color.copy(tint);
+   533→        } else {
+   534→          // dark crimson trousers / leather (or the legend's own shade)
+   535→          if (v.tint) {
+   536→            tint.setHSL(v.tint.h, Math.min(1, v.tint.s + 0.1), v.tint.l * 0.72);
+   537→          } else {
+   538→            tint.setHSL(0.99, 0.42, 0.16 + r(6) * 0.07);
+   539→          }
+   540→          std.color.copy(tint);
+   541→          std.metalness = 0.12;
+   542→          std.roughness = 0.85;
+   543→        }
+   544→        std.needsUpdate = true;
+   545→      }
+   546→      mesh.material = clones.length === 1 ? clones[0] : clones;
+   547→    });
+   548→    // ember eyes — a tiny malevolent glow under the helm
+   549→    // (Fase 22 — legends and guardians choose their own colour)
+   550→    const head = this.bones.get('j_head') ?? scene.getObjectByName('j_head');
+   551→    if (head) {
+   552→      const eyeMat = new THREE.MeshStandardMaterial({
+   553→        color: 0x220000, emissive: v.eyes ?? 0xff2a1a, emissiveIntensity: 2.4, roughness: 0.4,
+   554→      });
+   555→      for (const ex of [-0.055, 0.055]) {
+   556→        const eye = new THREE.Mesh(new THREE.SphereGeometry(0.016, 6, 5), eyeMat);
+   557→        eye.position.set(ex, 0.055, 0.135);
+   558→        eye.userData.villagerProp = true;
+   559→        head.add(eye);
+   560→      }
+   561→    }
+   562→    // torn crimson cloak for captains
+   563→    if (v.captain) {
+   564→      const torso = this.bones.get('j_torso');
+   565→      if (torso) {
+   566→        const cloakMat = new THREE.MeshStandardMaterial({
+   567→          color: 0x5a1216, roughness: 0.95, side: THREE.DoubleSide,
+   568→        });
+   569→        const cloak = new THREE.Mesh(new THREE.PlaneGeometry(0.62, 0.95, 1, 3), cloakMat);
+   570→        cloak.position.set(0, -0.28, -0.16);
+   571→        cloak.rotation.x = 0.16;
+   572→        cloak.userData.villagerProp = true;
+   573→        torso.add(cloak);
+   574→      }
+   575→      this.root.scale.setScalar(1.08); // captains stand taller
+   576→    } else {
+   577→      this.root.scale.setScalar(0.97 + r(7) * 0.07);
+   578→    }
+   579→  }
+   580→
+   581→  /** Per-weapon grip orientation in the hand (tuned by eye). */
+   582→  private tuneWeaponPose(kind: WeaponKind): void {
+   583→    if (!this.activeWeapon) return;
+   584→    switch (kind) {
+   585→      case 'sword':
+   586→        this.activeWeapon.rotation.set(0.25, 0, 0.12);
+   587→        this.activeWeapon.position.set(0, -0.02, 0.04);
+   588→        break;
+   589→      case 'axe':
+   590→        this.activeWeapon.rotation.set(0.3, 0, 0.2);
+   591→        break;
+   592→      case 'spear':
+   593→        this.activeWeapon.rotation.set(0.12, 0, 0.06);
+   594→        break;
+   595→      case 'bow':
+   596→        // bow held vertically in the LEFT hand — moved at aim time
+   597→        this.activeWeapon.rotation.set(0, 0, 0);
+   598→        break;
+   599→      default:
+   600→        break;
+   601→    }
+   602→  }
+   603→
+   604→  private tuneShieldPose(): void {
+   605→    if (!this.activeShield) return;
+   606→    this.activeShield.rotation.set(-Math.PI / 2 + 0.35, 0, 0);
+   607→    this.activeShield.position.set(-0.02, 0, 0.1);
+   608→  }
+   609→
+   610→  // ------------------------------------------------------------ animation
+   611→
+   612→  /** Fase 14 — scratch reutilizable: zero() creaba un objeto + 15 arrays por
+   613→   *  frame POR MODELO (17 caballeros = 270 arrays/frame de presión de GC). */
+   614→  private zeroScratch: PoseTarget = {};
+   615→  private zero(): PoseTarget {
+   616→    const p = this.zeroScratch;
+   617→    for (const n of BONE_NAMES) {
+   618→      const e = p[n];
+   619→      if (e) { e[0] = 0; e[1] = 0; e[2] = 0; }
+   620→      else p[n] = [0, 0, 0];
+   621→    }
+   622→    return p;
+   623→  }
+   624→
+   625→  update(p: AnimParams): void {
+   626→    // Fase 14 — culling de animación: lejos del jugador el sistema dueño
+   627→    // pasa dt = 0 y la pose queda congelada (invisible a esa distancia,
+   628→    // todo el álgebra de huesos ahorrada). El propio modelo sigue en su sitio.
+   629→    if (p.dt <= 0) return;
+   630→    this.t += p.dt;
+   631→    const dt = Math.max(1e-4, p.dt);
+   632→    const target = this.zero();
+   633→
+   634→    // speed smoothing + phase
+   635→    this.speedSm = damp(this.speedSm, p.speed, 8, dt);
+   636→    const moving = p.moving && this.speedSm > 0.25;
+   637→    if (moving) this.phase += dt * (this.speedSm > 4.4 ? 9.4 : 6.6);
+   638→    const ph = this.phase;
+   639→
+   640→    // landing detection
+   641→    if (p.grounded && !this.wasGrounded) this.landT = p.attackT > 0 || (p.rollT ?? 0) > 0 ? 0 : 0.34;
+   642→    if (!p.grounded) this.airT += dt; else this.airT = 0;
+   643→    this.wasGrounded = p.grounded;
+   644→    if (this.landT > 0) this.landT = Math.max(0, this.landT - dt);
+   645→
+   646→    // ---- roll/swim/ride overrides ----
+   647→    const rollT = p.rollT ?? 0;
+   648→    if (rollT > 0) { this.poseRoll(target, rollT, moving, ph, p.dodgeStep === true); this.apply(target, dt, true); this.post(p); return; }
+   649→    if (p.swimming) { this.poseSwim(target, ph, p); this.apply(target, dt, true); this.post(p); return; }
+   650→    if (p.riding) { this.poseRide(target, p); this.apply(target, dt, true); this.post(p); return; }
+   651→
+   652→    // ---- Fase 17 — the HOOK DASH flying kick: the rope carries the body
+   653→    //      and both heels lead the way. Held while the kick lingers. ----
+   654→    if (p.dashKick && p.attackT === 0) {
+   655→      this.poseHookKick(target);
+   656→      this.apply(target, dt, true);
+   657→      this.post(p);
+   658→      return;
+   659→    }
+   660→
+   661→    // ---- Fase 11 — LAYERED base: air OR locomotion (no early return any
+   662→    // more: the attack/block overlays now layer over the airborne pose too,
+   663→    // which is what makes mid-air slashes and plunges readable) ----
+   664→    if (!p.grounded) {
+   665→      this.poseAir(target, this.airT);
+   666→    } else {
+   667→      this.poseLocomotion(target, p, moving, ph);
+   668→    }
+   669→
+   670→    // ---- landing absorb (grounded only) ----
+   671→    if (p.grounded) {
+   672→      if (this.landT > 0) {
+   673→        const k = this.landT / 0.34;
+   674→        const e = k * k;
+   675→        target.j_kneeR = [target.j_kneeR[0] + 0.85 * e, 0, 0];
+   676→        target.j_kneeL = [target.j_kneeL[0] + 0.85 * e, 0, 0];
+   677→        target.j_hipR = [target.j_hipR[0] - 0.5 * e, 0, 0];
+   678→        target.j_hipL = [target.j_hipL[0] - 0.5 * e, 0, 0];
+   679→        target.j_torso = [target.j_torso[0] + 0.28 * e, target.j_torso[1], 0];
+   680→        this.inner.position.y = -0.09 * e;
+   681→      } else if (this.inner.position.y !== 0) {
+   682→        this.inner.position.y = damp(this.inner.position.y, 0, 10, dt);
+   683→      }
+   684→    }
+   685→
+   686→    // ---- bow aim (overrides arms) ----
+   687→    const bowDraw = p.bowDraw ?? 0;
+   688→    if (bowDraw > 0) this.poseBowAim(target, p, bowDraw, moving, ph);
+   689→
+   690→    // ---- block overlay (grounded stance only) ----
+   691→    const blockT = p.blockT ?? 0;
+   692→    if (blockT > 0 && p.grounded) this.poseBlock(target, blockT, this.activeShield !== null || (!!this.shieldProp && this.shieldProp.visible));
+   693→
+   694→    // ---- attack overlays (timed curves — ground OR air) ----
+   695→    if (p.attackT > 0) {
+   696→      this.poseAttack(target, p.attackT, p.attackKind ?? 'light1', bowDraw);
+   697→      this.apply(target, dt, true);
+   698→      this.post(p);
+   699→      return;
+   700→    }
+   701→
+   702→    // Fase 17 — the sweep-kick spin unwinds when the kick isn't driving it
+   703→    this.inner.rotation.y = damp(this.inner.rotation.y, 0, 14, dt);
+   704→
+   705→    // ---- hit reaction ----
+   706→    if (this.hitT > 0) {
+   707→      const k = this.hitT;
+   708→      // Fase 22 — the flinch reads through the WHOLE upper body now: chest
+   709→      // caves, head snaps down and rolls, both shoulders recoil off the line
+   710→      // of the blow — a reaction with mass, not a red flash.
+   711→      target.j_torso = [target.j_torso[0] - 0.22 * k, target.j_torso[1], 0.05 * k];
+   712→      target.j_head = [target.j_head[0] - 0.18 * k, target.j_head[1] * (1 - k), -0.08 * k];
+   713→      target.j_shoulderR = [target.j_shoulderR[0], target.j_shoulderR[1], target.j_shoulderR[2] - 0.16 * k];
+   714→      target.j_shoulderL = [target.j_shoulderL[0], target.j_shoulderL[1], target.j_shoulderL[2] + 0.12 * k];
+   715→    }
+   716→
+   717→    this.apply(target, dt, false);
+   718→    this.post(p);
+   719→  }
+   720→
+   721→  /** Per-frame post steps (flash decay, prop visibility by context). */
+   722→  private post(p: AnimParams): void {
+   723→    // Fase 22 — THE CAPE CLOTH LAYER runs on every path (locomotion, attack
+   724→    // early-returns included — the cape answers to the swing's coil-whip)
+   725→    if (p.dt > 0) this.updateCape(p, Math.max(1e-4, p.dt));
+   726→    if (this.flashT > 0) {
+   727→      this.flashT = Math.max(0, this.flashT - p.dt * 3.2);
+   728→      const e = this.flashT * 0.6;
+   729→      for (const m of this.flashMats) m.emissive.setRGB(e, e * 0.12, e * 0.08);
+   730→    }
+   731→    if (this.hitT > 0) this.hitT = Math.max(0, this.hitT - p.dt * 2.6);
+   732→    // the statue shield (fallback only) tucks away while aiming a bow
+   733→    if (this.shieldProp && !this.isVillager) {
+   734→      this.shieldProp.visible = this.wantsShield && !this.activeShield && (p.bowDraw ?? 0) < 0;
+   735→    }
+   736→    // shield impact recoil decay
+   737→    if (this.blockHitT > 0) this.blockHitT = Math.max(0, this.blockHitT - p.dt * 4.2);
+   738→    // Fase 8 — the night torch rides the left forearm: sync the flame to the
+   739→    // brand head and flicker the light with the same rhythm
+   740→    if (this.torchOn && this.torchProp && this.torchFlame) {
+   741→      this.torchT += p.dt;
+   742→      this.torchProp.updateWorldMatrix(true, false);
+   743→      this.torchFlame.position.setFromMatrixPosition(this.torchProp.matrixWorld);
+   744→      this.torchFlame.position.y += 0.55;
+   745→      if (this.torchLight) {
+   746→        const fl = 0.8 + Math.sin(this.torchT * 11.3) * 0.14 + Math.sin(this.torchT * 23.7) * 0.07;
+   747→        this.torchLight.intensity = gfxRuntime.pointLights ? 2.4 * fl : 0;
+   748→      }
+   749→    }
+   750→    // the kit weapon stays in the hand; while swimming it is shouldered up
+   751→    if (this.activeWeapon) {
+   752→      const swim = p.swimming;
+   753→      this.activeWeapon.rotation.x = damp(
+   754→        this.activeWeapon.rotation.x, swim ? -1.2 : this.activeWeapon.userData.baseRotX ?? this.activeWeapon.rotation.x, 6, Math.max(1e-4, p.dt),
+   755→      );
+   756→    }
+   757→  }
+   758→
+   759→  // ------------------------------------------------------------ pose blocks
+   760→
+   761→  private poseLocomotion(t: PoseTarget, p: AnimParams, moving: boolean, ph: number): void {
+   762→    const runK = Math.min(1, this.speedSm / 6.2);
+   763→    if (moving) {
+   764→      // ---- Fase 17 — the charge blend: past ~65% of top speed the knight
+   765→      // drops into the SHIELD CHARGE — shield forward, body low, blade
+   766→      // trailing. It eases in with speed so walking never triggers it. ----
+   767→      const hasShield = this.wantsShield
+   768→        && (this.activeShield !== null || (this.shieldProp?.visible ?? false));
+   769→      const charge = hasShield
+   770→        ? THREE.MathUtils.smoothstep(runK, 0.55, 0.88)
+   771→        : THREE.MathUtils.smoothstep(runK, 0.68, 0.92);
+   772→      const armed = this.weaponKind !== 'none' && this.weaponKind !== 'bow';
+   773→
+   774→      const amp = 0.52 + runK * 0.5 + charge * 0.12;
+   775→      const legPhL = Math.sin(ph);
+   776→      const legPhR = Math.sin(ph + Math.PI);
+   777→      // Fase 12 — pelvis rocks over the stance leg (secondary motion: the
+   778→      // walk stops reading as two stiff pistons and starts swinging from
+   779→      // the hips like a real gait).
+   780→      const hipRoll = Math.sin(ph) * (0.035 + runK * 0.05);
+   781→      // right leg (x<0) — j_hipR: -X = forward
+   782→      t.j_hipR = [-legPhR * amp, 0, -hipRoll];
+   783→      t.j_kneeR = [Math.max(0, -Math.sin(ph + Math.PI - 0.7)) * (0.55 + runK * 0.75 + charge * 0.22), 0, 0];
+   784→      t.j_ankleR = [-0.1 + legPhR * 0.18, 0, Math.max(0, legPhR) * 0.08];
+   785→      // left leg
+   786→      t.j_hipL = [-legPhL * amp, 0, hipRoll];
+   787→      t.j_kneeL = [Math.max(0, -Math.sin(ph - 0.7)) * (0.55 + runK * 0.75 + charge * 0.22), 0, 0];
+   788→      t.j_ankleL = [-0.1 + legPhL * 0.18, 0, Math.max(0, legPhL) * 0.08];
+   789→
+   790→      // ---- ARMS ----
+   791→      // Fase 17 — the sword arm never pendulums while armed (the old full
+   792→      // counter-swing with a blade in hand read as broken). It holds a low
+   793→      // READY CARRY: elbow bent, blade angled down-forward, a hint of swing
+   794→      // so the gait still breathes. Charging, the arm trails back like a
+   795→      // lance at rest.
+   796→      const armAmp = 0.34 + runK * 0.5;
+   797→      if (armed) {
+   798→        const ready = -0.22 + legPhR * 0.13;
+   799→        const trailing = 0.55 + legPhR * 0.08;
+   800→        t.j_shoulderR = [THREE.MathUtils.lerp(ready, trailing, charge), 0, THREE.MathUtils.lerp(-0.1, -0.18, charge)];
+   801→        t.j_elbowR = [THREE.MathUtils.lerp(-0.62, -0.3, charge), 0, 0];
+   802→      } else {
+   803→        t.j_shoulderR = [legPhR * armAmp * (1 - charge * 0.5), 0, -0.06];
+   804→        t.j_elbowR = [-0.18 - runK * 0.35 - Math.max(0, -legPhR) * (0.3 + runK * 0.3), 0, 0];
+   805→      }
+   806→      // Fase 10/17 — SHIELD CARRY → SHIELD CHARGE: a knight does NOT swing
+   807→      // the shield arm like a pendulum. Walking: elbow bent, shield held low
+   808→      // across the thigh with a touch of bob. Charging: the shield snaps UP
+   809→      // AND FORWARD — the battering-ram brace.
+   810→      const shieldCarry = hasShield && (p.blockT ?? 0) < 0.1;
+   811→      if (shieldCarry) {
+   812→        const bob = Math.sin(ph * 2) * 0.045;
+   813→        const walkPose: [number, number, number] = [-0.36 + bob - runK * 0.12, 0.18, 0.32];
+   814→        const chargePose: [number, number, number] = [-1.12, 0.28, 0.3];
+   815→        t.j_shoulderL = [
+   816→          THREE.MathUtils.lerp(walkPose[0], chargePose[0], charge),
+   817→          THREE.MathUtils.lerp(walkPose[1], chargePose[1], charge),
+   818→          THREE.MathUtils.lerp(walkPose[2], chargePose[2], charge),
+   819→        ];
+   820→        t.j_elbowL = [THREE.MathUtils.lerp(-0.94, -1.02, charge), 0, 0.16];
+   821→      } else {
+   822→        t.j_shoulderL = [legPhL * armAmp * 0.8 * (1 - charge * 0.5), 0, 0.06];
+   823→        t.j_elbowL = [-0.25 - runK * 0.3 - Math.max(0, -legPhL) * (0.28 + runK * 0.28), 0, 0];
+   824→      }
+   825→
+   826→      // ---- TORSO & HEAD ----
+   827→      // The charge crouches into the run: deep lean, eyes UP over the rim.
+   828→      const lean = 0.05 + runK * 0.2 + charge * 0.16;
+   829→      t.j_torso = [lean, Math.sin(ph) * (0.05 + runK * 0.08), 0];
+   830→      t.j_head = [
+   831→        -0.04 - runK * 0.08 - charge * 0.2,
+   832→        -Math.sin(ph) * 0.06,
+   833→        -Math.sin(ph) * 0.02,
+   834→      ];
+   835→      // Fase 21 — the whole body ROLLS over the stance foot (weight shift in
+   836→      // the ribcage, not just a positional sway: kills the stiff-plank read)
+   837→      this.inner.rotation.z = damp(this.inner.rotation.z, Math.sin(ph) * (0.02 + runK * 0.035), 8, 1 / 60);
+   838→      this.inner.position.y = Math.abs(Math.sin(ph)) * 0.028 * (0.5 + runK + charge * 0.5) - charge * 0.05;
+   839→      // Fase 12 — subtle lateral sway of the whole body over the stance foot
+   840→      this.inner.position.x = Math.sin(ph) * 0.012 * (0.6 + runK);
+   841→      // Fase 21 — WRIST follow-through: the hands lag the arm swing a beat
+   842→      // (relaxed wrists are half of "not rigid"); armed, the grip stays quiet
+   843→      if (!armed) {
+   844→        t.j_wristR = [legPhR * 0.14 * (0.4 + runK), 0, -0.05 + Math.sin(ph * 2) * 0.03];
+   845→        t.j_wristL = [legPhL * 0.12 * (0.4 + runK), 0, 0.05 - Math.sin(ph * 2) * 0.03];
+   846→      } else {
+   847→        t.j_wristR = [-0.06, 0, Math.sin(ph) * 0.025];
+   848→        t.j_wristL = [-0.05, 0, -Math.sin(ph) * 0.025];
+   849→      }
+   850→    } else {
+   851→      // idle: breathing, weight shift, relaxed sword arm
+   852→      const br = Math.sin(this.t * 1.7);
+   853→      const sway = Math.sin(this.t * 0.33);
+   854→      t.j_torso = [0.02 + br * 0.012, Math.sin(this.t * 0.4) * 0.02, sway * 0.012];
+   855→      // Fase 21 — idle head GLANCES: the knight scans the horizon now and
+   856→      // then instead of staring dead ahead
+   857→      const glance = Math.sin(this.t * 0.21) * Math.sin(this.t * 0.07 + 1.3);
+   858→      t.j_head = [0.0, Math.sin(this.t * 0.5) * 0.13 + glance * 0.22, Math.sin(this.t * 0.33) * 0.05];
+   859→      t.j_shoulderR = [br * 0.03 - 0.04, 0, -0.05];
+   860→      t.j_shoulderL = [-br * 0.03, 0, 0.06];
+   861→      t.j_elbowR = [-0.15 - br * 0.02, 0, 0];
+   862→      t.j_elbowL = [-0.22, 0, 0];
+   863→      // Fase 21 — relaxed wrists at rest (a touch of life in the hands)
+   864→      t.j_wristR = [-0.04 + br * 0.015, 0, -0.04];
+   865→      t.j_wristL = [-0.05 - br * 0.015, 0, 0.05];
+   866→      // Fase 12 — the knees breathe with the weight shift
+   867→      t.j_kneeR = [-0.04 + Math.max(0, sway) * 0.05, 0, 0];
+   868→      t.j_kneeL = [-0.06 + Math.max(0, -sway) * 0.05, 0, 0];
+   869→      t.j_hipR = [0, 0, -sway * 0.018];
+   870→      t.j_hipL = [0, 0, sway * 0.018];
+   871→      this.inner.position.y = damp(this.inner.position.y, 0, 8, 1 / 60);
+   872→      this.inner.position.x = damp(this.inner.position.x, 0, 8, 1 / 60);
+   873→      this.inner.rotation.z = damp(this.inner.rotation.z, sway * 0.012, 6, 1 / 60);
+   874→      if (p.talking) {
+   875→        t.j_head = [0, Math.sin(this.t * 2.1) * 0.07, 0];
+   876→        t.j_shoulderR = [Math.sin(this.t * 3.0) * 0.16 - 0.12, 0, -0.05];
+   877→        t.j_elbowR = [-0.5, 0, 0];
+   878→      }
+   879→    }
+   880→  }
+   881→
+   882→  private poseAir(t: PoseTarget, airT: number): void {
+   883→    // Fase 22 — a real JUMP ARC, not one frozen fall pose:
+   884→    //   TOFF (0..0.12)  the body leaves the ground EXTENDED — drive leg fully
+   885→    //                    down, toe pointed, chest tall (the anticipation is
+   886→    //                    the extension: you jump UP through the toes)
+   887→    //   RISE (0.12..0.5) knees tuck in, arms settle — the hang
+   888→    //   FALL (>0.5)     legs trail, chest opens, arms spread wide — the cape
+   889→    //                    cloth layer does the rest of the storytelling
+   890→    if (airT < 0.12) {
+   891→      const u = airT / 0.12;
+   892→      t.j_hipR = [THREE.MathUtils.lerp(-0.12, -0.3, u), 0, 0];
+   893→      t.j_kneeR = [THREE.MathUtils.lerp(0.5, 0.1, u), 0, 0];
+   894→      t.j_ankleR = [0.15 + 0.3 * u, 0, 0]; // toe off
+   895→      t.j_hipL = [THREE.MathUtils.lerp(0.1, -0.12, u), 0, 0];
+   896→      t.j_kneeL = [THREE.MathUtils.lerp(0.75, 0.35, u), 0, 0];
+   897→      t.j_ankleL = [0.3, 0, 0];
+   898→      t.j_torso = [0.14 - 0.06 * u, 0, 0];
+   899→      t.j_head = [-0.1, 0, 0];
+   900→      t.j_shoulderR = [-0.5 - 0.2 * u, 0, -0.3 - 0.1 * u];
+   901→      t.j_shoulderL = [0.3 - 0.55 * u, 0, 0.25 + 0.1 * u];
+   902→      t.j_elbowR = [-0.35, 0, 0];
+   903→      t.j_elbowL = [-0.3, 0, 0];
+   904→      this.inner.position.y = 0;
+   905→      return;
+   906→    }
+   907→    const rise = Math.min(1, (airT - 0.12) / 0.38);
+   908→    const fall = Math.min(1, Math.max(0, airT - 0.5) / 0.45);
+   909→    const fallInv = 1 - fall;
+   910→    // rise: tuck / fall: open — blended continuously by the two ramps
+   911→    t.j_shoulderR = [THREE.MathUtils.lerp(-0.7, -1.05, fall), 0, -0.35 - fall * 0.2 + rise * 0.1];
+   912→    t.j_shoulderL = [THREE.MathUtils.lerp(-0.25, -0.85, fall), 0, 0.4 + fall * 0.2 - rise * 0.1];
+   913→    t.j_elbowR = [-0.35 - fall * 0.25, 0, 0];
+   914→    t.j_elbowL = [-0.3 - fall * 0.3, 0, 0];
+   915→    t.j_hipR = [THREE.MathUtils.lerp(-0.45, -1.0, fall) + rise * 0.2, 0, 0];
+   916→    t.j_kneeR = [THREE.MathUtils.lerp(0.9, 0.35, fall), 0, 0];
+   917→    t.j_hipL = [0.2 + fall * 0.35, 0, 0];
+   918→    t.j_kneeL = [0.5 + fall * 0.6, 0, 0];
+   919→    t.j_ankleR = [0.2 + fall * 0.25, 0, 0];
+   920→    t.j_ankleL = [0.3, 0, 0];
+   921→    t.j_torso = [0.1 + fall * 0.12, 0, 0];
+   922→    t.j_head = [-0.12 + fall * 0.22, 0, 0];
+   923→    this.inner.position.y = 0;
+   924→    // Fase 22 — micro roll into the fall (weight reads through the ribcage)
+   925→    this.inner.rotation.z = fall * 0.02 * fallInv;
+   926→  }
+   927→
+   928→  private poseRoll(t: PoseTarget, rollT: number, moving: boolean, ph: number, step = false): void {
+   929→    if (step) {
+   930→      // Fase 11 — QUICKSTEP: a low lateral dash. No tuck, no spin — the
+   931→      // body coils toward the dash side: deep lunge on the leading leg,
+   932→      // trailing leg extended, torso banked, sword arm trailing for balance.
+   933→      const k = Math.sin(rollT * Math.PI); // 0→1→0 arc through the dash
+   934→      t.j_hipR = [-0.95 * k - 0.2, 0, 0];
+   935→      t.j_hipL = [0.55 * k, 0, 0];
+   936→      t.j_kneeR = [1.35 * k + 0.25, 0, 0];
+   937→      t.j_kneeL = [0.12, 0, 0];
+   938→      t.j_ankleR = [0.35, 0, 0];
+   939→      t.j_ankleL = [0.3, 0, 0];
+   940→      t.j_shoulderR = [-0.5 - k * 0.5, 0, -0.5 * k];
+   941→      t.j_shoulderL = [-0.2 + k * 0.7, 0, 0.45 * k + 0.1];
+   942→      t.j_elbowR = [-0.6, 0, 0];
+   943→      t.j_elbowL = [-0.35, 0, 0];
+   944→      t.j_torso = [0.42 * k, -0.3 * k, 0];
+   945→      t.j_head = [-0.2 * k, 0.24 * k, 0];
+   946→      this.inner.position.y = -0.26 * k;
+   947→      return;
+   948→    }
+   949→    // full-body somersault around the model root (Player adds the roll pose
+   950→    // through model.root — here we tuck the limbs)
+   951→    t.j_hipR = [-1.9, 0, 0];
+   952→    t.j_hipL = [-1.7, 0, 0];
+   953→    t.j_kneeR = [1.9, 0, 0];
+   954→    t.j_kneeL = [1.75, 0, 0];
+   955→    t.j_ankleR = [0.4, 0, 0];
+   956→    t.j_ankleL = [0.35, 0, 0];
+   957→    t.j_shoulderR = [-1.35, 0, -0.3];
+   958→    t.j_shoulderL = [-1.2, 0, 0.3];
+   959→    t.j_elbowR = [-1.6, 0, 0];
+   960→    t.j_elbowL = [-1.5, 0, 0];
+   961→    t.j_torso = [0.55, 0, 0];
+   962→    t.j_head = [0.35, 0, 0];
+   963→    this.inner.position.y = -0.18 * Math.sin(rollT * Math.PI);
+   964→  }
+   965→
+   966→  private poseSwim(t: PoseTarget, ph: number, p: AnimParams): void {
+   967→    // breaststroke: sweeping arms + flutter kick (body pitch handled by Player)
+   968→    const sweep = Math.sin(ph * 2.1);
+   969→    t.j_shoulderR = [-1.15 + sweep * 0.95, 0, -0.3];
+   970→    t.j_shoulderL = [-1.15 + sweep * 0.95, 0, 0.3];
+   971→    t.j_elbowR = [-0.45, 0, 0];
+   972→    t.j_elbowL = [-0.45, 0, 0];
+   973→    t.j_hipR = [0.22 + Math.sin(ph * 6) * 0.3, 0, 0];
+   974→    t.j_hipL = [0.22 + Math.sin(ph * 6 + Math.PI) * 0.3, 0, 0];
+   975→    t.j_kneeR = [-0.15, 0, 0];
+   976→    t.j_kneeL = [-0.15, 0, 0];
+   977→    t.j_ankleR = [0.35, 0, 0];
+   978→    t.j_ankleL = [0.35, 0, 0];
+   979→    t.j_torso = [0.06, 0, 0];
+   980→    t.j_head = [-0.55, 0, 0];
+   981→    this.inner.position.y = 0;
+   982→  }
+   983→
+   984→  private poseRide(t: PoseTarget, p: AnimParams): void {
+   985→    const bob = Math.sin((p.rideBounce ?? 0) * Math.PI * 2);
+   986→    // legs wrap the saddle
+   987→    t.j_hipR = [-0.8, 0, -0.3];
+   988→    t.j_hipL = [-0.8, 0, 0.3];
+   989→    t.j_kneeR = [1.3, 0, 0];
+   990→    t.j_kneeL = [1.3, 0, 0];
+   991→    t.j_ankleR = [0.25, 0, 0];
+   992→    t.j_ankleL = [0.25, 0, 0];
+   993→    // arms forward on the reins
+   994→    t.j_shoulderR = [-0.5 + bob * 0.05, 0, -0.12];
+   995→    t.j_shoulderL = [-0.5 + bob * 0.05, 0, 0.12];
+   996→    t.j_elbowR = [-0.5, 0, 0];
+   997→    t.j_elbowL = [-0.5, 0, 0];
+   998→    t.j_torso = [0.1 + bob * 0.03, 0, 0];
+   999→    t.j_head = [-0.08, 0, 0];
+  1000→    this.inner.position.y = Math.abs(bob) * 0.03;
+  1001→  }
+  1002→
+  1003→  private poseBowAim(t: PoseTarget, p: AnimParams, bowDraw: number, moving: boolean, ph: number): void {
+  1004→    const sway = Math.sin(this.t * 1.9) * 0.014;
+  1005→    // bow arm (LEFT — the kit bow sits on the hand slot at aim time)
+  1006→    t.j_shoulderL = [-1.42 + sway, 0, 0.1];
+  1007→    t.j_elbowL = [-0.08, 0, 0];
+  1008→    // draw hand (RIGHT) pulls to the cheek as the draw completes
+  1009→    t.j_shoulderR = [-1.18 + bowDraw * 0.22 + sway, 0, -0.28];
+  1010→    t.j_elbowR = [-0.22 - bowDraw * 1.15, 0, 0];
+  1011→    t.j_torso = [0.06, -0.24, 0];
+  1012→    t.j_head = [0, 0.1, 0];
+  1013→    if (moving) {
+  1014→      t.j_hipR = [Math.sin(ph) * 0.26, 0, 0];
+  1015→      t.j_hipL = [Math.sin(ph + Math.PI) * 0.26, 0, 0];
+  1016→      t.j_kneeR = [0.2, 0, 0];
+  1017→      t.j_kneeL = [0.24, 0, 0];
+  1018→      this.inner.position.y = Math.abs(Math.sin(ph)) * 0.024;
+  1019→    } else {
+  1020→      t.j_kneeR = [-0.1, 0, 0];
+  1021→      t.j_kneeL = [-0.18, 0, 0];
+  1022→      this.inner.position.y = -bowDraw * 0.025;
+  1023→    }
+  1024→
+  1025→  }
+  1026→
+  1027→  private poseBlock(t: PoseTarget, blockT: number, hasKitShield: boolean): void {
+  1028→    const k = Math.min(1, blockT);
+  1029→    const L = THREE.MathUtils.lerp;
+  1030→    // impact recoil: quick pushback on the guard side
+  1031→    const hit = this.blockHitT * this.blockHitT;
+  1032→    const shake = hit * this.blockHitDir;
+  1033→    if (hasKitShield) {
+  1034→      // shield raised across the front, braced behind it
+  1035→      t.j_shoulderL = [L(t.j_shoulderL[0], -1.02, k) + hit * 0.5, 0, L(t.j_shoulderL[1], 0.34, k) + shake * 0.12];
+  1036→      t.j_elbowL = [L(t.j_elbowL[0], -0.78, k), 0, 0];
+  1037→      t.j_shoulderR = [L(t.j_shoulderR[0], -0.3, k) + hit * 0.3, 0, L(t.j_shoulderR[1], -0.14, k)];
+  1038→      t.j_elbowR = [L(t.j_elbowR[0], -1.45, k), 0, 0];
+  1039→      t.j_head = [L(t.j_head[0], 0.12, k), 0, 0];
+  1040→    } else {
+  1041→      // no shield: weapon held vertical in a high guard
+  1042→      t.j_shoulderR = [L(t.j_shoulderR[0], -1.0, k) + hit * 0.45, 0, L(t.j_shoulderR[1], -0.3, k) + shake * 0.1];
+  1043→      t.j_elbowR = [L(t.j_elbowR[0], -1.32, k), 0, 0];
+  1044→      t.j_shoulderL = [L(t.j_shoulderL[0], -0.55, k) + hit * 0.3, 0, L(t.j_shoulderL[1], 0.1, k)];
+  1045→      t.j_elbowL = [L(t.j_elbowL[0], -1.05, k), 0, 0];
+  1046→      t.j_head = [L(t.j_head[0], 0.1, k), 0, 0];
+  1047→    }
+  1048→    t.j_torso = [L(t.j_torso[0], 0.17, k) + hit * 0.2, (t.j_torso[1] ?? 0) + shake * 0.08, 0];
+  1049→    t.j_kneeR = [t.j_kneeR[0] + 0.3 * k, 0, 0];
+  1050→    t.j_kneeL = [t.j_kneeL[0] + 0.34 * k, 0, 0];
+  1051→    this.inner.position.y -= 0.06 * k;
+  1052→  }
+  1053→
+  1054→  /** Fase 17 — the flying kick of the hook dash: a drop-kick silhouette
+  1055→   *  that reads at full speed — lead leg extended, body arched behind it,
+  1056→   *  arms tucked for the aerodynamics of a man who has made a mistake. */
+  1057→  private poseHookKick(t: PoseTarget): void {
+  1058→    // lead leg (right) drives the kick
+  1059→    t.j_hipR = [-1.62, 0.06, -0.06];
+  1060→    t.j_kneeR = [0.14, 0, 0];
+  1061→    t.j_ankleR = [0.55, 0, 0];
+  1062→    // trailing leg folded under
+  1063→    t.j_hipL = [0.62, 0, 0.1];
+  1064→    t.j_kneeL = [1.35, 0, 0];
+  1065→    t.j_ankleL = [0.4, 0, 0];
+  1066→    // body arched back, chest proud, chin up
+  1067→    t.j_torso = [-0.3, 0, 0];
+  1068→    t.j_head = [0.18, 0, 0];
+  1069→    // arms swept back like a diver
+  1070→    t.j_shoulderR = [0.85, 0, -0.55];
+  1071→    t.j_elbowR = [-0.5, 0, 0];
+  1072→    t.j_shoulderL = [0.7, 0, 0.6];
+  1073→    t.j_elbowL = [-0.45, 0, 0];
+  1074→    this.inner.position.y = 0;
+  1075→  }
+  1076→
+  1077→  /** Attack curves. attackT: 0→1 across the whole swing. */
+  1078→  private poseAttack(t: PoseTarget, k: number, kind: string, bowDraw: number): void {
+  1079→    const L = THREE.MathUtils.lerp;
+  1080→    const ease = (u: number) => u * u * (3 - 2 * u);
+  1081→    // Fase 22 — the AAA easing set:
+  1082→    //  · wuEase (quadratic-OUT): launches into the gather, then settles into
+  1083→    //    the hold. The windup reads as WEIGHT TRANSFER — anticipation — not a
+  1084→    //    linear wind-up clock.
+  1085→    //  · strikeEase (cubic-OUT): the blade EXPLODES out of the windup and
+  1086→    //    decelerates through the target. A whip, not a ramp.
+  1087→    const wuEase = (u: number) => 1 - (1 - u) * (1 - u);
+  1088→    const strikeEase = (u: number) => 1 - Math.pow(1 - u, 3);
+  1089→    if (kind === 'heavy') {
+  1090→      // overhead smash: windup up-back (0..0.42), slam (0.42..0.68), recover
+  1091→      if (k < 0.42) {
+  1092→        const u = wuEase(k / 0.42);
+  1093→        t.j_shoulderR = [L(0, -0.52, u), 0, L(0, -2.95, u)];
+  1094→        t.j_elbowR = [-0.6, 0, 0];
+  1095→        t.j_torso = [0.1, L(0, -0.5, u), 0];
+  1096→        t.j_head = [L(0, -0.3, u), 0, 0];
+  1097→        this.inner.position.y = -0.09 * u;
+  1098→      } else if (k < 0.68) {
+  1099→        const u = strikeEase((k - 0.42) / 0.26);
+  1100→        t.j_shoulderR = [L(-0.52, 1.08, u), 0, L(-2.95, -0.42, u)];
+  1101→        t.j_elbowR = [L(-0.6, -0.1, u), 0, 0];
+  1102→        // Fase 21 — the wrist WHIP of the overhead smash
+  1103→        t.j_wristR = [Math.sin(u * Math.PI) * -0.4, 0, 0];
+  1104→        t.j_torso = [L(0.1, 0.5, u), L(-0.5, 0.5, u), 0];
+  1105→        t.j_head = [L(-0.3, 0.34, u), 0, 0];
+  1106→        t.j_kneeR = [0.5 * u, 0, 0];
+  1107→        t.j_kneeL = [0.55 * u, 0, 0];
+  1108→        this.inner.position.y = -0.07 * (1 - u) - 0.05 * u;
+  1109→      } else {
+  1110→        const u = (k - 0.68) / 0.32;
+  1111→        t.j_shoulderR = [L(0.95, 0, u), 0, L(-0.35, -0.06, u)];
+  1112→        t.j_elbowR = [L(-0.1, -0.25, u), 0, 0];
+  1113→        t.j_torso = [L(0.42, 0.05, u), L(0.42, 0, u), 0];
+  1114→        t.j_head = [L(0.3, 0, u), 0, 0];
+  1115→        t.j_kneeR = [0.5 * (1 - u), 0, 0];
+  1116→        t.j_kneeL = [0.55 * (1 - u), 0, 0];
+  1117→        this.inner.position.y = -0.05 * (1 - u);
+  1118→      }
+  1119→      t.j_shoulderL = [-0.35, 0, 0.25];
+  1120→      t.j_elbowL = [-0.9, 0, 0];
+  1121→    } else if (kind === 'thrust') {
+  1122→      if (k < 0.35) {
+  1123→        const u = wuEase(k / 0.35);
+  1124→        t.j_shoulderR = [L(0, -0.58, u), 0, L(0, -0.18, u)];
+  1125→        t.j_elbowR = [L(0, -1.95, u), 0, 0];
+  1126→        t.j_torso = [0.08, L(0, 0.5, u), 0];
+  1127→        t.j_hipR = [L(0, 0.15, u), 0, 0];
+  1128→        this.inner.position.y = -0.03 * u;
+  1129→      } else if (k < 0.62) {
+  1130→        const u = strikeEase((k - 0.35) / 0.27);
+  1131→        t.j_shoulderR = [L(-0.58, -1.75, u), 0, L(-0.18, -0.05, u)];
+  1132→        t.j_elbowR = [L(-1.95, -0.05, u), 0, 0];
+  1133→        // Fase 21 — the wrist SNAP at full extension sells the pierce
+  1134→        t.j_wristR = [Math.sin(u * Math.PI) * -0.35, 0, 0];
+  1135→        t.j_torso = [0.16, L(0.4, -0.32, u), 0];
+  1136→        t.j_hipR = [L(0.15, -0.4, u), 0, 0];
+  1137→        t.j_kneeR = [0.25, 0, 0];
+  1138→      } else {
+  1139→        const u = (k - 0.62) / 0.38;
+  1140→        t.j_shoulderR = [L(-1.55, 0, u), 0, -0.05 * (1 - u)];
+  1141→        t.j_elbowR = [L(-0.05, -0.2, u), 0, 0];
+  1142→        t.j_wristR = [-0.1 * (1 - u), 0, 0];
+  1143→        t.j_torso = [L(0.16, 0.04, u), L(-0.32, 0, u), 0];
+  1144→        t.j_hipR = [L(-0.4, 0, u), 0, 0];
+  1145→      }
+  1146→      t.j_shoulderL = [-0.3, 0, 0.2];
+  1147→      t.j_elbowL = [-0.85, 0, 0];
+  1148→    } else if (kind === 'light2') {
+  1149→      // backhand: windup right, sweep across left
+  1150→      if (k < 0.35) {
+  1151→        const u = wuEase(k / 0.35);
+  1152→        t.j_shoulderR = [L(0, -2.05, u), 0, L(0, 0.68, u)];
+  1153→        t.j_torso = [0.08, L(0, 0.5, u), 0];
+  1154→        t.j_elbowR = [-0.3, 0, 0];
+  1155→      } else if (k < 0.75) {
+  1156→        const u = strikeEase((k - 0.35) / 0.4);
+  1157→        t.j_shoulderR = [L(-2.05, 0.62, u), 0, L(0.68, -1.05, u)];
+  1158→        t.j_torso = [0.12, L(0.5, -0.58, u), 0];
+  1159→        t.j_head = [0, L(0, -0.2, u), 0];
+  1160→        t.j_hipR = [-0.2 * u, 0, 0];
+  1161→      } else {
+  1162→        const u = (k - 0.75) / 0.25;
+  1163→        t.j_shoulderR = [L(0.5, 0, u), 0, L(-0.9, -0.06, u)];
+  1164→        t.j_torso = [L(0.12, 0.03, u), L(-0.5, 0, u), 0];
+  1165→        t.j_head = [0, L(-0.2, 0, u), 0];
+  1166→      }
+  1167→      t.j_elbowR = [-0.25, 0, 0];
+  1168→      t.j_shoulderL = [-0.35, 0, 0.22];
+  1169→      t.j_elbowL = [-0.9, 0, 0];
+  1170→    } else if (kind === 'bowRelease') {
+  1171→      // string snap: draw hand flies forward off the cheek
+  1172→      const u = Math.min(1, k * 2.2);
+  1173→      t.j_shoulderL = [-1.42, 0, 0.1];
+  1174→      t.j_elbowL = [-0.08, 0, 0];
+  1175→      t.j_shoulderR = [L(-1.4, -1.15, u), 0, -0.28];
+  1176→      t.j_elbowR = [L(-1.35, -0.15, u), 0, 0];
+  1177→      t.j_torso = [0.06, -0.24, 0];
+  1178→    } else {
+  1179→      // light1 — diagonal slash: windup up-right, cut down-left, recover
+  1180→      if (k < 0.34) {
+  1181→        const u = wuEase(k / 0.34);
+  1182→        t.j_shoulderR = [L(0, -2.45, u), 0, L(0, -0.95, u)];
+  1183→        t.j_torso = [0.08, L(0, -0.5, u), 0];
+  1184→        t.j_elbowR = [-0.5, 0, 0];
+  1185→        this.inner.position.y = -0.05 * u;
+  1186→      } else if (k < 0.74) {
+  1187→        const u = strikeEase((k - 0.34) / 0.4);
+  1188→        t.j_shoulderR = [L(-2.45, 0.68, u), 0, L(-0.95, 0.62, u)];
+  1189→        // Fase 21 — wrist FLICK: the blade whips through the cut (the hand
+  1190→        // leads, the steel snaps after — the signature of a living swing)
+  1191→        t.j_wristR = [Math.sin(u * Math.PI) * 0.45, 0, Math.sin(u * Math.PI) * -0.3];
+  1192→        t.j_torso = [L(0.08, 0.44, u), L(-0.5, 0.52, u), 0];
+  1193→        t.j_head = [0, L(0, 0.18, u), 0];
+  1194→        t.j_hipR = [-0.22 * u, 0, 0];
+  1195→        t.j_kneeR = [0.3 * u, 0, 0];
+  1196→        this.inner.position.y = -0.03 * (1 - u);
+  1197→      } else {
+  1198→        const u = (k - 0.74) / 0.26;
+  1199→        t.j_shoulderR = [L(0.55, 0, u), 0, L(0.5, -0.06, u)];
+  1200→        t.j_wristR = [0.18 * (1 - u), 0, -0.12 * (1 - u)];
+  1201→        t.j_torso = [L(0.38, 0.04, u), L(0.45, 0, u), 0];
+  1202→        t.j_head = [0, L(0.15, 0, u), 0];
+  1203→        t.j_hipR = [-0.22 * (1 - u), 0, 0];
+  1204→        t.j_kneeR = [0.3 * (1 - u), 0, 0];
+  1205→      }
+  1206→      t.j_elbowR = [-0.25, 0, 0];
+  1207→      t.j_shoulderL = [-0.3, 0, 0.2];
+  1208→      t.j_elbowL = [-0.85, 0, 0];
+  1209→    }
+  1210→    // free leg counter for balance on most attacks
+  1211→    if (kind === 'light1' || kind === 'light2') {
+  1212→      t.j_hipL = [0.1, 0, 0];
+  1213→      t.j_kneeL = [0.12, 0, 0];
+  1214→    }
+  1215→    // ----------------------------------------------------------- Fase 11
+  1216→    // — the cinematic set —
+  1217→    if (kind === 'sweep') {
+  1218→      // Fase 17 — the SPINNING SWEEP KICK (chain hit 3): a low arc that
+  1219→      // takes the ankles. The whole body pivots through it (inner yaw) while
+  1220→      // the lead leg scythes the deck.
+  1221→      const spin = (u: number) => THREE.MathUtils.lerp(0.5, -2.45, u);
+  1222→      if (k < 0.24) {
+  1223→        // coil: drop the weight, wind the torso
+  1224→        const u = wuEase(k / 0.24);
+  1225→        t.j_torso = [0.3 * u + 0.06, THREE.MathUtils.lerp(0, 0.5, u), 0];
+  1226→        t.j_hipR = [-0.25 * u, 0, 0];
+  1227→        t.j_kneeR = [1.05 * u, 0, 0];
+  1228→        t.j_hipL = [-0.15 * u, 0, 0];
+  1229→        t.j_kneeL = [0.35 * u, 0, 0];
+  1230→        this.inner.position.y = -0.16 * u;
+  1231→        this.inner.rotation.y = THREE.MathUtils.lerp(0, 0.5, u);
+  1232→      } else if (k < 0.66) {
+  1233→        // THE SWEEP: the pivot unloads, the leg scythes low
+  1234→        const u = strikeEase((k - 0.24) / 0.42);
+  1235→        t.j_torso = [0.36, THREE.MathUtils.lerp(0.5, -0.6, u), 0];
+  1236→        t.j_hipR = [THREE.MathUtils.lerp(-0.25, -1.35, u), 0, 0];
+  1237→        t.j_kneeR = [THREE.MathUtils.lerp(1.05, 0.1, u), 0, 0];
+  1238→        t.j_ankleR = [0.3, 0, 0];
+  1239→        t.j_hipL = [-0.35, 0, 0];
+  1240→        t.j_kneeL = [1.25, 0, 0];
+  1241→        this.inner.position.y = -0.24;
+  1242→        this.inner.rotation.y = spin(u);
+  1243→      } else {
+  1244→        // recover: rise out of the crouch, unwind
+  1245→        const u = (k - 0.66) / 0.34;
+  1246→        t.j_torso = [THREE.MathUtils.lerp(0.36, 0.05, u), THREE.MathUtils.lerp(-0.6, 0, u), 0];
+  1247→        t.j_hipR = [THREE.MathUtils.lerp(-1.35, 0, u), 0, 0];
+  1248→        t.j_kneeR = [THREE.MathUtils.lerp(0.1, 0.2, u), 0, 0];
+  1249→        t.j_hipL = [THREE.MathUtils.lerp(-0.35, 0, u), 0, 0];
+  1250→        t.j_kneeL = [THREE.MathUtils.lerp(1.25, 0.15, u), 0, 0];
+  1251→        this.inner.position.y = -0.24 * (1 - u);
+  1252→        this.inner.rotation.y = THREE.MathUtils.lerp(-2.45, -Math.PI * 2, u);
+  1253→      }
+  1254→      // arms: whipsaw counter-rotation
+  1255→      t.j_shoulderR = [-0.6, 0, -0.4];
+  1256→      t.j_elbowR = [-0.8, 0, 0];
+  1257→      t.j_shoulderL = [-0.5, 0, 0.55];
+  1258→      t.j_elbowL = [-0.7, 0, 0];
+  1259→      t.j_head = [-0.1, 0.2, 0];
+  1260→    } else if (kind === 'spin') {
+  1261→      // 360° horizontal sweep: coil left (0..0.3), whip around
+  1262→      // (0.3..0.72 — the torso drives the turn), settle the follow-through.
+  1263→      // Fase 17: the whole body rotates with it (inner yaw) — a true
+  1264→      // whirlwind, not a torso twist.
+  1265→      if (k < 0.3) {
+  1266→        const u = wuEase(k / 0.3);
+  1267→        t.j_shoulderR = [L(0, -1.15, u), 0, L(0, 1.05, u)];
+  1268→        t.j_elbowR = [-0.2, 0, 0];
+  1269→        t.j_torso = [0.06, L(0, 0.85, u), 0];
+  1270→        t.j_hipR = [0.12, 0, 0];
+  1271→        t.j_hipL = [-0.18, 0, 0];
+  1272→        this.inner.position.y = -0.05 * u;
+  1273→        this.inner.rotation.y = L(0, 0.55, u);
+  1274→      } else if (k < 0.72) {
+  1275→        const u = strikeEase((k - 0.3) / 0.42);
+  1276→        t.j_shoulderR = [L(-1.15, -1.05, u), 0, L(1.05, -1.15, u)];
+  1277→        t.j_elbowR = [L(-0.2, -0.08, u), 0, 0];
+  1278→        t.j_torso = [0.1, L(0.85, -0.95, u), 0];
+  1279→        t.j_head = [0, L(0.5, -0.55, u), 0];
+  1280→        t.j_hipR = [0.1, L(0.3, -0.35, u), 0];
+  1281→        t.j_hipL = [-0.1, L(-0.3, 0.35, u), 0];
+  1282→        t.j_kneeR = [0.35, 0, 0];
+  1283→        this.inner.position.y = -0.09;
+  1284→        this.inner.rotation.y = L(0.55, -3.6, u); // the full whirl
+  1285→      } else {
+  1286→        const u = (k - 0.72) / 0.28;
+  1287→        t.j_shoulderR = [L(-1.05, -0.2, u), 0, L(-1.15, -0.1, u)];
+  1288→        t.j_elbowR = [L(-0.08, -0.25, u), 0, 0];
+  1289→        t.j_torso = [L(0.1, 0.03, u), L(-0.95, 0, u), 0];
+  1290→        t.j_head = [0, L(-0.55, 0, u), 0];
+  1291→        t.j_hipR = [0, L(-0.35, 0, u), 0];
+  1292→        this.inner.position.y = -0.09 * (1 - u);
+  1293→        this.inner.rotation.y = L(-3.6, -Math.PI * 2, u);
+  1294→      }
+  1295→      t.j_shoulderL = [-0.75, 0, 0.5];
+  1296→      t.j_elbowL = [-0.7, 0, 0];
+  1297→    } else if (kind === 'uppercut') {
+  1298→      // rising slash: coil low (0..0.38), launch upward (0.38..0.66),
+  1299→      // the body rides the rising blade
+  1300→      if (k < 0.38) {
+  1301→        const u = wuEase(k / 0.38);
+  1302→        t.j_shoulderR = [L(0, -0.9, u), 0, L(0, 0.85, u)];
+  1303→        t.j_elbowR = [L(0, -1.5, u), 0, 0];
+  1304→        t.j_torso = [L(0, 0.5, u), L(0, 0.55, u), 0];
+  1305→        t.j_kneeR = [0.85 * u, 0, 0];
+  1306→        t.j_kneeL = [0.7 * u, 0, 0];
+  1307→        this.inner.position.y = -0.22 * u;
+  1308→      } else if (k < 0.66) {
+  1309→        const u = strikeEase((k - 0.38) / 0.28);
+  1310→        t.j_shoulderR = [L(-0.9, -2.6, u), 0, L(0.85, -0.15, u)];
+  1311→        t.j_elbowR = [L(-1.5, -0.12, u), 0, 0];
+  1312→        t.j_torso = [L(0.5, -0.38, u), L(0.55, -0.5, u), 0];
+  1313→        t.j_head = [L(0, -0.4, u), 0, 0];
+  1314→        t.j_hipR = [L(0, -0.3, u), 0, 0];
+  1315→        this.inner.position.y = L(-0.22, 0.1, u);
+  1316→      } else {
+  1317→        const u = (k - 0.66) / 0.34;
+  1318→        t.j_shoulderR = [L(-2.6, -0.3, u), 0, L(-0.15, -0.06, u)];
+  1319→        t.j_elbowR = [L(-0.12, -0.3, u), 0, 0];
+  1320→        t.j_torso = [L(-0.38, 0.04, u), L(-0.5, 0, u), 0];
+  1321→        t.j_head = [L(-0.4, 0, u), 0, 0];
+  1322→        this.inner.position.y = L(0.1, 0, u);
+  1323→      }
+  1324→      t.j_shoulderL = [-0.4, 0, 0.35];
+  1325→      t.j_elbowL = [-0.8, 0, 0];
+  1326→    } else if (kind === 'plunge') {
+  1327→      // the falling spear: sword aimed straight down, body arched above it.
+  1328→      // (Player drives the dive; this pose sells the read from any angle)
+  1329→      const u = Math.min(1, k * 3);
+  1330→      t.j_shoulderR = [L(0, -2.9, u), 0, 0];
+  1331→      t.j_elbowR = [L(0, -0.06, u), 0, 0];
+  1332→      t.j_shoulderL = [L(0, -1.4, u), 0, 0.55];
+  1333→      t.j_elbowL = [L(0, -1.1, u), 0, 0];
+  1334→      t.j_torso = [L(0, -0.24, u), 0, 0];
+  1335→      t.j_head = [L(0, 0.5, u), 0, 0];
+  1336→      t.j_hipR = [-0.5, 0, 0];
+  1337→      t.j_hipL = [-0.35, 0, 0];
+  1338→      t.j_kneeR = [1.15, 0, 0];
+  1339→      t.j_kneeL = [0.9, 0, 0];
+  1340→      t.j_ankleR = [0.5, 0, 0];
+  1341→      this.inner.position.y = 0.06 * u;
+  1342→    } else if (kind === 'aircut') {
+  1343→      // floating air slash: a tight horizontal figure-eight — quick out,
+  1344→      // quick back, body banked like it is carving the air
+  1345→      if (k < 0.3) {
+  1346→        const u = wuEase(k / 0.3);
+  1347→        t.j_shoulderR = [L(0, -2.3, u), 0, L(0, -0.7, u)];
+  1348→        t.j_elbowR = [-0.3, 0, 0];
+  1349→        t.j_torso = [0.1, L(0, -0.5, u), 0];
+  1350→      } else if (k < 0.68) {
+  1351→        const u = strikeEase((k - 0.3) / 0.38);
+  1352→        t.j_shoulderR = [L(-2.3, 0.35, u), 0, L(-0.7, 0.85, u)];
+  1353→        t.j_elbowR = [L(-0.3, -0.1, u), 0, 0];
+  1354→        t.j_torso = [0.14, L(-0.5, 0.55, u), 0];
+  1355→        t.j_head = [0, L(0, 0.2, u), 0];
+  1356→        t.j_hipR = [-0.25 * u, 0, 0];
+  1357→        t.j_kneeR = [0.4 * u, 0, 0];
+  1358→      } else {
+  1359→        const u = (k - 0.68) / 0.32;
+  1360→        t.j_shoulderR = [L(0.35, -0.2, u), 0, L(0.85, -0.08, u)];
+  1361→        t.j_elbowR = [L(-0.1, -0.25, u), 0, 0];
+  1362→        t.j_torso = [L(0.14, 0.04, u), L(0.55, 0, u), 0];
+  1363→      }
+  1364→      t.j_shoulderL = [-0.45, 0, 0.4];
+  1365→      t.j_elbowL = [-0.6, 0, 0];
+  1366→      t.j_kneeL = [0.2, 0, 0];
+  1367→    }
+  1368→  }
+  1369→
+  1370→  // ------------------------------------------------------------ Fase 22 — cape
+  1371→
+  1372→  /**
+  1373→   * THE CAPE CLOTH LAYER — spring-damper secondary motion for the cloak.
+  1374→   *
+  1375→   * Two chain bones (j_cape1 shoulder-line, j_cape2 mid-panel) are skinned to
+  1376→   * the real cape sheet of the GLB. Every frame we drive them from the
+  1377→   * character's motion state: the cape streams back at a run, billows in
+  1378→   * long falls, tucks on the rise, trails flat in the water, lags a beat
+  1379→   * behind turns, and answers the coil-whip of an attack with a pulse.
+  1380→   * j_cape1 is a stiff spring (settles fast); j_cape2 follows cape1 with a
+  1381→   * beat of lag and more overshoot — the wave travels down the fabric.
+  1382→   */
+  1383→  private updateCape(p: AnimParams, dt: number): void {
+  1384→    if (!this.capeBone1 || !this.capeBone2) return;
+  1385→    const sm = (x: number, lo: number, hi: number) => THREE.MathUtils.smoothstep(x, lo, hi);
+  1386→    const clamp = THREE.MathUtils.clamp;
+  1387→    const speed = this.speedSm;
+  1388→    const vy = p.vy ?? 0;
+  1389→    const yawRate = p.yawRate ?? 0;
+  1390→
+  1391→    // idle flutter: two sines, quiet at speed (the air is doing the talking)
+  1392→    const flutter = (Math.sin(this.t * 3.1) * 0.028 + Math.sin(this.t * 7.7) * 0.014)
+  1393→      * (1 - Math.min(1, speed / 5.2));
+  1394→
+  1395→    // pitch target: hang → stream back at a run → flare in long falls
+  1396→    let pitch = 0.05
+  1397→      + sm(speed, 0.6, 6.4) * 0.44        // streams back at a run
+  1398→      + (vy < -3 ? Math.min(0.38, (-vy - 3) * 0.05) : 0)  // skydive flare
+  1399→      - (vy > 3 ? 0.10 : 0)               // tucked on the rise of a jump
+  1400→      + (p.swimming ? 0.5 : 0)            // trails flat in the water
+  1401→      + flutter;
+  1402→    // the coil-whip of a swing shoves the fabric back through the cut
+  1403→    if (p.attackT > 0) pitch += Math.sin(Math.min(1, p.attackT) * Math.PI) * 0.16;
+  1404→    pitch = clamp(pitch, -0.15, 1.05);
+  1405→
+  1406→    // yaw target: the cape lags the turn (counter-rotation = secondary action)
+  1407→    const yawT = clamp(-yawRate * 0.055, -0.30, 0.30) + flutter * 0.4;
+  1408→
+  1409→    // integrate: critically-snappy springs, cape1 stiff / cape2 loose
+  1410→    const spring = (st: { r: number[]; v: number[] }, tx: number, ty: number, K: number, D: number) => {
+  1411→      for (let a = 0; a < 2; a++) {
+  1412→        const target = a === 0 ? tx : ty;
+  1413→        const acc = (target - st.r[a]) * K - st.v[a] * D;
+  1414→        st.v[a] += acc * dt;
+  1415→        st.r[a] = clamp(st.r[a] + st.v[a] * dt, -0.5, 1.2);
+  1416→      }
+  1417→    };
+  1418→    spring(this.cape1st, pitch, yawT, 26, 8.0);
+  1419→    // cape2 chases cape1's CURRENT pose ×1.28 — the wave travels down the hem
+  1420→    spring(this.cape2st, this.cape1st.r[0] * 1.28 + 0.03, this.cape1st.r[1] * 1.35 + flutter * 0.5, 11, 4.2);
+  1421→
+  1422→    this.capeBone1.rotation.set(this.cape1st.r[0], this.cape1st.r[1], 0);
+  1423→    this.capeBone2.rotation.set(this.cape2st.r[0], this.cape2st.r[1], 0);
+  1424→  }
+  1425→
+  1426→  // ------------------------------------------------------------ apply
+  1427→
+  1428→  /** Write target eulers onto the bones. `direct` skips damping (attacks,
+  1429→   * rolls, swims) so the curves stay crisp. */
+  1430→  private apply(target: PoseTarget, dt: number, direct: boolean): void {
+  1431→    for (const name of BONE_NAMES) {
+  1432→      const b = this.bones.get(name);
+  1433→      if (!b) continue;
+  1434→      const tv = target[name];
+  1435→      if (!tv) continue;
+  1436→      if (direct) {
+  1437→        b.rotation.set(tv[0], tv[1], tv[2]);
+  1438→      } else {
+  1439→        const c = this.cur[name] ?? [0, 0, 0] as Euler3;
+  1440→        c[0] = damp(c[0], tv[0], 14, dt);
+  1441→        c[1] = damp(c[1], tv[1], 14, dt);
+  1442→        c[2] = damp(c[2], tv[2], 14, dt);
+  1443→        this.cur[name] = c;
+  1444→        b.rotation.set(c[0], c[1], c[2]);
+  1445→      }
+  1446→      if (direct) this.cur[name] = [tv[0], tv[1], tv[2]];
+  1447→    }
+  1448→  }
+  1449→
+  1450→  dispose(): void {
+  1451→    if (this.isVillager) {
+  1452→      // Villager clones SHARE geometry with the player's knight (SkeletonUtils
+  1453→      // clone) — only the per-instance headwear may be freed.
+  1454→      this.root.traverse((o) => {
+  1455→        const mesh = o as THREE.Mesh;
+  1456→        if (mesh.isMesh && mesh.userData.villagerProp) {
+  1457→          mesh.geometry?.dispose();
+  1458→          const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+  1459→          for (const m of mats) (m as THREE.Material).dispose();
+  1460→        }
+  1461→      });
+  1462→      return;
+  1463→    }
+  1464→    this.root.traverse((o) => {
+  1465→      const mesh = o as THREE.Mesh;
+  1466→      if (mesh.isMesh) {
+  1467→        mesh.geometry?.dispose();
+  1468→        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+  1469→        for (const m of mats) (m as THREE.Material).dispose();
+  1470→      }
+  1471→    });
+  1472→  }
+  1473→}
+  1474→

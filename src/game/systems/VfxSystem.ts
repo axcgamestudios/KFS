@@ -25,9 +25,20 @@ export class VfxSystem {
   private tmp = new THREE.Vector3();
   private tmp2 = new THREE.Vector3();
 
+  // ---- Fase 22 — SLASH ARCS: pooled swept-plane ribbons (the wake of a
+  // blade through its cut). One quad per emitted sample; consecutive
+  // samples composite into the full arc of the swing. ----
+  private static readonly ARC_POOL = 20;
+  private arcMeshes: THREE.Mesh[] = [];
+  private arcMats: THREE.MeshBasicMaterial[] = [];
+  private arcLife: number[] = [];
+  private arcCursor = 0;
+  private arcScene: THREE.Scene | null = null;
+
   constructor(scene: THREE.Scene) {
     // Fase 7 — real shader flames live in the shared FlameFX singleton
     getFlameFX(scene);
+    this.arcScene = scene;
     this.embers = new SpritePool(scene, 50, 'rgba(255,200,90,1)', true);
     this.smoke = new SpritePool(scene, 40, 'rgba(40,36,34,0.85)', false);
     this.sparks = new SpritePool(scene, 48, 'rgba(255,230,160,1)', true);
@@ -219,6 +230,66 @@ export class VfxSystem {
     }
   }
 
+  // ------------------------------------------------------------ Fase 22 — arcs
+
+  /** THE SLASH ARC — emit one ribbon of the swept plane between the blade's
+   *  previous sample and its current one (grip + tip). Called every frame
+   *  inside a swing's strike window; the ribbons composite into the visible
+   *  wake of the cut. White-hot at launch, gold as it fades. */
+  slashArc(prevGrip: THREE.Vector3, prevTip: THREE.Vector3, grip: THREE.Vector3, tip: THREE.Vector3): void {
+    if (!this.arcMeshes.length) this.initArcs();
+    if (prevTip.distanceToSquared(tip) < 9e-4) return; // < 3 cm of sweep
+    this.arcCursor = (this.arcCursor + 1) % VfxSystem.ARC_POOL;
+    const i = this.arcCursor;
+    const pos = (this.arcMeshes[i].geometry as THREE.BufferGeometry).getAttribute('position') as THREE.BufferAttribute;
+    pos.setXYZ(0, prevGrip.x, prevGrip.y, prevGrip.z);
+    pos.setXYZ(1, prevTip.x, prevTip.y, prevTip.z);
+    pos.setXYZ(2, tip.x, tip.y, tip.z);
+    pos.setXYZ(3, grip.x, grip.y, grip.z);
+    pos.needsUpdate = true;
+    (this.arcMeshes[i].geometry as THREE.BufferGeometry).computeBoundingSphere();
+    this.arcLife[i] = 0.17;
+    this.arcMeshes[i].visible = true;
+    this.arcMats[i].opacity = 0.55;
+  }
+
+  private initArcs(): void {
+    for (let i = 0; i < VfxSystem.ARC_POOL; i++) {
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(12), 3));
+      geo.setIndex([0, 1, 2, 0, 2, 3]);
+      const mat = new THREE.MeshBasicMaterial({
+        color: 0xfff3cf,
+        transparent: true,
+        opacity: 0,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        toneMapped: false,
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.frustumCulled = true;
+      mesh.visible = false;
+      mesh.renderOrder = 5;
+      if (this.arcScene) this.arcScene.add(mesh);
+      this.arcMeshes.push(mesh);
+      this.arcMats.push(mat);
+      this.arcLife.push(0);
+    }
+  }
+
+  private updateArcs(dt: number): void {
+    for (let i = 0; i < this.arcMeshes.length; i++) {
+      if (this.arcLife[i] <= 0) continue;
+      this.arcLife[i] -= dt;
+      const k = Math.max(0, this.arcLife[i]) / 0.17;
+      this.arcMats[i].opacity = 0.55 * k * k;
+      // cool white → gold as it dies
+      this.arcMats[i].color.setRGB(1, 0.95 - (1 - k) * 0.35, 0.82 - (1 - k) * 0.5);
+      if (this.arcLife[i] <= 0) this.arcMeshes[i].visible = false;
+    }
+  }
+
   /** Grab one of the shared point lights for a moment (fire glow). */
   private borrowLight(pos: THREE.Vector3, intensity: number, time: number): void {
     if (!gfxRuntime.pointLights) return; // Fase 13 — luces realistas OFF
@@ -237,6 +308,7 @@ export class VfxSystem {
 
   update(dt: number): void {
     getFlameFX().update(); // frame-guarded: safe alongside TorchSystem's call
+    this.updateArcs(dt);
     this.embers.update(dt);
     this.smoke.update(dt);
     this.sparks.update(dt);

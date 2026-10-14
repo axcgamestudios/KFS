@@ -417,6 +417,7 @@ export class AudioSystem {
     | 'roar' | 'roar_big' | 'wing' | 'wing_big' | 'thud' | 'fire' | 'hit_scale'
     | 'block' | 'bow_draw' | 'bow_release' | 'arrow_hit' | 'stagger' | 'boss_die' | 'swap'
     | 'hoof' | 'hoof_gallop' | 'horse_neigh' | 'chain' | 'thunder' | 'rain_start' | 'cart_rattle' | 'ending'
+    | 'forge' | 'eclipse'
   ): void {
     switch (kind) {
       case 'discovery':
@@ -524,6 +525,21 @@ export class AudioSystem {
         this.tone(880 + Math.random() * 200, 0.22, 0.08, 'triangle', 500);
         this.tone(2200, 0.12, 0.035, 'sine', 1500);
         this.noiseBurst({ freq: 3000, q: 1.8, type: 'highpass', dur: 0.16, gain: 0.06 });
+        break;
+      case 'forge':
+        // Fase 22 — the Great Anvil: hammer fall + the long metallic ring
+        // that carries across the village (strike, partial, overtone tail)
+        this.tone(196, 0.09, 0.16, 'square', 90);
+        this.noiseBurst({ freq: 2400, q: 1.2, type: 'highpass', dur: 0.08, gain: 0.1 });
+        this.tone(1170, 1.5, 0.075, 'sine', 700);
+        this.tone(2790, 1.1, 0.028, 'sine', 900);
+        break;
+      case 'eclipse':
+        // Fase 22 — the sun closes: a low choir of detuned fifths sliding down
+        this.tone(110, 2.6, 0.1, 'sine', 60);
+        this.tone(164.8, 2.4, 0.07, 'sine', 80);
+        this.tone(220, 2.0, 0.05, 'triangle', 110);
+        this.noiseBurst({ freq: 500, q: 0.6, type: 'lowpass', dur: 1.8, gain: 0.05 });
         break;
       case 'bow_draw':
         this.noiseBurst({ freq: 1200, q: 2.2, dur: 0.35, gain: 0.05 });

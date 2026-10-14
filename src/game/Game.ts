@@ -28,6 +28,7 @@ import { PirateAmbushSystem } from './systems/PirateAmbushSystem';
 import { CombatSystem, WEAPONS, SWORD_TIER_NAMES, SWORD_PRIORITY, swordElementOf } from './systems/CombatSystem';
 import { DragonManager } from './systems/DragonManager';
 import { BanditSystem } from './systems/BanditSystem';
+import { ForgeSystem } from './systems/ForgeSystem';
 import type { Dragon } from './entities/Dragon';
 import { CinematicSystem, type CineShot } from './systems/CinematicSystem';
 import { walkActor, heroSalute, idleActor, faceTarget } from './systems/CineActors';
@@ -126,6 +127,8 @@ export class Game {
   private endings?: EndingSystem;
   /** Fase 10 — red knight bandits patrolling road camps. */
   private bandits?: BanditSystem;
+  /** Fase 22 — THE FORGE OF LEGENDS: recipes, stations and the eclipse. */
+  private forge?: ForgeSystem;
   /** Fase 15 — sea serpents + the King of the Sea (Navel of the Sea arena). */
   private seaBeasts?: SeaBeastSystem;
   /** Fase 15 — random pirate ambushes on the high seas + toll negotiation. */
@@ -213,10 +216,13 @@ export class Game {
     });
 
     // Escape while playing without pointer lock → pause as well
+    // (but never while a panel owns the screen: overlays, dialogue, the
+    // merchant's shop, the forge station, a toll negotiation — their own
+    // ESC handlers close them instead)
     window.addEventListener('keydown', (e) => {
       if (e.code !== 'Escape') return;
       const s = useGameStore.getState();
-      if (s.phase === 'playing' && !s.overlay && !s.dialogue) {
+      if (s.phase === 'playing' && !s.overlay && !s.dialogue && !s.shop && !s.forge && !s.negotiation) {
         this.pause();
       }
     });
@@ -453,6 +459,19 @@ export class Game {
       this.bandits?.damage(bandit, amount, false);
     };
     this.combat.terrainHeightRef = (x, z) => world.terrainHeight.height(x, z);
+    // Fase 22 — THE FORGE wiring: bandit DoT statuses (burn/poison finally
+    // bite), radial queries for ember patches + mythic actives, the daylight
+    // factor for Apollo's blessing, and the rain the Tide-Steel drinks
+    this.combat.banditStatusRef = (bandit, kind, dur) => this.bandits?.applyStatus(bandit, kind, dur);
+    this.combat.banditsInRadiusRef = (pos, r) =>
+      this.bandits ? this.bandits.banditsInRadius(pos, r) : [];
+    this.combat.dayFactorRef = () => {
+      const w = this.world;
+      if (!w) return 0;
+      const f = w.sky.dayFraction;
+      return f > 0.25 && f < 0.78 ? 1 : 0; // daylight window
+    };
+    this.combat.isRainingRef = () => (this.world?.weather.kind === 'rain' || this.world?.weather.kind === 'storm');
     // Fase 9 — combat camera punch: parries/counters/finishers kick the FOV
     this.combat.onCameraPunch = (i) => this.rig?.punch(i);
     // Fase 11 — hit-stop (a slow-mo beat on decisive blows) + HUD fight labels
@@ -590,8 +609,22 @@ export class Game {
         hitStop: (dur) => { this.hitStopT = Math.max(this.hitStopT, dur); },
         // Fase 12 — bounty counters + KILL STREAK dopamine
         onBanditKilled: (captain) => this.registerCombatKill(captain ? 'CAPTAIN DOWN!' : ''),
+        // Fase 22 — THE FORGE: legend loot + persistence + the boss bar
+        addItem: (id, count) => this.state.addItem(id, count),
+        hasFlag: (flag) => this.state.hasFlag(flag),
+        setFlag: (flag) => this.state.setFlag(flag),
+        bossHud: (s) => useGameStore.getState().setBoss(s),
       },
     );
+
+    // --- Fase 22 — THE FORGE OF LEGENDS: the crafting engine ---
+    this.forge = new ForgeSystem(this.state, {
+      notify: (kind: 'info' | 'item' | 'quest', title: string, body?: string) =>
+        useGameStore.getState().notify(kind, title, body),
+      sound: (id: Parameters<typeof this.audio.playEvent>[0]) => this.audio.playEvent(id),
+      sparks: (pos: THREE.Vector3) => this.vfx?.blockSparks(pos.clone().add(new THREE.Vector3(0, 1.0, 0))),
+      cameraShake: (i: number) => { this.shakeT = Math.max(this.shakeT, i); },
+    });
 
     // Fase 12 — AMBUSHES: gathering quest materials can wake the red
     // knights. Not every pickup — the threat must stay a surprise.
@@ -629,6 +662,23 @@ export class Game {
     this.player.onDoubleJump = () => {
       this.rig?.punch(0.42);
       this.audio.playEvent('swing');
+    };
+
+    // Fase 22 — ARMADURA ANCESTRAL: Draconic Retribution — melee wounds to
+    // the titan-skin answer with a burning shockwave around the wearer
+    this.player.onRetaliation = (fromX, fromZ) => {
+      const p = this.player!;
+      const at = new THREE.Vector3(p.position.x, p.position.y + 1.0, p.position.z);
+      this.vfx?.elementalBurst(at, 'fire');
+      this.vfx?.firePuff(at, 1.6);
+      this.audio.playEvent('fire');
+      if (this.bandits) {
+        for (const h of this.bandits.banditsInRadius(at, 3.2)) {
+          this.bandits.damage(h.bandit, 26, false);
+          this.bandits.applyStatus(h.bandit, 'burn', 2.5);
+        }
+      }
+      void fromX; void fromZ;
     };
 
     for (const def of world.npcDefs) {
@@ -988,6 +1038,103 @@ export class Game {
     addLore('stones_center', -140, -260, 'Touch the stone altar');
     addLore('tower_door', 300, 64.2, 'Inspect the walled-up door');
     addLore('ship_colibri', w.village.shipDeck.x, w.village.shipDeck.z, 'Gaze at the Sea Hummingbird');
+
+    // --- Fase 22 — THE FORGE OF LEGENDS: the three stations ---
+    // The panel is data-driven: recipes gate on materials + gold (and the
+    // eclipse for Apollo), never on the UI's word.
+    const FORGE_PROMPTS: Record<string, string> = {
+      anvil: 'Work the Great Anvil',
+      altar: 'Kneel at the Altar of the Gods',
+      titans: 'Approach the Anvil of the Titans',
+    };
+    for (const [station, pos] of Object.entries(w.forgeStations)) {
+      if (station === 'firstLight') continue;
+      w.interactables.push({
+        id: `forge_${station}`,
+        pos: pos.clone(),
+        radius: 3.2,
+        prompt: FORGE_PROMPTS[station] ?? 'Use the forge station',
+        available: () => true,
+        run: () => {
+          if (!this.forge) return;
+          // release the pointer so the panel's buttons are clickable (the
+          // panel's ESC/close path re-locks through clickResumeHint)
+          this.input.releaseLock();
+          useGameStore.getState().setForge({ station: station as 'anvil' | 'altar' | 'titans' });
+        },
+      });
+    }
+
+    // --- Fase 22 — THE FIRST LIGHT CACHE (old lighthouse): the sun essence ---
+    {
+      const fl = w.forgeStations.firstLight;
+      w.interactables.push({
+        id: 'first_light_cache',
+        pos: fl.clone(),
+        radius: 2.4,
+        get prompt() {
+          return state.hasFlag('first_light_taken') ? '' : 'Open the First Light cache';
+        },
+        available: () => !state.hasFlag('first_light_taken'),
+        run: () => {
+          if (state.hasFlag('first_light_taken')) return;
+          state.setFlag('first_light_taken');
+          state.addItem('esencia_solar', 1);
+          state.giveXp(60);
+          audio.playEvent('chest');
+          this.vfx?.blockSparks(fl.clone().add(new THREE.Vector3(0, 0.9, 0)));
+          this.dialogue.startLore('The First Light', [
+            'Under a film of dust that has never once been disturbed, a bead of morning hangs in a cradle of gold wire. It does not light the room — it lights the ROOM THE ROOM IS IN.',
+            'The lighthouse keepers called it "the wick of the world". The last one wrote, on the lid: "For the Altar, when the sky is needed."',
+            'Primal Sun Essence taken. Present it at the Altar of the Gods, in the Circle of Vigils.',
+          ]);
+        },
+      });
+    }
+
+    // --- Fase 22 — THE ANCESTOR'S HOARD: after Vaelyx falls, the nest can be
+    //     searched once a day for scales, frozen blood… and RARELY the
+    //     Crown of Primal Antlers ("one in a hundred times… come back, and
+    //     back, and back" — the loop the lore promises). ---
+    {
+      const nest = w.forgeStations.titans;
+      w.interactables.push({
+        id: 'hoard_ancestor',
+        pos: nest.clone().add(new THREE.Vector3(0, 0, 3.4)),
+        radius: 3.0,
+        get prompt() {
+          if (!state.hasFlag('ancestro_dead')) return '';
+          const today = Math.floor(useGameStore.getState().dayCount ?? 0);
+          return state.hasFlag(`hoard_day_${today}`)
+            ? 'The hoard has been picked clean today'
+            : 'Search the hoard of the Ancestor';
+        },
+        available: () => state.hasFlag('ancestro_dead'),
+        run: () => {
+          const today = Math.floor(useGameStore.getState().dayCount ?? 0);
+          if (state.hasFlag(`hoard_day_${today}`)) {
+            useGameStore.getState().notify('info', 'Picked clean', 'The coins have not had time to grow back. Return tomorrow.');
+            return;
+          }
+          state.setFlag(`hoard_day_${today}`);
+          audio.playEvent('chest');
+          // 18% the antlers; otherwise a consolation of scales and blood
+          if (Math.random() < 0.18) {
+            state.addItem('corona_astas', 1);
+            state.giveXp(50);
+            useGameStore.getState().notify('quest', 'THE CROWN OF PRIMAL ANTLERS',
+              'Deep under the frozen coins, a crown of antlers that never stopped growing. The Anvil of the Titans is waiting.');
+          } else {
+            const scales = 1 + Math.floor(Math.random() * 2);
+            state.addItem('escama_ancestral', scales);
+            if (Math.random() < 0.5) state.addItem('placa_sangre', 1);
+            state.giveXp(15);
+            useGameStore.getState().notify('item', 'From the hoard',
+              `${scales} × Ancestral Dragonscale${Math.random() < 0.5 ? ' and a plate of frozen blood' : ''}. The antlers are still out there — come back, and back, and back.`);
+          }
+        },
+      });
+    }
 
     // ===================== FASE 4 interactables =====================
     const f4 = w.fase4;
@@ -1853,6 +2000,25 @@ export class Game {
   /** Central player-damage router (dragons, fire, …) with block support. */
   private applyPlayerDamage(dmg: number, fromX?: number, fromZ?: number, reason?: string, opts?: { unblockable?: boolean }): number {
     const p = this.player!;
+    // ---- Fase 22 — elemental armor passives (the desc contract) ----
+    // · STORMPLATE: drinks a tenth of any lightning and pays you in breath
+    // · DRAKE-SCALE: the cold cannot bite, burns lose half their fury
+    // · ANCESTRAL: immune to burning outright (Skin of the Titan)
+    const armor = this.state.equippedArmor;
+    if (armor) {
+      const isShock = !!reason && /shock|lightning|storm|ronin/i.test(reason);
+      const isFire = !!reason && /fire|burn|flame|dragon/i.test(reason);
+      if (armor === 'coraza_tormenta' && isShock) {
+        dmg *= 0.9;
+        p.stamina = Math.min(p.stats.maxStamina, p.stamina + 15);
+      } else if (armor === 'coraza_cria' && isFire) {
+        dmg *= 0.5;
+      } else if (armor === 'coraza_cria' && !!reason && /frost|freeze|ice/i.test(reason)) {
+        dmg = 0;
+      } else if (armor === 'armadura_ancestral' && isFire) {
+        dmg = 0;
+      }
+    }
     const lost = p.takeHit(dmg, fromX, fromZ, opts);
     if (lost > 0) {
       this.audio.playEvent('damage');
@@ -1863,12 +2029,43 @@ export class Game {
     return lost;
   }
 
+  // Fase 22 — slash-arc sampling state (the swept ribbon of each cut)
+  private arcScratchGrip = new THREE.Vector3();
+  private arcScratchTip = new THREE.Vector3();
+  private arcPrevGrip = new THREE.Vector3();
+  private arcPrevTip = new THREE.Vector3();
+  private arcPrevValid = false;
+
+  /** Fase 22 — THE SLASH ARC TICK: while a melee swing is inside its strike
+   *  window, sample the blade (grip + tip) every frame and emit the swept
+   *  ribbon between consecutive samples. The ribbons composite into the
+   *  visible wake of the cut — the cinematic read of a live swing. */
+  private slashArcTick(dt: number): void {
+    const p = this.player;
+    if (!p || !this.vfx) return;
+    const km = p.model as KnightModelGLB;
+    const inStrike = p.attackT > 0 && p.attackT > 0.28 && p.attackT < 0.85;
+    if (!inStrike) { this.arcPrevValid = false; return; }
+    if (typeof km.weaponTipWorld !== 'function' || typeof km.weaponHandWorld !== 'function') return;
+    const hasGrip = km.weaponHandWorld(this.arcScratchGrip);
+    const hasTip = km.weaponTipWorld(this.arcScratchTip);
+    if (!hasGrip || !hasTip) { this.arcPrevValid = false; return; }
+    if (this.arcPrevValid) {
+      this.vfx.slashArc(this.arcPrevGrip, this.arcPrevTip, this.arcScratchGrip, this.arcScratchTip);
+    }
+    this.arcPrevGrip.copy(this.arcScratchGrip);
+    this.arcPrevTip.copy(this.arcScratchTip);
+    this.arcPrevValid = true;
+  }
+
   private updatePlaying(dt: number, store: ReturnType<typeof useGameStore.getState>): void {
     const w = this.world!;
     const p = this.player!;
     const rig = this.rig!;
     const naval = this.naval!;
     const dialogueActive = !!store.dialogue;
+    // Fase 22 — any screen-owning panel freezes the hero (shop/forge/toll)
+    const panelActive = dialogueActive || !!store.shop || !!store.forge || !!store.negotiation;
     const sailing = naval.playerSailing && !!naval.activeShip;
     const riding = !!this.mounts?.ridingId;
     // Fase 15 — dragon riding (admin spawns): the hero holds the reins
@@ -1961,11 +2158,29 @@ export class Game {
       dt, p.position, !this.dead && !rig.freeCam, sailing,
       sailing && naval.activeShip ? naval.activeShip.pos : null,
     );
+    // Fase 22 — the slash arc rides just before the VFX pool update
+    this.slashArcTick(dt);
     this.vfx?.update(dt);
 
     // --- Fase 10: red knight bandits (AI frozen during cinematics/dialogue) ---
     if (!cine && !this.endings?.isPlaying) {
       this.bandits?.update(dt, p.position, !this.dead && !dialogueActive && !sailing && !rig.freeCam);
+    }
+
+    // --- Fase 22 — THE FORGE: eclipse tick + armor passive sync ---
+    if (this.forge) {
+      this.forge.update(dt);
+      const eclipse = this.forge.eclipseFactor;
+      // the eclipse owns the sky: the light dims to a bruised twilight and
+      // the sun glows like a ring of fire (mirrored to the HUD countdown)
+      w.sky.eclipseFactor = eclipse;
+      useGameStore.getState().setEclipseLeft(this.forge.eclipseLeft);
+      // armor passives: the equipped piece's tag rides the Player
+      const armorId = this.state.equippedArmor;
+      p.armorPassive = armorId ?? '';
+      // the Shadow Dō: enemies see you 20% later at night or in fog
+      const nightOrFog = w.sky.dayFraction < 0.22 || w.sky.dayFraction > 0.8 || w.weather.fogMul > 1.5;
+      this.bandits?.setDetectionMult(armorId === 'do_sombras' && nightOrFog ? 0.8 : 1);
     }
 
     // --- Fase 11 — combat framing: the rig widens while enemies are hot ---
@@ -2136,8 +2351,11 @@ export class Game {
         this.mounts?.update(dt, this.input, p.position, false, (x, z) => w.water.waveHeightAt(x, z));
         this.ridingGait = '';
         this.combat!.setCameraYaw(rig.yawForward);
-        this.combat!.update(dt, this.input, dialogueActive, this.dead, this.interactionPromptActive);
-        p.update(dt, this.input, rig.yawForward, w.terrainHeight, this.colliders, dialogueActive || this.dead);
+        this.combat!.update(dt, this.input, panelActive, this.dead, this.interactionPromptActive);
+        p.update(dt, this.input, rig.yawForward, w.terrainHeight, this.colliders,
+          // frozen: dialogue, death, or any panel that owns the screen
+          // (Fase 22 fix: the shop/forge panels no longer let you walk away)
+          panelActive || this.dead);
         // Whistle: the owned horse trots over
         if (!dialogueActive && this.input.anyPressed('KeyH') && this.state.hasFlag('tormenta_gifted')) {
           this.mounts!.whistle(p.position);
@@ -3335,6 +3553,44 @@ export class Game {
     gameApi.negotiateChoice = (option) => {
       this.pirateAmbush?.resolve(option);
     };
+
+    // --- Fase 22 — THE FORGE OF LEGENDS (crafting api) ---
+    gameApi.forgeCatalog = (station) => {
+      if (!this.forge) return null;
+      const def = this.forge.stationDef(station);
+      const s = st();
+      const recipes = this.forge.catalog(station).map((r) => ({
+        id: r.id,
+        out: r.out,
+        outName: r.outName,
+        outIcon: r.outIcon,
+        outRarity: r.outRarity,
+        gold: r.gold,
+        note: r.note,
+        canCraft: r.canCraft,
+        status: r.status,
+        level: r.level,
+        levelOk: r.levelOk,
+        mats: r.mats,
+      }));
+      return {
+        station,
+        name: def.name,
+        title: def.title,
+        greeting: def.greeting,
+        level: s.level,
+        coins: s.countItem('coin'),
+        eclipse: {
+          active: this.forge.eclipseActive,
+          left: Math.ceil(this.forge.eclipseLeft),
+          hasEssence: s.hasItem('esencia_solar'),
+          canSummon: s.hasItem('esencia_solar') && !this.forge.eclipseActive,
+        },
+        recipes,
+      };
+    };
+    gameApi.forgeCraft = (station, recipeId) => this.forge?.craft(recipeId, station) ?? 'gate';
+    gameApi.summonEclipse = () => this.forge?.summonEclipse() ?? false;
 
     gameApi.journal = () => st().journal;
     gameApi.quests = (): QuestView[] => {

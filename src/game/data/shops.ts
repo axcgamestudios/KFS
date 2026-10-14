@@ -65,6 +65,8 @@ export const VENDORS: Record<string, VendorDef> = {
         price: 900,
         note: 'My masterpiece. Exclusive to this forge: waxed canvas over whale ribs. Leap from on high and hold SPACE: the sky is yours.',
       },
+      // ---- Fase 22 — THE FORGE: sea iron by the ingot (the forge economy) ----
+      { item: 'ingote_hierro_mar', price: 45, qty: 2, note: 'Bog iron, bloomed clean of salt. Sold in pairs — a working blade starts at five.' },
     ],
   },
   enano: {
@@ -97,9 +99,26 @@ export const VENDORS: Record<string, VendorDef> = {
         note: 'A mast strung over a whalebone stave. Drawing it plants your boots in the earth — what it throws breaks shields, postures and pride.',
       },
       { item: 'flecha_electrica', price: 90, qty: 5, note: 'Storm-glass tips, five to a bundle. The arc leaps between foes — and water or rain makes it a stunner.' },
+      // ---- Fase 22 — THE FORGE: mystic steel, Borin's unexplained fold ----
+      { item: 'lingote_mistico', price: 140, note: 'Storm-washed ore folded with a technique I refuse to explain. Ten of them anchor the Stormplate Cuirass.' },
+    ],
+  },
+  // ---- Fase 22 — THE FORGE: the sanctuary merchant (Sister Ysolt) ----
+  santuario: {
+    id: 'santuario',
+    name: 'Sister Ysolt',
+    title: 'The Sanctuary Merchant',
+    minLevel: 1,
+    x: 160, z: 280,
+    greeting: 'The tide brings everything here eventually, traveller. Silk, incense, and hardwood patience for the wrists.',
+    tooLow: 'Even a novice of one winter may browse my cloth. Come — there is no level I turn away.',
+    entries: [
+      { item: 'bokken', price: 35, note: 'The wooden sword first, always. It cannot cut — but it teaches what a guard is, and how it breaks.' },
+      { item: 'kimono', price: 60, note: 'Initiate\'s cotton weave. It flows with the counter instead of fighting it.' },
+      { item: 'cuero_bestia', price: 90, note: 'Abyssal beast hide, cured in salt-wind. What the guardians shed, the tide brings here.' },
     ],
   },
 };
 
 /** Ordered ids for iteration (stable menus). */
-export const VENDOR_IDS = ['herrero', 'enano'] as const;
+export const VENDOR_IDS = ['herrero', 'enano', 'santuario'] as const;

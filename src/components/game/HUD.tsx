@@ -630,6 +630,8 @@ export default function HUD() {
   const valor = useGameStore((s) => s.valor);
   const dangerCue = useGameStore((s) => s.dangerCue);
   const finisherReady = useGameStore((s) => s.finisherReady);
+  // Fase 22 — the eclipse countdown (0 = clear sky)
+  const eclipseLeft = useGameStore((s) => s.eclipseLeft);
 
   const hidden = overlay !== null || dialogue !== null;
 
@@ -888,6 +890,14 @@ export default function HUD() {
       {lowHp && !sailing && <div className="kfs-lowhp" />}
 
       {/* --- Keymap hints --- */}
+      {/* Fase 22 — THE ECLIPSE: the ring-of-fire countdown rides the top center */}
+      {eclipseLeft > 0 && (
+        <div className="absolute left-1/2 top-16 -translate-x-1/2 text-center">
+          <span className="kotfs-title animate-pulse text-[0.7rem] tracking-[0.3em] text-[color:#ffb45e] drop-shadow-[0_0_6px_rgba(255,120,40,0.8)]">
+            ECLIPSE · {Math.ceil(eclipseLeft)}s
+          </span>
+        </div>
+      )}
       <div className="absolute bottom-5 right-5 text-right text-[0.6rem] leading-[1.7] tracking-wider text-[color:var(--kotfs-parchment-dim)] opacity-60">
         {sailing ? (
           <>
@@ -898,7 +908,7 @@ export default function HUD() {
         ) : (
           <>
             <p>CLICK combos (hold = air launch) · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">Q</span> parry · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">C</span> dodge</p>
-            <p><span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">F</span> hook dash · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">E</span> rope dart · in air <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">SPACE</span>+click slam · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">R</span> tonic · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">V</span> finisher</p>
+            <p><span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">F</span> hook dash · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">E</span> rope dart · in air <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">SPACE</span>+click slam · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">R</span> tonic · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">V</span> finisher / mythic</p>
             <p><span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">1</span>–<span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">4</span> weapons (4 cycles bows) · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">SHIFT</span> sprint · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">L</span> lantern · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">E</span> interact · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">B</span> first person</p>
             <p>BOW: <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">RMB</span> aim · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">X</span> arrows · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">G</span> arrow rain · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">T</span> piercing shot · <span className="kfs-kbd !h-[16px] !min-w-[16px] !text-[0.55rem]">P</span> free cam</p>
           </>

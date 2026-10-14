@@ -18,6 +18,9 @@ import {
 import { buildPirateFort, buildFaroRuins, buildBrumaCamp, buildCrowSettlement } from './structures/Islands';
 import { buildNavelIsland, type NavelRefs } from './structures/NavelIsland';
 import { buildSmithy } from './structures/Smithy';
+import {
+  buildGreatAnvil, buildAltarOfGods, buildAnvilOfTitans, buildFirstLightCache,
+} from './structures/ForgeStations';
 import { createChest, createHerb, type ChestHandles } from './structures/Props';
 import { StaticBuilder, MAT } from './structures/Materials';
 import { buildFase4World, type Fase4Refs } from './structures/Fase4POIs';
@@ -58,6 +61,14 @@ export interface WorldRefs {
   waterfallBasin: THREE.Vector3;
   mapCanvas: HTMLCanvasElement;
   streamer: StructureStreamer;
+  /** Fase 22 — THE FORGE OF LEGENDS: the three station anchors + the
+   *  First Light cache (world positions for the interactables). */
+  forgeStations: {
+    anvil: THREE.Vector3;
+    altar: THREE.Vector3;
+    titans: THREE.Vector3;
+    firstLight: THREE.Vector3;
+  };
   /** Dock point where the repaired Colibrí spawns / respawns. */
   dockSpawn: { x: number; z: number; heading: number };
   /** Fase 4 systems: assets, weather and the new POI refs. */
@@ -192,7 +203,14 @@ export async function buildWorld(
   streamer.register(castleGroup, WORLD.castlePos.x, WORLD.castlePos.z, 80);
 
   prog(0.3, 'Building Crowhaven…');
-  const village = buildVillage(scene, terrainHeight, colliders);
+  // Fase 23 — the village is placed against the RENDERED terrain surface
+  // (meshHeight interpolates the exact chunk triangles) so the flagstone
+  // roads, the plaza and every cottage plinth lie flush with the visible
+  // ground at any quality tier.
+  const village = buildVillage(scene, {
+    height: (x: number, z: number) => terrainHeight.height(x, z),
+    meshHeight: (x: number, z: number) => terrain.meshHeight(x, z),
+  }, colliders);
   streamer.register(village.mainGroup, 20, 175, 110);
   streamer.register(village.staticShip, village.shipPos.x, village.shipPos.z, 30);
 
@@ -302,6 +320,45 @@ export async function buildWorld(
   // from his own slate-roofed cottage by the dock road (buildVillage builds
   // the cabin + forge interior; his npcDef + shop coords point here too).
   void torvald.anvilPos; void torvald.forgePos; // (layout refs; keep for future props)
+
+  // ---- Fase 22 — THE FORGE OF LEGENDS: the three stations + the cache ----
+  prog(0.595, 'Ringing the Great Anvil…');
+  const anvilB = new StaticBuilder(colliders, 'forge_anvil');
+  const greatAnvil = buildGreatAnvil(anvilB, terrainHeight, { x: 45, z: 166, yaw: 0.9 });
+  const anvilGroup = new THREE.Group();
+  anvilB.build(anvilGroup, { shadows: true });
+  scene.add(anvilGroup);
+  streamer.register(anvilGroup, 45, 166, 22);
+
+  prog(0.598, 'Consecrating the Altar of the Gods…');
+  const altarB = new StaticBuilder(colliders, 'forge_altar');
+  const altarGods = buildAltarOfGods(altarB, terrainHeight, { x: -148, z: -268 });
+  const altarGroup = new THREE.Group();
+  altarB.build(altarGroup, { shadows: true });
+  scene.add(altarGroup);
+  streamer.register(altarGroup, -148, -268, 26);
+
+  prog(0.601, 'Unearthing the Anvil of the Titans…');
+  const titansB = new StaticBuilder(colliders, 'forge_titans');
+  const anvilTitans = buildAnvilOfTitans(titansB, terrainHeight, { x: 26, z: -292, yaw: -0.4 });
+  const titansGroup = new THREE.Group();
+  titansB.build(titansGroup, { shadows: true });
+  scene.add(titansGroup);
+  streamer.register(titansGroup, 26, -292, 34);
+
+  prog(0.604, 'Hiding the First Light…');
+  const cacheB = new StaticBuilder(colliders, 'first_light');
+  const firstLight = buildFirstLightCache(cacheB, terrainHeight, { x: 570, z: 102 });
+  const cacheGroup = new THREE.Group();
+  cacheB.build(cacheGroup, { shadows: true });
+  scene.add(cacheGroup);
+  streamer.register(cacheGroup, 570, 102, 16);
+  const forgeStations = {
+    anvil: greatAnvil.pos.clone(),
+    altar: altarGods.pos.clone(),
+    titans: anvilTitans.pos.clone(),
+    firstLight: firstLight.pos.clone(),
+  };
 
   prog(0.60, 'Raising the Ancestor’s Nest…');
   const lairB = new StaticBuilder(colliders, 'lair');
@@ -477,6 +534,15 @@ export async function buildWorld(
       evening: new THREE.Vector3(0, g(0, 206), 206),
       nightAtHome: true,
     },
+    {
+      // Fase 22 — THE FORGE: Sister Ysolt keeps the sanctuary cloth by the
+      // altar of Thalassar (bokken, kimono, cured beast leather).
+      id: 'santuario', name: 'Sister Ysolt', paletteIndex: 3, role: 'herbalist', dialogueId: 'santuario',
+      home: new THREE.Vector3(160, g(160, 280), 280),
+      work: new THREE.Vector3(160, g(160, 280), 280),
+      evening: new THREE.Vector3(160, g(160, 280), 280),
+      nightAtHome: true,
+    },
   ];
 
   prog(0.82, 'Releasing gulls over the bay…');
@@ -536,6 +602,7 @@ export async function buildWorld(
     fase4,
     kits,
     navel,
+    forgeStations,
   };
 }
 

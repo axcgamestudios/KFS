@@ -21,6 +21,9 @@ export interface ItemDef {
   /** Fase 16 — wings: glide descent speed (m/s, negative) and the forward
    *  glide speed (m/s) the wings sustain while falling. */
   glide?: { sink: number; speed: number };
+  /** Fase 22 — THE FORGE: minimum player level to EQUIP the item.
+   *  Enforced by GameState.equip; crafting gates live in ForgeSystem. */
+  level?: number;
 }
 
 export const ITEMS: Record<string, ItemDef> = {
@@ -308,3 +311,7 @@ Object.assign(ITEMS, ITEMS_F4);
 // ---- Fase 15 items (sea beasts, the Sea King and the naval economy) ----
 import { ITEMS_F15 } from './itemsF15';
 Object.assign(ITEMS, ITEMS_F15);
+
+// ---- Fase 22 items (THE FORGE OF LEGENDS) ----
+import { ITEMS_F22 } from './itemsF22';
+Object.assign(ITEMS, ITEMS_F22);

@@ -1,0 +1,523 @@
+     1→# KINGDOMS OF THE FORGOTTEN SEAS — ACTUALIZACIÓN DE CALIDAD, OPTIMIZACIÓN, COMBATE CINEMATOGRÁFICO Y CINEMÁTICAS
+     2→
+     3→Quiero implementar una nueva actualización importante de **KINGDOMS OF THE FORGOTTEN SEAS**, mi videojuego 3D medieval de mundo abierto desarrollado con Next.js, React y Three.js.
+     4→
+     5→El proyecto ya tiene un mundo explorable, pueblos, aldeanos, barcos, océano, vegetación, iluminación, armas, enemigos, dragones, misiones e interfaz. No quiero empezar de cero ni reemplazar el juego actual por una versión simplificada.
+     6→
+     7→Tu trabajo consiste en inspeccionar la implementación existente, corregir los problemas indicados, incorporar los nuevos sistemas y verificar que todo funcione correctamente.
+     8→
+     9→**REGLA FUNDAMENTAL: conserva los modelos, las texturas, los escenarios, los sistemas y la calidad visual que ya existen. Mejora la optimización mediante código y técnicas de renderizado eficientes, no eliminando contenido ni empeorando los gráficos.**
+    10→
+    11→---
+    12→
+    13→# 1. OPTIMIZACIÓN PROFESIONAL SIN PÉRDIDA DE CALIDAD
+    14→
+    15→Quiero que el juego funcione con más fluidez, especialmente al explorar pueblos, navegar, combatir o recorrer zonas con mucha vegetación y numerosos modelos 3D.
+    16→
+    17→La optimización debe mejorar el rendimiento sin que el jugador perciba una pérdida de calidad visual.
+    18→
+    19→## Restricciones obligatorias
+    20→
+    21→- No elimines modelos 3D existentes, ni siquiera los que parezcan secundarios.
+    22→- No sustituyas los modelos actuales por cubos, formas simples, modelos genéricos ni versiones visualmente inferiores.
+    23→- No elimines ni reemplaces las texturas existentes.
+    24→- No reduzcas la resolución de las texturas para ganar rendimiento.
+    25→- No desactives globalmente las sombras, los reflejos, la iluminación avanzada, el agua ni la vegetación.
+    26→- No reduzcas la calidad visual de los ajustes actuales Bajo, Medio, Alto o Ultra.
+    27→- No cambies los controles, las misiones, la historia, las armas ni las mecánicas que ya funcionan, excepto cuando sea estrictamente necesario para resolver los problemas descritos.
+    28→- No reconstruyas el juego desde cero.
+    29→- No elimines funcionalidades por considerarlas costosas sin implementar y comprobar primero alternativas de optimización.
+    30→
+    31→## Técnicas de optimización que debes investigar e implementar
+    32→
+    33→**A. Gestión eficiente de Three.js**
+    34→
+    35→- Reutiliza geometrías y materiales compartidos siempre que sea posible, conservando las diferencias visuales entre objetos.
+    36→- Evita crear y destruir repetidamente objetos de Three.js dentro del bucle de renderizado.
+    37→- Reduce asignaciones innecesarias de memoria, cálculos duplicados y actualizaciones de objetos que no han cambiado.
+    38→- Optimiza los `useFrame`, efectos de React y componentes que actualicen el mundo cada fotograma.
+    39→- Comprueba que no existan múltiples bucles de animación, listeners duplicados ni renderizadores innecesarios.
+    40→- Utiliza instanciación y agrupación de llamadas de dibujo cuando sea compatible con los materiales y no cambie la apariencia.
+    41→- Evita volver a cargar modelos, texturas o sonidos que ya están en memoria.
+    42→- Gestiona correctamente la memoria y libera recursos temporales cuando realmente dejan de utilizarse, sin destruir los recursos compartidos del mundo.
+    43→
+    44→**B. Renderizado inteligente**
+    45→
+    46→- Implementa frustum culling para evitar renderizar objetos que están completamente fuera de la cámara, sin eliminar sus modelos del mundo.
+    47→- Utiliza niveles de detalle si realmente son necesarios, manteniendo los modelos originales y procurando que los cambios de distancia no se perciban.
+    48→- Optimiza la distancia y frecuencia de actualización de elementos lejanos, pero conserva la continuidad del mundo y el comportamiento de los personajes importantes.
+    49→- Mantén las sombras y la iluminación de alta calidad en las zonas visibles, evitando cálculos innecesarios sobre objetos que no afectan a la imagen.
+    50→- Evita recalcular físicas, navegación, animaciones o efectos que no necesiten actualizarse en cada fotograma.
+    51→- Si hay sistemas de vegetación instanciados, asegúrate de que se actualicen eficientemente sin desaparecer al mover la cámara.
+    52→
+    53→**C. Carga y memoria**
+    54→
+    55→- Evita bloqueos al cargar zonas, personajes y modelos.
+    56→- Reutiliza los recursos ya cargados y aplica carga progresiva a los recursos que todavía no se necesitan.
+    57→- Si utilizas carga asíncrona, evita que el jugador atraviese áreas sin terminar de cargar o que aparezcan modelos rotos.
+    58→- Evita fugas de memoria al entrar y salir de menús, cargar partidas o reiniciar una misión.
+    59→- Mantén intactos los archivos de los modelos y las texturas originales.
+    60→
+    61→**D. Verificación del rendimiento**
+    62→
+    63→Compara el rendimiento antes y después, si dispones de mediciones del proyecto. Comprueba FPS, tiempo de fotograma, llamadas de dibujo, memoria y comportamiento de la GPU cuando sea posible.
+    64→
+    65→Prioriza una tasa de fotogramas estable y tiempos de carga razonables sin modificar la apariencia del juego para conseguir las mejoras.
+    66→
+    67→No afirmes que has duplicado los FPS o logrado una mejora determinada si no has realizado mediciones que lo demuestren.
+    68→
+    69→---
+    70→
+    71→# 2. CORRECCIÓN DEFINITIVA DE LOS ALDEANOS
+    72→
+    73→Actualmente, los aldeanos presentan varios problemas graves: su altura es de aproximadamente dos metros y algunas de sus piernas aparecen orientadas al revés.
+    74→
+    75→Quiero corregir el origen técnico del problema, no esconderlo con una transformación improvisada.
+    76→
+    77→## Escala humana
+    78→
+    79→- Los aldeanos adultos deben tener proporciones humanas naturales y una altura aproximada de 1,60 a 1,85 metros, dependiendo del personaje.
+    80→- La altura de referencia de dos metros no debe utilizarse como escala predeterminada para todos los aldeanos.
+    81→- Comprueba las unidades originales de cada modelo, sus dimensiones reales, la escala importada y las transformaciones de sus nodos.
+    82→- Asegúrate de que el protagonista, los aldeanos, las puertas, las casas, las armas y los muebles mantengan escalas coherentes entre sí.
+    83→- No reduzcas modelos a ciegas: comprueba primero su escala real y el punto de origen.
+    84→
+    85→## Piernas, esqueleto y animaciones
+    86→
+    87→- Corrige las piernas que aparecen boca arriba, invertidas o mal orientadas.
+    88→- Inspecciona la jerarquía del esqueleto, los huesos de las piernas, las rotaciones locales, los ejes, el origen del modelo y las posibles diferencias entre sistemas de coordenadas.
+    89→- Comprueba si hay incompatibilidades entre el modelo GLB/GLTF y las animaciones utilizadas.
+    90→- Corrige el problema en la importación, el rig o la retargetización correspondiente, evitando rotar todo el personaje de una forma que estropee el resto del cuerpo.
+    91→- Conserva las animaciones originales siempre que sean compatibles.
+    92→- Si el modelo contiene animaciones de reposo, caminar, correr o trabajar, comprueba que se reproduzcan correctamente.
+    93→- Los pies deben apuntar hacia abajo, entrar en contacto con el suelo y desplazarse con naturalidad.
+    94→- Evita que los personajes floten, se hundan, resbalen sobre el suelo o atraviesen el terreno durante sus animaciones.
+    95→
+    96→Comprueba el resultado tanto de cerca como a distancia y durante el movimiento. Todos los aldeanos deben conservar una escala y una orientación anatómica correctas.
+    97→
+    98→---
+    99→
+   100→# 3. MEJORA Y DISTRIBUCIÓN DEL PASTO 3D
+   101→
+   102→Actualmente, el pasto 3D solo aparece en algunas zonas y su densidad es insuficiente.
+   103→
+   104→Quiero convertirlo en un sistema de vegetación más completo, natural y uniforme en las zonas donde corresponde, manteniendo su aspecto fino y realista.
+   105→
+   106→## Distribución
+   107→
+   108→- Extiende el pasto 3D por las zonas de hierba de todo el mundo, no solamente alrededor del jugador o en determinadas áreas.
+   109→- Asegúrate de que las islas, las colinas, las praderas, los terrenos naturales y las zonas verdes de los pueblos dispongan de vegetación cuando corresponda.
+   110→- Comprueba que el sistema funciona en distintas regiones del mapa y no depende de que una zona concreta se encuentre cerca de la cámara.
+   111→- Ajusta la densidad según el tipo de terreno y su vegetación prevista.
+   112→- Utiliza una distribución orgánica, sin patrones en cuadrícula ni repeticiones evidentes.
+   113→- Permite que se vea parcialmente el suelo original entre las briznas, evitando una alfombra artificial.
+   114→- No generes pasto sobre el océano, las playas arenosas, las carreteras, los caminos, las rocas, el interior de las casas ni las superficies construidas.
+   115→- Evita que la hierba atraviese objetos, edificios, muelles o personajes.
+   116→
+   117→## Calidad visual
+   118→
+   119→- Conserva las texturas existentes del terreno.
+   120→- Conserva el diseño de las briznas 3D que ya estén bien implementadas.
+   121→- Prioriza hojas delgadas, puntiagudas y de aspecto natural, no masas gruesas de geometría verde.
+   122→- Mantén una variación sutil de alturas, tonos y orientaciones.
+   123→- Comprueba el comportamiento de las hojas bajo la iluminación y las sombras actuales.
+   124→- Si existe animación de viento, conserva e integra ese movimiento.
+   125→
+   126→## Optimización del pasto
+   127→
+   128→Utiliza `InstancedMesh`, geometría compartida, distribución por sectores del terreno o shaders cuando sean adecuados.
+   129→
+   130→Puedes organizar internamente la vegetación por regiones para actualizarla de forma eficiente, pero no debes hacer que desaparezca de zonas visibles ni eliminar sus modelos para mejorar el rendimiento.
+   131→
+   132→El sistema debe funcionar en todo el mapa, tanto cerca como lejos del jugador, equilibrando detalle y rendimiento. La distancia no debe provocar cambios de densidad demasiado evidentes ni apariciones repentinas.
+   133→
+   134→**Resultado esperado:** una cobertura amplia de pasto 3D fino, natural y coherente con el terreno, sin eliminar las texturas actuales ni perjudicar los FPS innecesariamente.
+   135→
+   136→---
+   137→
+   138→# 4. NUEVO SISTEMA DE COMBATE CINEMATOGRÁFICO CONTRA ENEMIGOS
+   139→
+   140→Quiero transformar el combate normal contra enemigos humanoides y otros adversarios terrestres en una experiencia mucho más espectacular, fluida y cinematográfica.
+   141→
+   142→La inspiración es el ritmo y la puesta en escena de los combates de acción de juegos como Marvel's Spider-Man: ataques encadenados, esquivas dinámicas, contraataques, remates y una cámara que realza los momentos importantes.
+   143→
+   144→No quiero copiar literalmente sus animaciones, personajes, efectos, interfaz ni movimientos exclusivos. Quiero un sistema original adaptado al universo medieval de KINGDOMS OF THE FORGOTTEN SEAS.
+   145→
+   146→**IMPORTANTE: esta actualización NO debe modificar el sistema de combate contra dragones.** El combate contra dragones debe continuar funcionando exactamente como está, incluyendo sus ataques, controles, fases y mecánicas actuales.
+   147→
+   148→## 4.1. Combate controlado mediante clics y combinaciones
+   149→
+   150→Diseña un sistema de combate que combine controles sencillos con secuencias de botones para que cada enfrentamiento tenga ritmo, variedad y una sensación cinematográfica.
+   151→
+   152→Como referencia de controles, adapta los siguientes a la configuración actual del juego:
+   153→
+   154→- **Clic izquierdo:** ataque rápido.
+   155→- **Mantener y soltar el clic izquierdo:** ataque pesado cuando corresponda.
+   156→- **Clic derecho:** bloqueo con el arma o defensa, si el arma equipada lo permite.
+   157→- **Espacio:** esquivar mediante una acción evasiva.
+   158→- **Combinaciones de clics y teclas:** encadenar ataques y ejecutar movimientos especiales.
+   159→- **Combinaciones oportunas durante una ventana de acción:** ejecutar contraataques o remates cinematográficos.
+   160→- **Teclas numéricas o la configuración actual:** cambiar de arma, sin romper los controles existentes.
+   161→
+   162→Estos controles son una propuesta que debes adaptar al sistema real del proyecto. Evita asignar dos acciones incompatibles al mismo botón.
+   163→
+   164→No hagas que el combate se convierta en una simple sucesión de clics sin importancia. El orden, la sincronización y las decisiones del jugador deben influir en el resultado.
+   165→
+   166→## 4.2. Sistema de combos
+   167→
+   168→Implementa un sistema de combos con varias cadenas de ataques, transiciones entre movimientos y ventanas de entrada de botones.
+   169→
+   170→Por ejemplo:
+   171→
+   172→- Ataque rápido → ataque rápido → golpe pesado.
+   173→- Ataque → esquiva lateral → contraataque.
+   174→- Bloqueo en el momento correcto → respuesta ofensiva.
+   175→- Combinación de teclas y ataques → movimiento especial.
+   176→- Enemigo debilitado → oportunidad para ejecutar un remate.
+   177→
+   178→Los ejemplos no deben ser secuencias rígidas para todos los enemigos: permite variaciones según el arma equipada, el tipo de adversario y su estado.
+   179→
+   180→Cada ataque debe tener una animación, una duración, un alcance y un momento de impacto coherentes. Evita que el enemigo reciba daño varios segundos después de que el arma lo haya atravesado o que el jugador golpee desde una distancia absurda.
+   181→
+   182→Introduce ventanas de cancelación y encadenamiento cuando sean necesarias para que los combos se sientan fluidos, pero impide que el jugador repita indefinidamente un ataque sin consecuencias.
+   183→
+   184→## 4.3. Esquivas, bloqueos y contraataques
+   185→
+   186→- Permite esquivar ataques mediante movimientos laterales, pasos hacia atrás y otras evasiones que correspondan a la animación del personaje.
+   187→- Haz que las esquivas tengan una ventana temporal razonable y respeten las distancias.
+   188→- Permite bloquear ataques compatibles con el arma y la posición del jugador.
+   189→- Introduce contraataques cuando el jugador consiga defenderse en el momento correcto.
+   190→- Incorpora reacciones diferentes ante ataques ligeros, pesados, bloqueados y esquivados.
+   191→- Los enemigos deben tener sus propios patrones de ataque y ventanas de vulnerabilidad.
+   192→- Evita que bloquear o esquivar convierta al jugador en invulnerable permanentemente.
+   193→- Mantén un control preciso de la posición, las colisiones y el desplazamiento de los personajes durante los movimientos.
+   194→
+   195→## 4.4. Animaciones y coreografía
+   196→
+   197→El objetivo es que cada enfrentamiento parezca una secuencia de acción medieval, no dos personajes intercambiando golpes mientras permanecen rígidos.
+   198→
+   199→Utiliza las animaciones disponibles de los modelos actuales y aprovecha las animaciones adicionales que ya existan en el proyecto.
+   200→
+   201→- Encadena las animaciones de ataque, defensa, esquiva, impacto y recuperación.
+   202→- Evita cortes bruscos entre las animaciones.
+   203→- Sincroniza los golpes visuales con el daño real.
+   204→- Adapta el movimiento al tamaño y la posición del enemigo.
+   205→- Utiliza reacciones de impacto diferentes según la dirección y la fuerza del golpe.
+   206→- Introduce retrocesos, desequilibrios, aturdimientos y caídas cuando tengan sentido.
+   207→- Evita que los personajes atraviesen entre sí sus cuerpos y armas durante los movimientos.
+   208→- No fuerces animaciones que no sean compatibles con el esqueleto de un personaje.
+   209→
+   210→Si necesitas ampliar las animaciones, integra recursos compatibles o crea transiciones procedurales controladas, conservando los modelos que ya están instalados. No sustituyas los personajes para resolver un problema de animación.
+   211→
+   212→## 4.5. Cámara cinematográfica de combate
+   213→
+   214→La cámara debe reforzar la acción sin impedir que el jugador controle al personaje.
+   215→
+   216→- Mantén una cámara de juego estable durante el combate ordinario.
+   217→- Durante algunos golpes importantes, ajusta ligeramente el encuadre y la distancia.
+   218→- Cuando se ejecute un contraataque o un remate, permite una transición breve a un encuadre cinematográfico.
+   219→- Recupera la cámara normal suavemente al terminar la acción.
+   220→- Usa movimiento de cámara moderado, sin sacudidas exageradas.
+   221→- Puedes añadir un impacto de cámara breve cuando se produzca un golpe especialmente importante.
+   222→- Evita ocultar al jugador, al enemigo o los peligros próximos.
+   223→- Adapta la cámara a espacios estrechos, paredes, obstáculos y grupos de enemigos.
+   224→- No atravieses las paredes con la cámara ni la dejes atascada.
+   225→
+   226→Los remates y las acciones especiales deben destacar, pero no hace falta activar una cámara cinematográfica en cada golpe.
+   227→
+   228→## 4.6. Efectos visuales y sonido
+   229→
+   230→- Sincroniza el sonido de cada arma con el contacto real.
+   231→- Añade efectos sutiles de impacto, chispas metálicas, polvo y partículas cuando sean apropiados.
+   232→- Utiliza efectos distintos según el material del objetivo o el arma.
+   233→- Incorpora sonidos específicos para bloqueos, esquivas, contraataques, golpes pesados y remates.
+   234→- Añade breves cambios en el ritmo sonoro o la música durante los momentos decisivos.
+   235→- Evita saturar la pantalla de partículas, desenfoques, destellos o efectos exagerados.
+   236→- Conserva el estilo visual medieval del juego y no introduzcas una estética futurista o de neón.
+   237→
+   238→## 4.7. Respuesta e inteligencia de los enemigos
+   239→
+   240→- Adapta el comportamiento de los enemigos al nuevo combate.
+   241→- Haz que reaccionen a los golpes, busquen atacar, se defiendan cuando corresponda y aprovechen las oportunidades.
+   242→- Evita que todos ataquen simultáneamente sin coordinación.
+   243→- Permite que algunos enemigos retrocedan, rodeen al jugador o cambien de estrategia.
+   244→- Diferencia enemigos comunes, adversarios resistentes y enemigos élite cuando los tipos de enemigos existentes lo permitan.
+   245→- Evita que los enemigos se queden permanentemente aturdidos o reciban combos infinitos sin poder responder.
+   246→- Mantén el sistema de salud, daño, recompensas y misiones existente.
+   247→
+   248→Si no hay suficientes animaciones o recursos para un movimiento concreto, implementa una alternativa coherente con el contenido disponible en lugar de generar una animación rota o fingir que el movimiento existe.
+   249→
+   250→---
+   251→
+   252→# 5. REMATES CINEMATOGRÁFICOS Y DERROTAS IMPORTANTES
+   253→
+   254→Quiero que derrotar a enemigos importantes se sienta satisfactorio y tenga más peso narrativo.
+   255→
+   256→Implementa remates especiales cuando se cumplan las condiciones correspondientes, como debilitar a un enemigo importante o terminar un combate relevante.
+   257→
+   258→Estas acciones deben:
+   259→
+   260→- Activarse solamente cuando la situación sea válida.
+   261→- Respetar la posición y las colisiones de los personajes.
+   262→- Ejecutar animaciones compatibles con el personaje y el tipo de enemigo.
+   263→- Mostrar una acción visualmente clara, seguida de una transición fluida al control normal.
+   264→- Reproducir efectos de sonido apropiados.
+   265→- Dar al jugador tiempo suficiente para reconocer que ha conseguido una victoria importante.
+   266→- Evitar que dos remates se activen simultáneamente o que la misma recompensa se conceda varias veces.
+   267→
+   268→No quiero que todos los enemigos comunes necesiten una cinemática completa. Reserva los momentos más espectaculares para adversarios destacados y enfrentamientos especialmente importantes.
+   269→
+   270→---
+   271→
+   272→# 6. NUEVO SISTEMA DE CINEMÁTICAS NARRATIVAS
+   273→
+   274→Quiero incorporar cinemáticas para los momentos más importantes de la historia de KINGDOMS OF THE FORGOTTEN SEAS.
+   275→
+   276→No se trata de añadir vídeos externos: las cinemáticas deben construirse utilizando el mundo 3D, los modelos existentes, las animaciones, la cámara, la iluminación, el sonido y los efectos del propio juego.
+   277→
+   278→Deben sentirse integradas en el mundo y no como pantallas desconectadas de la partida.
+   279→
+   280→## 6.1. Cinemática al derrotar a un dragón
+   281→
+   282→**Cuando el jugador derrote a un dragón, reproduce una cinemática de victoria épica.**
+   283→
+   284→No cambies el sistema de combate contra dragones. Añade únicamente la secuencia narrativa posterior a una derrota confirmada.
+   285→
+   286→La cinemática puede incluir:
+   287→
+   288→1. Una transición breve desde el combate a una cámara más cinematográfica.
+   289→2. Un plano del dragón sufriendo su derrota, utilizando una animación compatible con su modelo.
+   290→3. Un plano del protagonista, su arma y su posición respecto al dragón.
+   291→4. Una toma más amplia que muestre el entorno y la escala de la criatura.
+   292→5. Un momento de silencio, música o sonido ambiental que dé peso a la victoria.
+   293→6. Una presentación de las recompensas, el logro desbloqueado y las consecuencias narrativas.
+   294→7. Una transición suave de vuelta al control del jugador o a la continuación de la misión.
+   295→
+   296→Adapta los planos a cada dragón y al lugar donde se produce el combate. No reproduzcas la misma secuencia de manera idéntica en todos los casos si existen animaciones y circunstancias que permitan variar la puesta en escena.
+   297→
+   298→La cinemática debe respetar el estado real del mundo: no recrees el dragón, no dupliques su modelo y no vuelvas a ejecutar el combate.
+   299→
+   300→## 6.2. Cinemáticas para logros importantes
+   301→
+   302→Crea secuencias especiales para los hitos que realmente representen un avance importante en la aventura.
+   303→
+   304→Ejemplos:
+   305→
+   306→- Derrotar por primera vez a un dragón.
+   307→- Completar una misión principal decisiva.
+   308→- Descubrir un secreto fundamental de la historia.
+   309→- Recuperar un objeto legendario.
+   310→- Liberar una región o completar un objetivo de gran importancia.
+   311→- Alcanzar un punto de inflexión de la historia o desbloquear uno de sus finales.
+   312→
+   313→No es necesario mostrar una cinemática larga en cada logro menor. Las acciones rutinarias deben tener notificaciones breves, mientras que los acontecimientos importantes pueden tener una presentación cinematográfica.
+   314→
+   315→## 6.3. Calidad de las cinemáticas
+   316→
+   317→Cada secuencia debe poder combinar:
+   318→
+   319→- Cámara animada con encuadres, movimientos y cambios de plano.
+   320→- Animaciones reales del protagonista, los enemigos y los dragones.
+   321→- Iluminación coherente con el lugar y el momento del día.
+   322→- Sonidos ambientales, música y efectos sincronizados.
+   323→- Texto narrativo o diálogos cuando aporten información.
+   324→- Presentación de logros y recompensas sin tapar toda la pantalla.
+   325→- Transiciones graduales entre la jugabilidad y la cinemática.
+   326→
+   327→No quiero cámaras colocadas al azar, modelos estáticos fingiendo actuar ni escenas en las que los personajes se atraviesen.
+   328→
+   329→## 6.4. Control y estabilidad
+   330→
+   331→- Permite omitir las cinemáticas mediante una acción claramente indicada cuando sea adecuado.
+   332→- Durante una secuencia, bloquea temporalmente solo los controles que puedan interferir con ella.
+   333→- Restaura los controles y la cámara original al terminar o saltar la secuencia.
+   334→- Evita que las cinemáticas se activen repetidamente al cargar una partida o volver a entrar en una zona.
+   335→- Guarda el estado de los hitos para evitar duplicar recompensas, logros o misiones.
+   336→- Si una misión necesita una cinemática para continuar, asegúrate de que omitirla no impida avanzar.
+   337→- Si falta una animación o un recurso, utiliza una alternativa válida y segura para que el jugador pueda continuar.
+   338→
+   339→---
+   340→
+   341→# 7. REPARACIÓN DEL AGUA EN CALIDAD ULTRA
+   342→
+   343→Actualmente, en los ajustes gráficos Ultra, el agua se ve demasiado clara y no presenta reflejos convincentes ni una transparencia visual natural.
+   344→
+   345→Quiero mejorar específicamente ese problema, conservando la identidad visual, las texturas y el sistema de agua existente.
+   346→
+   347→## Apariencia deseada
+   348→
+   349→El océano debe parecer agua real dentro de un mundo medieval, con profundidad, reflejos del cielo, variaciones de color y una respuesta natural a la iluminación.
+   350→
+   351→- Corrige la apariencia excesivamente clara o pálida del agua en Ultra.
+   352→- Ajusta la absorción del color para que el océano tenga una tonalidad azul profunda y natural, con variaciones según la profundidad.
+   353→- Introduce reflejos visibles del cielo, del sol y del entorno cuando la técnica actual del proyecto lo permita.
+   354→- Mejora las reflexiones especulares y su interacción con las olas.
+   355→- Incorpora un efecto Fresnel para que los reflejos cambien de intensidad según el ángulo desde el que se observa la superficie.
+   356→- Si es compatible con el sistema existente, añade reflexión y refracción mediante una técnica apropiada para Three.js.
+   357→- Consigue que las zonas cercanas a la costa presenten una apariencia más clara y una transición natural hacia aguas más profundas.
+   358→- Si la transparencia actual está produciendo una apariencia demasiado pálida, corrige su equilibrio sin convertir el océano en una superficie totalmente opaca.
+   359→- Mejora la espuma y el movimiento de las olas cuando sea necesario para que los cambios de luz se perciban de manera natural.
+   360→- Evita que la superficie parezca un espejo perfecto, plástico, cristal incoloro o una textura plana.
+   361→
+   362→**No reemplaces la textura actual del agua.** Conserva los recursos existentes y mejora el resultado mediante los materiales, los parámetros del shader, la iluminación, las reflexiones y la configuración del renderizado.
+   363→
+   364→## Compatibilidad entre calidades
+   365→
+   366→Comprueba los perfiles gráficos Bajo, Medio, Alto y Ultra.
+   367→
+   368→La mejora de los reflejos más avanzados debe estar especialmente presente en Ultra, pero el agua debe seguir viéndose correctamente en los demás perfiles.
+   369→
+   370→No rompas las opciones gráficas existentes ni aumentes innecesariamente el coste de renderizado de los perfiles inferiores.
+   371→
+   372→Verifica el aspecto del agua desde la costa, desde el muelle, desde una cámara cercana a la superficie y durante la navegación.
+   373→
+   374→---
+   375→
+   376→# 8. COLISIONES, FLOTACIÓN Y ALTURA DE LOS BARCOS
+   377→
+   378→Actualmente, los barcos no tienen colisiones correctas y aparecen demasiado hundidos en el agua.
+   379→
+   380→Quiero corregir ambos problemas respetando todos los modelos de barcos existentes.
+   381→
+   382→## 8.1. Flotación y línea de flotación
+   383→
+   384→- Revisa las unidades, la escala y la posición original de cada barco.
+   385→- Comprueba el punto de origen del modelo y su línea de flotación real.
+   386→- Ajusta la altura inicial para que el casco repose de forma convincente sobre el agua, sin quedar medio sumergido ni flotar artificialmente demasiado alto.
+   387→- Asegúrate de que la posición del barco sea coherente con la superficie del océano y con las olas.
+   388→- Evita que la cubierta, el casco o los componentes principales se encuentren enterrados bajo la superficie sin una razón física.
+   389→- Conserva el modelo original, sus velas, sus cuerdas, su decoración y sus materiales.
+   390→- Si existe un sistema de navegación o flotación, corrige su integración en lugar de reemplazarlo por otro sistema innecesariamente.
+   391→
+   392→Si el barco puede moverse con las olas, utiliza una flotación estable y coherente con su tamaño. Evita saltos bruscos, vibraciones, giros repentinos y oscilaciones exageradas.
+   393→
+   394→## 8.2. Colisiones físicas
+   395→
+   396→Implementa o corrige las colisiones para impedir que los personajes atraviesen los barcos y sus partes sólidas.
+   397→
+   398→Debes comprobar:
+   399→
+   400→- Colisión entre el protagonista y el casco.
+   401→- Colisión contra los laterales, la proa y la popa.
+   402→- Colisiones con las partes sólidas de la cubierta y los elementos que realmente deban bloquear el paso.
+   403→- Colisión contra barcos y objetos flotantes sólidos cuando corresponda.
+   404→- Compatibilidad con las colisiones existentes del muelle, los edificios y el terreno.
+   405→- Comportamiento correcto cuando el jugador salta, cae o entra en el agua junto a un barco.
+   406→- Compatibilidad con la navegación y el acceso a la cubierta.
+   407→
+   408→No conviertas todo el barco en una caja invisible enorme. Utiliza volúmenes de colisión adecuados a su forma: por ejemplo, una composición de volúmenes sencillos o una forma de casco apropiada, según el sistema de físicas que ya use el juego.
+   409→
+   410→La colisión debe corresponder razonablemente a la forma visible del barco, sin impedir el acceso a las zonas transitables.
+   411→
+   412→## 8.3. Subir y bajar de los barcos
+   413→
+   414→Si el proyecto ya permite subir a las embarcaciones, corrige esa funcionalidad para que siga funcionando con la nueva flotación y las colisiones.
+   415→
+   416→- El jugador debe poder pasar por las zonas transitables.
+   417→- Debe permanecer sobre la cubierta cuando corresponda.
+   418→- No debe hundirse a través de las tablas ni flotar sobre ellas.
+   419→- Evita que el movimiento del barco provoque que el jugador salga despedido.
+   420→- La cámara, los controles y las animaciones deben seguir funcionando durante la navegación.
+   421→
+   422→Si alguna mecánica de embarque aún no existe, no inventes que ya funciona: intégrala únicamente si puede hacerse sin romper otros sistemas y verifica su funcionamiento.
+   423→
+   424→---
+   425→
+   426→# 9. INTEGRACIÓN SIN ROMPER EL JUEGO
+   427→
+   428→Antes de realizar cambios, inspecciona el proyecto actual y localiza los componentes responsables de:
+   429→
+   430→- Importación, escala y animación de los modelos de personajes.
+   431→- Sistema de pasto y distribución de vegetación.
+   432→- Renderizado, materiales, agua y perfiles gráficos.
+   433→- Barcos, navegación, línea de flotación y colisiones.
+   434→- Combate normal contra enemigos.
+   435→- Combate contra dragones.
+   436→- Animaciones, cámara, sonido y secuencias narrativas.
+   437→- Misiones, logros y sistema de guardado.
+   438→- Renderizado principal y optimización del bucle de juego.
+   439→
+   440→Después, realiza cambios específicos en los sistemas correspondientes. No reemplaces archivos completos sin entender antes qué otras funcionalidades dependen de ellos.
+   441→
+   442→Mantén la arquitectura existente de Next.js, React y Three.js. Respeta las convenciones, las dependencias, el formato de carga de modelos y las estructuras de datos utilizadas actualmente.
+   443→
+   444→Si hay funcionalidades que todavía no están implementadas, distingue claramente entre lo que existe y lo que debes añadir.
+   445→
+   446→---
+   447→
+   448→# 10. PLAN DE PRUEBAS OBLIGATORIO
+   449→
+   450→Después de implementar la actualización, verifica el proyecto.
+   451→
+   452→**Prueba A — Rendimiento**
+   453→
+   454→- Recorre el pueblo, la costa y zonas con mucha vegetación.
+   455→- Comprueba que siguen apareciendo todos los modelos y las texturas.
+   456→- Busca errores de carga, fugas de memoria y caídas de rendimiento.
+   457→
+   458→**Prueba B — Aldeanos**
+   459→
+   460→- Comprueba la altura de varios personajes.
+   461→- Verifica la orientación de las piernas, los pies y el esqueleto.
+   462→- Observa las animaciones de reposo y caminata.
+   463→- Comprueba que los pies tocan el suelo y no atraviesan el terreno.
+   464→
+   465→**Prueba C — Vegetación**
+   466→
+   467→- Recorre varias regiones del mapa.
+   468→- Comprueba que hay pasto 3D en todas las zonas naturales que lo necesitan.
+   469→- Verifica que no aparece en edificios, caminos, rocas ni agua.
+   470→- Comprueba la densidad a distintas distancias y el rendimiento.
+   471→
+   472→**Prueba D — Combate normal**
+   473→
+   474→- Encadena ataques rápidos y pesados.
+   475→- Ejecuta esquivas, bloqueos y contraataques.
+   476→- Prueba remates cinematográficos contra enemigos compatibles.
+   477→- Verifica que no haya golpes fantasma, animaciones atascadas o personajes atravesándose.
+   478→
+   479→**Prueba E — Combate contra dragones**
+   480→
+   481→- Confirma que los controles y las mecánicas originales continúan funcionando.
+   482→- Verifica que no se ha alterado el comportamiento de sus fases de combate.
+   483→- Comprueba que la cinemática posterior se activa únicamente cuando corresponde.
+   484→
+   485→**Prueba F — Cinemáticas y progreso**
+   486→
+   487→- Activa una cinemática de logro importante.
+   488→- Omítela y verifica que el jugador puede continuar.
+   489→- Comprueba que las recompensas no se duplican.
+   490→- Guarda, carga y vuelve a entrar en una misión cuando sea posible.
+   491→
+   492→**Prueba G — Agua**
+   493→
+   494→- Revisa los perfiles gráficos Bajo, Medio, Alto y Ultra.
+   495→- Comprueba los reflejos, el color, la profundidad y las transiciones cerca de la costa.
+   496→- Verifica que no haya parpadeos ni problemas de renderizado.
+   497→
+   498→**Prueba H — Barcos**
+   499→
+   500→- Comprueba la línea de flotación de las embarcaciones.
+   501→- Intenta caminar contra el casco desde diferentes direcciones.
+   502→- Prueba el acceso a la cubierta.
+   503→- Comprueba que los barcos no estén excesivamente hundidos y que las colisiones no generen bloqueos absurdos.
+   504→
+   505→**Prueba I — Regresión general**
+   506→
+   507→- Comprueba el botón de inicio, los controles, la cámara, las armas, las misiones y las opciones gráficas.
+   508→- Verifica que no aparezca una pantalla negra ni errores que impidan jugar.
+   509→- Asegúrate de que el juego siga iniciando y de que se pueda recuperar una partida si el sistema de guardado ya existe.
+   510→
+   511→Si alguna prueba no puede realizarse por falta de recursos, modelos, animaciones o acceso al entorno de ejecución, indica claramente qué queda pendiente y no afirmes que ha sido verificado.
+   512→
+   513→---
+   514→
+   515→# 11. RESULTADO FINAL QUE ESPERO
+   516→
+   517→Quiero una actualización real de KINGDOMS OF THE FORGOTTEN SEAS, no una demostración aislada.
+   518→
+   519→El resultado debe conservar el mundo, los modelos, las texturas, las misiones y la calidad gráfica existentes, mientras mejora el rendimiento interno, corrige los aldeanos, extiende el pasto 3D, introduce combates normales cinematográficos, añade cinemáticas de hitos importantes, mejora el agua en Ultra y repara las colisiones y la flotación de los barcos.
+   520→
+   521→**No sacrifiques contenido ni calidad visual a cambio de rendimiento. Optimiza la manera en la que el juego utiliza los recursos existentes.**
+   522→
+   523→Entrega todos los archivos modificados completos, mantén las funcionalidades anteriores y explica brevemente los cambios realizados, los problemas corregidos y las pruebas que realmente hayas podido completar.

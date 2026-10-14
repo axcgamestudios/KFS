@@ -253,9 +253,25 @@ async function main(): Promise<void> {
   const armChainL = limb('L', ['j_shoulderL', 'j_elbowL', 'j_wristL'], [LM.shoulderL, LM.elbowL, LM.wristL], j_torso);
   const legChainR = limb('R', ['j_hipR', 'j_kneeR', 'j_ankleR'], [LM.hipR, LM.kneeR, LM.ankleR], j_root);
   const legChainL = limb('L', ['j_hipL', 'j_kneeL', 'j_ankleL'], [LM.hipL, LM.kneeL, LM.ankleL], j_root);
+
+  // ---- Fase 22 — THE CAPE CHAIN: two dynamic cloth bones carved out of the
+  // rear fabric sheet. Geometry-mapped (see analyze_cape_geometry.ts): the
+  // knight's cape is a FULL-LENGTH panel hanging at z ≲ -0.18 from the
+  // shoulder line (y≈1.30) to the hem (y≈0.10), while the armour back/fauld
+  // lives closer in (z ≳ -0.16). j_cape1 pivots at the shoulder line (stiff
+  // spring), j_cape2 at mid-panel (looser, lags a beat) — real secondary
+  // motion for the cloak. The legs' backs and sabatons stay with the root.
+  const capeAnchor: [number, number, number] = [0, 1.28, -0.205];
+  const capeMid: [number, number, number] = [0, 0.62, -0.235];
+  const j_cape1 = new THREE.Bone(); j_cape1.name = 'j_cape1';
+  j_cape1.position.set(capeAnchor[0] - LM.torso[0], capeAnchor[1] - LM.torso[1], capeAnchor[2] - LM.torso[2]);
+  const j_cape2 = new THREE.Bone(); j_cape2.name = 'j_cape2';
+  j_cape2.position.set(capeMid[0] - capeAnchor[0], capeMid[1] - capeAnchor[1], capeMid[2] - capeAnchor[2]);
+  j_torso.add(j_cape1); j_cape1.add(j_cape2);
+
   armature.add(j_root);
 
-  const bones = [j_root, j_torso, j_head, ...armChainR, ...armChainL, ...legChainR, ...legChainL];
+  const bones = [j_root, j_torso, j_head, j_cape1, j_cape2, ...armChainR, ...armChainL, ...legChainR, ...legChainL];
   const boneIndex = new Map<string, number>();
   bones.forEach((b, i) => boneIndex.set(b.name, i));
 
@@ -330,14 +346,28 @@ async function main(): Promise<void> {
     }
     const rem = 1 - tot;
 
-    // torso vs root share of the remainder (cape fades to root low)
+    // torso vs root share of the remainder (cape fades to root low).
+    // Fase 22 — the rear cape sheet now CARVES OUT a two-segment chain,
+    // geometry-mapped to the actual panel (z ≲ -0.18, y 0.10→1.30):
+    //   · j_cape1 (shoulder line, y 1.00→1.40 band) — takes the share that
+    //     used to ride j_torso; the armour back plate (z > -0.155) never does.
+    //   · j_cape2 (mid-panel → hem, y 0.34→1.12 band) — takes the share that
+    //     used to ride j_root; the sabatons and legs' backs (y < 0.34) stay
+    //     with the root exactly as before.
+    // Totals still sum to rem — no weight is created or destroyed.
     const capeK = sstep(-0.04, -0.14, z) * sstep(1.50, 1.15, y) * sstep(0.98, 0.86, y);
+    // Fase 22 geometry-mapped cape masks (independent of the legacy capeK):
+    const capeBehind = sstep(-0.155, -0.20, z);                  // 1 behind the armour plane
+    const cape1K = capeBehind * sstep(1.00, 1.14, y) * sstep(1.42, 1.30, y); // shoulder band
+    const cape2K = capeBehind * sstep(1.12, 0.98, y) * sstep(0.16, 0.34, y);  // panel → hem
     const tShare = capeK > 0.02
       ? clamp(capeK * sstep(0.80, 1.30, y), 0, 1)
       : sstep(0.98, 1.12, y);
     if (rem > 0) {
-      wAcc[boneIndex.get('j_torso')!] += rem * tShare;
-      wAcc[boneIndex.get('j_root')!] += rem * (1 - tShare);
+      wAcc[boneIndex.get('j_torso')!] += rem * tShare * (1 - cape1K);
+      wAcc[boneIndex.get('j_root')!] += rem * (1 - tShare) * (1 - cape2K);
+      if (cape1K > 0.001) wAcc[boneIndex.get('j_cape1')!] += rem * tShare * cape1K;
+      if (cape2K > 0.001) wAcc[boneIndex.get('j_cape2')!] += rem * (1 - tShare) * cape2K;
     }
 
     // distribute arm influence over shoulder/elbow/wrist by joint proximity
@@ -554,7 +584,15 @@ function buildSkinnedGlb(o: {
 
   // ---- binary chunk assembly (all views 4-byte aligned) ----
   const chunks: Array<{ bytes: Buffer; acc?: number; target?: number }> = [];
-  const pad4 = (b: Buffer) => (b.length % 4 === 0 ? b : Buffer.concat([b, Buffer.alloc(4 - (b.length % 4))]));
+  // Fase 22 FIX — the JSON chunk of a GLB must be padded with SPACES (0x20):
+  // JSON whitespace per RFC-8259 is SP/HT/LF/CR only. Buffer.alloc pads with
+  // NUL, which JSON.parse rejects — the whole GLB then fails to load. (The
+  // binary chunk keeps NUL padding, as the spec requires.)
+  const pad4 = (b: Buffer, fill = 0) => (b.length % 4 === 0
+    ? b
+    : Buffer.concat([b, fill === 0x20
+      ? Buffer.alloc(4 - (b.length % 4), 0x20)
+      : Buffer.alloc(4 - (b.length % 4))]));
   const push = (bytes: Buffer, target?: number) => {
     const aligned = pad4(bytes);
     const offset = chunks.reduce((a, c) => a + c.bytes.length, 0);
@@ -651,7 +689,8 @@ function buildSkinnedGlb(o: {
 
   // ---- GLB container ----
   const jsonStr = JSON.stringify(json);
-  const jsonChunk = pad4(Buffer.from(jsonStr));
+  // Fase 22 FIX — JSON chunk padded with SPACES, never NUL (see pad4).
+  const jsonChunk = pad4(Buffer.from(jsonStr), 0x20);
   const binChunk = Buffer.concat(chunks.map((c) => c.bytes));
   const total = 12 + 8 + jsonChunk.length + 8 + binChunk.length;
   const out = Buffer.alloc(total);

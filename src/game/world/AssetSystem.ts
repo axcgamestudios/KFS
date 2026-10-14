@@ -175,6 +175,10 @@ export class AssetSystem {
     // Fase 4 ground materials
     wire(mat.cobble, this.pbr.cobblestone, { repeat: 0.42, tint: 0xb5aca0, normalScale: 1.1 });
     wire(mat.dirt, this.pbr.dirt, { repeat: 0.5, tint: 0xb59a76, normalScale: 0.9 });
+    // Fase 23 — flagstones: repeat 1 (the per-stone UV windows do the
+    // scaling); vertexColors carries the per-stone weather tint.
+    wire(mat.flagstone, this.pbr.cobblestone, { repeat: 1, tint: 0xcfc9bd, normalScale: 1.05 });
+    wire(mat.kerb, this.pbr.cobblestone, { repeat: 1, tint: 0xb2aca1, normalScale: 1.15 });
     // Fase 16 — white concrete (merchant buildings): NO tint, the albedo is
     // the finished white surface; satin normal, slight sheen kept by rgh map.
     wire(mat.concreteWhite, this.pbr.white_concrete, { repeat: 0.5, normalScale: 0.85, roughness: 0.88 });

@@ -141,6 +141,11 @@ interface GameStore {
   firstPerson: boolean;
   /** Fase 16 — open merchant panel (null = closed). */
   shop: { vendor: string } | null;
+  /** Fase 22 — open forge panel (null = closed). */
+  forge: { station: 'anvil' | 'altar' | 'titans' } | null;
+  /** Fase 22 — seconds of summoned eclipse left (0 = clear sky). Drives the
+   *  HUD ring-of-fire countdown badge. */
+  eclipseLeft: number;
   /** Fase 15 — pirate toll negotiation (null = none deployed). Set while
    *  the ambush corsairs have the player at their mercy. */
   negotiation: { reason: 'death' | 'ship'; coins: number; canAfford: boolean; hasItems: boolean } | null;
@@ -200,6 +205,10 @@ interface GameStore {
   setDiscovery: (d: { title: string; sub: string } | null) => void;
   /** Fase 16 — merchant panel state (null closes it). */
   setShop: (s: { vendor: string } | null) => void;
+  /** Fase 22 — forge panel open/close. */
+  setForge: (s: { station: 'anvil' | 'altar' | 'titans' } | null) => void;
+  /** Fase 22 — eclipse countdown for the HUD badge. */
+  setEclipseLeft: (n: number) => void;
   /** Fase 17 — Sea Fury bar (0..300) + combat cue state. */
   setValor: (v: number) => void;
   setDangerCue: (c: 'parry' | 'dodge' | null) => void;
@@ -235,6 +244,8 @@ export const useGameStore = create<GameStore>((set) => ({
   mount: null,
   submerged: false,
   shop: null,
+  forge: null,
+  eclipseLeft: 0,
   negotiation: null,
   valor: 0,
   dangerCue: null,
@@ -284,6 +295,8 @@ export const useGameStore = create<GameStore>((set) => ({
   setDialogue: (d) => set({ dialogue: d }),
   setDiscovery: (d) => set({ discovery: d }),
   setShop: (s) => set({ shop: s }),
+  setForge: (s) => set({ forge: s }),
+  setEclipseLeft: (n) => set((s) => (Math.abs(s.eclipseLeft - n) < 0.5 ? s : { eclipseLeft: Math.max(0, n) })),
   setValor: (v) => set((s) => (s.valor === v ? s : { valor: Math.max(0, Math.min(300, v)) })),
   setDangerCue: (c) => set((s) => (s.dangerCue === c ? s : { dangerCue: c })),
   setFinisherReady: (v) => set((s) => (s.finisherReady === v ? s : { finisherReady: v })),

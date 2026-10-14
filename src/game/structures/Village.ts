@@ -5,6 +5,7 @@ import {
   buildBritishCabin, buildFountain, buildVillageStable, dressVillageGreen,
   type CabinAnchors,
 } from './BritishVillage';
+import { buildFlagstonePath } from './StonePaths';
 import { TorchSystem, createChest, createSignpost, type ChestHandles } from './Props';
 import type { ColliderRegistry } from '../systems/ColliderRegistry';
 import { mulberry32 } from '../core/MathUtils';
@@ -44,12 +45,15 @@ export interface VillageLayout {
  */
 export function buildVillage(
   scene: THREE.Scene,
-  terrain: { height(x: number, z: number): number },
+  terrain: { height(x: number, z: number): number; meshHeight?(x: number, z: number): number },
   colliders: ColliderRegistry,
 ): VillageLayout {
   const b = new StaticBuilder(colliders, 'village');
   const rand = mulberry32(2024);
-  const g = (x: number, z: number) => terrain.height(x, z);
+  // Fase 23 — g() samples the RENDERED ground (the chunk tessellation),
+  // not the analytic field: the village lies flush with what the player
+  // actually sees, at every quality tier.
+  const g = (x: number, z: number) => terrain.meshHeight?.(x, z) ?? terrain.height(x, z);
 
   const anchors: Record<string, CabinAnchors | undefined> = {};
   const cabin = (
@@ -63,28 +67,23 @@ export function buildVillage(
   };
 
   // ============ THE GREEN & THE FOUNTAIN (village centre) ============
-  buildFountain(b, 20, 150, g(20, 150));
-  dressVillageGreen(b, 20, 150, g(20, 150), rand);
-  // cobble paths radiating from the green to each door & the dock
+  buildFountain(b, 20, 150, g(20, 150), g);
+  dressVillageGreen(b, 20, 150, g(20, 150), rand, g);
+  // Fase 23 — hand-laid flagstone roads radiating from the green to each
+  // door & the dock: every slab sunk and tilted to the terrain, kerbed
+  // edges, dirt showing through the joints (the old flat cobble boxes
+  // floated, tiled and clipped — "se ven muy mal y raros").
   const path = (ax: number, az: number, bx2: number, bz2: number, width = 2.2) => {
-    const len = Math.hypot(bx2 - ax, bz2 - az);
-    const n = Math.ceil(len / 2.0);
-    for (let i = 0; i <= n; i++) {
-      const t = i / n;
-      const px = ax + (bx2 - ax) * t + Math.sin(t * 9) * 0.18;
-      const pz = az + (bz2 - az) * t + Math.cos(t * 7) * 0.18;
-      b.box('cobble', width * (0.82 + Math.sin(i * 2.7) * 0.18), 0.06, 2.0,
-        px, g(px, pz) + 0.03, pz, Math.atan2(bx2 - ax, bz2 - az));
-    }
+    buildFlagstonePath(b, rand, ax, az, bx2, bz2, width, g);
   };
-  path(20, 150, 20, 226);        // green -> dock
-  path(20, 150, -8, 160);        // green -> Aldric
-  path(20, 150, 36, 143);        // green -> Erica
-  path(20, 150, 2, 174);         // green -> Rosa
-  path(20, 150, 40, 171);        // green -> Bram
-  path(20, 150, -14, 187);       // green -> stable
-  path(20, 150, 0, 206);         // green -> Borin (dock road)
-  path(20, 150, 0, 138);         // green -> Tom
+  path(20, 150, 20, 226, 2.7);        // green -> dock (the main road)
+  path(20, 150, -8, 160);             // green -> Aldric
+  path(20, 150, 36, 143);             // green -> Erica
+  path(20, 150, 2, 174);              // green -> Rosa
+  path(20, 150, 40, 171);             // green -> Bram
+  path(20, 150, -14, 187);            // green -> stable
+  path(20, 150, 0, 206, 2.4);         // green -> Borin (dock road)
+  path(20, 150, 0, 138);              // green -> Tom
 
   // ============ THE SIX COTTAGES ============
   // Tom the fisherman — by the northern beach, door facing the green (SE)

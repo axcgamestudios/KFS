@@ -34,7 +34,7 @@ import { damp, dampAngle } from '../core/MathUtils';
 
 export interface BanditHooks {
   playerDamage: (dmg: number, fromX?: number, fromZ?: number, reason?: string, opts?: { unblockable?: boolean }) => void;
-  sound: (kind: 'swing' | 'damage' | 'hit_scale' | 'block' | 'stagger' | 'bow_release') => void;
+  sound: (kind: 'swing' | 'damage' | 'hit_scale' | 'block' | 'stagger' | 'bow_release' | 'thunder' | 'roar_big' | 'boss_die') => void;
   notify: (kind: 'info' | 'item' | 'quest', title: string, body?: string) => void;
   giveXp: (xp: number) => void;
   addCoins: (n: number) => void;
@@ -46,6 +46,11 @@ export interface BanditHooks {
   onBanditKilled?: (captain: boolean) => void;
   /** Fase 17 — a thrown bandit crashed (AoE splash + screenshake). */
   onThrownCrash?: (pos: THREE.Vector3, victims: number) => void;
+  /** Fase 22 — THE FORGE: legend loot + persistence + the boss bar. */
+  addItem?: (id: string, count: number) => void;
+  hasFlag?: (flag: string) => boolean;
+  setFlag?: (flag: string) => void;
+  bossHud?: (state: { name: string; title: string; hp: number; maxHp: number; phase: number } | null) => void;
 }
 
 interface CampDef {
@@ -86,6 +91,81 @@ const ROLE_DEFS: Record<BanditRole, RoleDef> = {
   captain: { hp: 135, damage: 20, aggroRadius: 20, chaseSpeed: 3.9, poise: true,  meleeCooldown: [0.9, 1.4] },
 };
 
+// ---- Fase 22 — THE FORGE OF LEGENDS: the named bosses + their guards ----
+
+export interface LegendDrop { id: string; count: number; chance?: number }
+
+export interface LegendDef {
+  id: string;
+  name: string;
+  title: string;
+  role: BanditRole;
+  hp: number;
+  damage: number;
+  x: number; z: number;
+  aggroRadius: number;
+  chaseSpeed: number;
+  /** Visual scale + armour tint (HSL) + eye glow. */
+  scale: number;
+  tint: { h: number; s: number; l: number };
+  eyes: number;
+  /** A brimmed hat (pirate king) or a conical kasa (ronin). */
+  hat: 'tricorn' | 'kasa' | 'none';
+  drops: LegendDrop[];
+  lootGold: number;
+  xp: number;
+  deathFlag: string;
+  /** Bosses chase twice as far before losing interest. */
+  boss: boolean;
+  intro: [string, string];
+}
+
+/** The two legends whose catalysts feed the Anvil of the Titans and the
+ *  Stormplate — plus the temple guardians patrolling the Mist Isles. */
+export const LEGENDS: LegendDef[] = [
+  {
+    id: 'rey_pirata', name: 'The Pirate King', title: 'Lord of the Crow Fortress',
+    role: 'captain', hp: 620, damage: 26,
+    x: -536, z: -455, aggroRadius: 22, chaseSpeed: 4.1,
+    scale: 1.14, tint: { h: 0.07, s: 0.5, l: 0.2 }, eyes: 0xffd24a,
+    hat: 'tricorn',
+    drops: [
+      { id: 'espada_rey_pirata', count: 1 },
+      { id: 'sombrero_rey', count: 1 },
+    ],
+    lootGold: 420, xp: 320,
+    deathFlag: 'rey_pirata_dead', boss: true,
+    intro: ['THE PIRATE KING', '"A hundred boardings, and the hat never fell. Bring your best steel, Warden — the Anvil of the Titans is counting on you losing it."'],
+  },
+  {
+    id: 'ronin_tormenta', name: 'The Storm Ronin', title: 'Keeper of the Mist Temple',
+    role: 'heavy', hp: 520, damage: 30,
+    x: -12, z: 616, aggroRadius: 24, chaseSpeed: 4.4,
+    scale: 1.08, tint: { h: 0.58, s: 0.42, l: 0.17 }, eyes: 0x48c8e8,
+    hat: 'kasa',
+    drops: [
+      { id: 'nucleo_tormenta', count: 1 },
+      { id: 'seda_sombras', count: 2 },
+    ],
+    lootGold: 340, xp: 280,
+    deathFlag: 'ronin_tormenta_dead', boss: true,
+    intro: ['THE STORM RONIN', 'A masterless blade the tempest never put down. The glass core in his chest ticks like a clock made of thunder.'],
+  },
+];
+
+/** Temple guardians patrolling the Mist Isles — the wakizashi's source. */
+const SAMURAI_SPOTS: Array<{ x: number; z: number }> = [
+  { x: -38, z: 610 }, { x: 6, z: 632 }, { x: -8, z: 663 },
+];
+
+export interface SamuraiDef {
+  hp: number;
+  damage: number;
+  wakizashiChance: number;
+  silkChance: number;
+}
+export const SAMURAI_DEF: SamuraiDef = { hp: 88, damage: 15, wakizashiChance: 0.1, silkChance: 0.35 };
+
 /** Telegraph glow colours (the danger-signal system). */
 const GLOW_WHITE = new THREE.Color(0.92, 0.92, 0.95);
 const GLOW_RED = new THREE.Color(1.0, 0.16, 0.1);
@@ -121,10 +201,12 @@ class Bandit {
   attackCooldown = 0;
   private hitDone = false;
   private staggerT = 0;
-  private deathT = 0;
+  /** Fase 22 — public: legend corpses spawn with a preset death clock. */
+  deathT = 0;
   respawnT = 0;
   private moving = false;
-  private aggro = false;
+  /** Fase 22 — public: the system loop reads it for the legend boss bar. */
+  aggro = false;
   private idlePause = 2 + Math.random() * 3;
   readonly pos = new THREE.Vector3();
 
@@ -145,6 +227,21 @@ class Bandit {
   aimT = 0;
   /** Telegraph glow sprite above the head (lazily built). */
   glow: THREE.Sprite | null = null;
+
+  // ---- Fase 22 — THE FORGE OF LEGENDS ----
+  /** Named boss config (Pirate King / Storm Ronin) — no respawn, boss bar,
+   *  guaranteed catalyst loot. */
+  legend: LegendDef | null = null;
+  /** Fase 22 — the legend's intro card has played (per session). */
+  legendIntroduced = false;
+  /** Mist Isles temple guardian — wakizashi/silk drops, no camp. */
+  samurai = false;
+  /** DoT status (burn from embers/sunlight, poison from arrows). */
+  statusKind: 'burn' | 'poison' | null = null;
+  statusT = 0;
+  private statusTick = 0;
+  /** Fase 22 — died to a DoT tick this frame (the system routes loot). */
+  dotKilled = false;
 
   // ---- Fase 11 — choreography state ----
   /** Weapon-up guard timer (raised after a hero whiff nearby). */
@@ -180,10 +277,12 @@ class Bandit {
     this.pickPatrolTarget();
   }
 
-  readonly aggroRadius: number;
-  readonly damage: number;
-  readonly chaseSpeed: number;
-  readonly poise: boolean;
+  /** Fase 22 — no longer readonly: legends and samurais are spawned with
+   *  bespoke stats after construction. */
+  aggroRadius: number;
+  damage: number;
+  chaseSpeed: number;
+  poise: boolean;
   private readonly meleeCooldown: [number, number];
 
   get indexSeed(): number {
@@ -234,6 +333,13 @@ class Bandit {
     this.aggro = true;
   }
 
+  /** Fase 22 — apply a damage-over-time status (burn / poison). */
+  applyStatus(kind: 'burn' | 'poison', dur: number): void {
+    // burn replaces poison and vice-versa; same kind refreshes
+    this.statusKind = kind;
+    this.statusT = Math.max(this.statusT, dur);
+  }
+
   /** Can the player execute a REMATE on this bandit right now? */
   get finisherable(): boolean {
     if (this.dead || this.respawnT > 0) return false;
@@ -241,7 +347,7 @@ class Bandit {
     return frac <= (this.captain ? CAPTAIN_FINISHER_HP_FRAC : FINISHER_HP_FRAC);
   }
 
-  takeDamage(amount: number, heavy: boolean, fromX?: number, fromZ?: number): { died: boolean; guarded: boolean } {
+  takeDamage(amount: number, heavy: boolean, fromX?: number, fromZ?: number, opts?: { guardBreak?: boolean; forceStagger?: boolean }): { died: boolean; guarded: boolean } {
     if (this.dead) return { died: false, guarded: false };
     let guarded = false;
     let dealt = amount;
@@ -249,10 +355,14 @@ class Bandit {
     if (this.backTurnedT > 0) dealt *= 1.5;
     else if (this.knockdownT > 0) dealt *= 1.25;
     // Fase 11 — the guard soaks LIGHT hits (sparks + clang); heavies smash it
-    if (this.guardT > 0 && !heavy && this.backTurnedT <= 0 && !this.airborne) {
+    // Fase 22 — BOKKEN and GOLIATH break the guard outright: a raised weapon
+    // is posture, and these two are hammers against posture
+    if (this.guardT > 0 && !heavy && !opts?.guardBreak && this.backTurnedT <= 0 && !this.airborne) {
       guarded = true;
       dealt = amount * 0.35;
       this.guardT = Math.min(this.guardT, 0.3); // the guard buckles a little
+    } else if (this.guardT > 0 && opts?.guardBreak) {
+      this.guardT = 0; // the stance shatters
     }
     this.hp -= dealt;
     this.aggro = true;
@@ -278,12 +388,18 @@ class Bandit {
     if (this.hp <= 0) {
       this.state = 'dead';
       this.deathT = 0;
-      this.respawnT = 360 + Math.random() * 120; // 6–8 min
+      // Fase 22 — legends fall ONCE: no respawn, the corpse remains where
+      // it dropped (the fortress keeps its dead king; the isles their ronin)
+      this.respawnT = this.legend ? Number.POSITIVE_INFINITY : 360 + Math.random() * 120;
       this.attackT = 0;
       this.airborne = false;
       this.grabbed = false;
       this.setGlow(null);
       return { died: true, guarded };
+    }
+    // Fase 22 — a forced stagger (bokken solid strikes) reads like a stun
+    if (opts?.forceStagger && !this.airborne) {
+      this.staggerT = Math.max(this.staggerT, 0.85);
     }
     // poise roles (heavy / captain) don't stagger on light hits — and NOBODY
     // staggers out of the air (the juggle would die instantly)
@@ -448,6 +564,8 @@ class Bandit {
     /** Fase 14 — true cuando está lejos: la IA sigue (barata) pero la pose
      *  del caballero se congela (dt 0) — el álgebra de huesos es lo caro. */
     farAnim = false,
+    /** Fase 22 — sight multiplier (the Temple Shadow Dō lends its silence). */
+    detectionMult = 1,
   ): void {
     const g = this.group;
 
@@ -455,6 +573,13 @@ class Bandit {
       this.deathT += dt;
       this.respawnT -= dt;
       // fall over, then sink into the ground and free the slot
+      // (Fase 22 — legends NEVER sink: the corpse of a king stays)
+      if (this.legend) {
+        if (this.deathT < 0.55) {
+          g.rotation.x = -Math.PI / 2 * Math.min(1, this.deathT / 0.55);
+        }
+        return;
+      }
       if (this.deathT < 0.55) {
         g.rotation.x = -Math.PI / 2 * Math.min(1, this.deathT / 0.55);
         this.model?.update({ dt, speed: 0, moving: false, grounded: true, swimming: false, attackT: 0, blockT: 0, rollT: 0, bowDraw: -1 });
@@ -471,13 +596,39 @@ class Bandit {
     const dz = playerPos.z - this.pos.z;
     const dist = Math.hypot(dx, dz);
 
-    // --- perception ---
-    if (!this.aggro && dist < this.aggroRadius && Math.abs(playerPos.y - this.pos.y) < 6) {
+    // --- Fase 22: DoT statuses tick (burn embers / poison blight) ---
+    if (this.statusKind && this.statusT > 0) {
+      this.statusT -= dt;
+      this.statusTick -= dt;
+      if (this.statusTick <= 0) {
+        this.statusTick = 0.5;
+        const dot = this.statusKind === 'burn' ? 3.2 : 2.1;
+        this.hp -= dot;
+        if (this.hp <= 0) {
+          this.state = 'dead';
+          this.deathT = 0;
+          this.respawnT = this.legend ? Number.POSITIVE_INFINITY : 360 + Math.random() * 120;
+          this.attackT = 0;
+          this.setGlow(null);
+          this.dotKilled = true; // the system grants loot/XP
+          return;
+        }
+      }
+      if (this.statusT <= 0) this.statusKind = null;
+    }
+
+    // --- perception (Fase 22: detectionMult — the Shadow Dō sees you later) ---
+    const aggroR = this.aggroRadius * (detectionMult ?? 1);
+    if (!this.aggro && dist < aggroR && Math.abs(playerPos.y - this.pos.y) < 6) {
       this.aggro = true;
       hooks.sound('swing'); // a bark as they draw steel
     }
     // leash: far from camp or player dead/dialog -> back to patrol
-    if (this.aggro && (dist > 34 || Math.hypot(this.pos.x - this.camp.x, this.pos.z - this.camp.z) > 46)) {
+    // (Fase 22 — legends are bosses: they chase twice as far and never
+    //  wander home while you still breathe in their sight)
+    const leashDist = this.legend?.boss ? 58 : 34;
+    const leashCamp = this.legend ? 120 : 46;
+    if (this.aggro && (dist > leashDist || Math.hypot(this.pos.x - this.camp.x, this.pos.z - this.camp.z) > leashCamp)) {
       this.aggro = false;
       this.hasToken = false;
       this.pickPatrolTarget();
@@ -877,6 +1028,69 @@ export class BanditSystem {
       }
     }
     void n;
+    this.spawnLegends();
+  }
+
+  /** Fase 22 — THE FORGE OF LEGENDS: the Pirate King (Crow Fortress), the
+   *  Storm Ronin (Mist Isles) and three temple guardians. Legends already
+   *  slain in the save spawn as permanent corpses (deathFlag). */
+  private spawnLegends(): void {
+    for (const def of LEGENDS) {
+      const slain = this.hooks.hasFlag?.(def.deathFlag) === true;
+      const camp: CampDef = { id: `legend_${def.id}`, name: def.name, x: def.x, z: def.z, radius: 8 };
+      const b = new Bandit(9000 + LEGENDS.indexOf(def), camp, true, 777 + def.x, def.role);
+      b.legend = def;
+      b.maxHp = def.hp;
+      b.hp = slain ? 0 : def.hp;
+      b.aggroRadius = def.aggroRadius;
+      b.damage = def.damage;
+      b.chaseSpeed = def.chaseSpeed;
+      b.poise = true;
+      b.pos.set(def.x, this.terrain.height(def.x, def.z), def.z);
+      b.group.position.copy(b.pos);
+      if (slain) {
+        b.state = 'dead';
+        b.deathT = 10; // past the fall animation: an old corpse
+        b.respawnT = Number.POSITIVE_INFINITY;
+        b.group.rotation.x = -Math.PI / 2;
+      }
+      this.scene.add(b.group);
+      this.bandits.push(b);
+      this.attachVisual(b, true, def);
+    }
+    // the temple guardians (respawn like common bandits, rare wakizashi)
+    for (let i = 0; i < SAMURAI_SPOTS.length; i++) {
+      const s = SAMURAI_SPOTS[i];
+      const camp: CampDef = { id: `samurai_${i}`, name: 'Temple Guardian', x: s.x, z: s.z, radius: 9 };
+      const b = new Bandit(9500 + i, camp, false, 555 + i * 13, 'thief');
+      b.samurai = true;
+      b.maxHp = SAMURAI_DEF.hp;
+      b.hp = SAMURAI_DEF.hp;
+      b.damage = SAMURAI_DEF.damage;
+      b.aggroRadius = 18;
+      b.chaseSpeed = 4.6;
+      b.pos.set(s.x, this.terrain.height(s.x, s.z), s.z);
+      b.group.position.copy(b.pos);
+      this.scene.add(b.group);
+      this.bandits.push(b);
+      this.attachVisual(b, false, undefined, true);
+    }
+  }
+
+  /** Fase 22 — live bandits inside a radius (ember patches, mythic actives). */
+  banditsInRadius(pos: THREE.Vector3, r: number): Array<{ bandit: Bandit; point: THREE.Vector3 }> {
+    return this.meleeHitCheckRadius(pos, r, 8);
+  }
+
+  /** Fase 22 — apply a burn/poison DoT (CombatSystem ref wiring). */
+  applyStatus(bandit: unknown, kind: 'burn' | 'poison', dur: number): void {
+    (bandit as Bandit).applyStatus(kind, dur);
+  }
+
+  /** Fase 22 — sight multiplier for the whole pack (the Shadow Dō). */
+  private detectionMult = 1;
+  setDetectionMult(m: number): void {
+    this.detectionMult = Math.max(0.25, Math.min(1, m));
   }
 
   /** Fase 12 — living red knights (E2E/admin). */
@@ -911,27 +1125,47 @@ export class BanditSystem {
     return spawned;
   }
 
-  private attachVisual(bandit: Bandit, captain: boolean): void {
+  private attachVisual(bandit: Bandit, captain: boolean, legend?: LegendDef, samurai = false): void {
     this.assets.loadModel('knight_rigged.glb').then((scene) => {
-      if (bandit.dead) return; // died before the model arrived
+      if (bandit.dead && !legend) return; // died before the model arrived
       const weaponKind = bandit.role === 'heavy' ? 'axe' : bandit.role === 'shooter' ? 'sword' : 'sword';
       const model = new KnightModelGLB({
         scene,
-        bandit: { seed: bandit.pos.x * 3.1 + bandit.pos.z, captain, shield: bandit.role === 'heavy' },
+        bandit: {
+          seed: bandit.pos.x * 3.1 + bandit.pos.z,
+          captain: legend ? true : captain,
+          shield: bandit.role === 'heavy' && !legend,
+          // Fase 22 — legends and guardians wear their own colours
+          tint: legend
+            ? { h: legend.tint.h, s: legend.tint.s, l: legend.tint.l }
+            : samurai
+              ? { h: 0.56, s: 0.3, l: 0.16 }
+              : undefined,
+          eyes: legend ? legend.eyes : samurai ? 0x9adcf0 : undefined,
+        },
         // Fase 11 — bandits carry the rusted variant of the master-forged
         // sword (red-black steel, plain pommel); captains get a garnet.
         weaponFactory: (kind) => (kind === 'sword'
-          ? buildHeroSword({ rusted: true, captain })
+          ? buildHeroSword({ rusted: true, captain: legend ? true : captain })
           : this.kits ? this.kits.weapon(kind) : null),
         shieldFactory: this.kits ? () => this.kits!.create('shield_02') : undefined,
       });
       model.setWeapon(weaponKind as 'sword' | 'axe');
-      model.setShield(bandit.role === 'heavy');
+      model.setShield(bandit.role === 'heavy' && !legend);
       bandit.model = model;
       bandit.group.add(model.root);
       // role body language: thieves lean & small, heavies are slabs, shooters
       // wiry marksmen, captains stand tall
-      if (!captain) {
+      if (legend) {
+        model.root.scale.setScalar(legend.scale);
+        // THE HAT: the king's tricorn or the ronin's kasa rides the head bone
+        const head = model.boneByName('j_head');
+        if (head) head.add(this.buildLegendHat(legend.hat));
+      } else if (samurai) {
+        model.root.scale.setScalar(1.0);
+        const head = model.boneByName('j_head');
+        if (head) head.add(this.buildLegendHat('kasa', 0.8));
+      } else if (!captain) {
         const s = bandit.role === 'heavy' ? 1.06 : bandit.role === 'shooter' ? 0.96 : 0.95;
         model.root.scale.setScalar(s);
       }
@@ -945,6 +1179,40 @@ export class BanditSystem {
       bandit.group.visible = false;
       bandit.takeDamage(99999, true);
     });
+  }
+
+  /** Fase 22 — the legend's headwear: a gold-trimmed tricorn (the Pirate
+   *  King) or a straw kasa (the Storm Ronin / temple guardians). */
+  private buildLegendHat(kind: 'tricorn' | 'kasa' | 'none', scale = 1): THREE.Group {
+    const g = new THREE.Group();
+    if (kind === 'none') return g;
+    if (kind === 'tricorn') {
+      const felt = new THREE.MeshStandardMaterial({ color: 0x241a12, roughness: 0.92 });
+      const trim = new THREE.MeshStandardMaterial({ color: 0xc9a227, roughness: 0.35, metalness: 0.8 });
+      const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.09 * scale, 0.11 * scale, 0.14 * scale, 8), felt);
+      crown.position.y = 0.07 * scale;
+      g.add(crown);
+      const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.3 * scale, 0.32 * scale, 0.03 * scale, 3), felt);
+      brim.position.y = 0.015 * scale;
+      brim.rotation.y = Math.PI / 3; // the tricorn's signature triangle fold
+      g.add(brim);
+      const band = new THREE.Mesh(new THREE.TorusGeometry(0.105 * scale, 0.014 * scale, 6, 12), trim);
+      band.rotation.x = Math.PI / 2;
+      band.position.y = 0.05 * scale;
+      g.add(band);
+      g.position.y = 0.1;
+    } else {
+      const straw = new THREE.MeshStandardMaterial({ color: 0xa89468, roughness: 0.95 });
+      const cone = new THREE.Mesh(new THREE.ConeGeometry(0.24 * scale, 0.16 * scale, 10), straw);
+      cone.position.y = 0.08 * scale;
+      g.add(cone);
+      const rim = new THREE.Mesh(new THREE.TorusGeometry(0.24 * scale, 0.012 * scale, 6, 12), straw);
+      rim.rotation.x = Math.PI / 2;
+      rim.position.y = 0.012 * scale;
+      g.add(rim);
+      g.position.y = 0.09;
+    }
+    return g;
   }
 
   /** A simple flintlock musket riding the shooter's back. */
@@ -1161,10 +1429,10 @@ export class BanditSystem {
   }
 
   /** Apply player damage to a bandit; handles loot/XP on death. */
-  damage(bandit: unknown, amount: number, heavy: boolean): void {
+  damage(bandit: unknown, amount: number, heavy: boolean, opts?: { guardBreak?: boolean; forceStagger?: boolean }): void {
     const b = bandit as Bandit;
     const p = this.playerPos();
-    const res = b.takeDamage(amount, heavy, p?.x, p?.z);
+    const res = b.takeDamage(amount, heavy, p?.x, p?.z, opts);
     if (res.guarded) {
       // light hit into a raised weapon: sparks + clang, no real harm
       this.hooks.blockSparks(b.center());
@@ -1173,22 +1441,65 @@ export class BanditSystem {
       return;
     }
     this.hooks.weaponImpact(b.center());
-    if (res.died) {
-      const coins = b.captain ? 25 + Math.floor(Math.random() * 35) : 8 + Math.floor(Math.random() * 14);
-      this.hooks.addCoins(coins);
-      this.hooks.giveXp(b.captain ? 60 : 18);
-      this.hooks.sound('hit_scale');
-      this.hooks.cameraShake(b.captain ? 0.5 : 0.25);
-      this.hooks.hitStop(b.captain ? 0.12 : 0.07);
-      this.hooks.onBanditKilled?.(b.captain);
+    if (res.died) this.handleBanditDeath(b);
+    else this.hooks.sound('damage');
+  }
+
+  /** Fase 22 — death resolution shared by direct hits, DoT ticks and
+   *  finishers: coins, XP, legend catalysts, samurai drops, boss bar. */
+  private handleBanditDeath(b: Bandit): void {
+    if (b.legend) {
+      // THE LEGEND FALLS: guaranteed catalysts, no respawn, bar clears
+      this.hooks.setFlag?.(b.legend.deathFlag);
+      const got: string[] = [];
+      for (const d of b.legend.drops) {
+        if (d.chance !== undefined && Math.random() > d.chance) continue;
+        this.hooks.addItem?.(d.id, d.count);
+        got.push(`${d.count} × ${d.id}`);
+      }
+      this.hooks.addCoins(b.legend.lootGold);
+      this.hooks.giveXp(b.legend.xp);
+      this.hooks.sound('boss_die');
+      this.hooks.cameraShake(0.7);
+      this.hooks.hitStop(0.14);
+      this.hooks.bossHud?.(null);
       this.hooks.notify(
-        'item',
-        b.captain ? 'Bandit captain defeated!' : b.role === 'heavy' ? 'Bruiser down' : b.role === 'shooter' ? 'Musketeer down' : 'Bandit down',
-        `Loot: ${coins} gold coins.`,
+        'quest',
+        `${b.legend.name.toUpperCase()} — DEFEATED`,
+        `Loot: ${got.join(', ')} and ${b.legend.lootGold} coins. +${b.legend.xp} XP. The legends can be forged now.`,
       );
-    } else {
-      this.hooks.sound('damage');
+      return;
     }
+    if (b.samurai) {
+      // temple guardian: the wakizashi is a rare prize, the silk is not
+      const got: string[] = [];
+      if (Math.random() < SAMURAI_DEF.wakizashiChance) {
+        this.hooks.addItem?.('wakizashi', 1);
+        got.push("Temple Guardian's Wakizashi");
+      }
+      if (Math.random() < SAMURAI_DEF.silkChance) {
+        this.hooks.addItem?.('seda_sombras', 1);
+        got.push('1 × Ancestral Shadow Silk');
+      }
+      const coins = 14 + Math.floor(Math.random() * 18);
+      this.hooks.addCoins(coins);
+      this.hooks.giveXp(34);
+      this.hooks.notify('item', 'Temple guardian defeated',
+        got.length > 0 ? `Loot: ${got.join(', ')} and ${coins} coins.` : `Loot: ${coins} gold coins.`);
+      return;
+    }
+    const coins = b.captain ? 25 + Math.floor(Math.random() * 35) : 8 + Math.floor(Math.random() * 14);
+    this.hooks.addCoins(coins);
+    this.hooks.giveXp(b.captain ? 60 : 18);
+    this.hooks.sound('hit_scale');
+    this.hooks.cameraShake(b.captain ? 0.5 : 0.25);
+    this.hooks.hitStop(b.captain ? 0.12 : 0.07);
+    this.hooks.onBanditKilled?.(b.captain);
+    this.hooks.notify(
+      'item',
+      b.captain ? 'Bandit captain defeated!' : b.role === 'heavy' ? 'Bruiser down' : b.role === 'shooter' ? 'Musketeer down' : 'Bandit down',
+      `Loot: ${coins} gold coins.`,
+    );
   }
 
   /** Best-known player position (kept fresh by update()). */
@@ -1220,6 +1531,11 @@ export class BanditSystem {
     const b = bandit as Bandit;
     if (!b || b.dead) return;
     b.execute(this.hooks);
+    if (b.legend || b.samurai) {
+      // Fase 22 — legends and guardians route through the shared loot path
+      this.handleBanditDeath(b);
+      return;
+    }
     const coins = b.captain ? 30 + Math.floor(Math.random() * 40) : 10 + Math.floor(Math.random() * 16);
     this.hooks.addCoins(coins);
     this.hooks.giveXp(b.captain ? 70 : 22);
@@ -1287,9 +1603,31 @@ export class BanditSystem {
       );
     }
 
+    // ---- Fase 22 — legend bookkeeping: intro card + the boss bar ----
+    let legendBarPushed = false;
+    for (const b of this.bandits) {
+      if (!b.legend || b.dead) continue;
+      if (b.aggro && !b.legendIntroduced) {
+        b.legendIntroduced = true;
+        this.hooks.notify('quest', b.legend.intro[0], b.legend.intro[1]);
+        this.hooks.sound('roar_big');
+        this.hooks.cameraShake(0.35);
+      }
+      if (b.aggro && !legendBarPushed) {
+        legendBarPushed = true;
+        this.hooks.bossHud?.({
+          name: b.legend.name,
+          title: b.legend.title,
+          hp: Math.max(0, Math.ceil(b.hp)),
+          maxHp: b.maxHp,
+          phase: b.hp < b.maxHp * 0.4 ? 2 : 1,
+        });
+      }
+    }
+
     for (const b of this.bandits) {
       if (b.dead && b.respawnT <= 0 && !b.group.visible) continue; // already despawned
-      if (b.dead && b.respawnT <= 0) {
+      if (b.dead && b.respawnT <= 0 && Number.isFinite(b.respawnT)) {
         b.respawn(this.terrain);
         this.attachVisual(b, b.captain);
         continue;
@@ -1301,7 +1639,13 @@ export class BanditSystem {
       const d2 = (b.pos.x - playerPos.x) ** 2 + (b.pos.z - playerPos.z) ** 2;
       if (!b.dead) b.group.visible = d2 < 330 * 330;
       if (d2 > 210 * 210) continue;
-      b.update(dt, playerPos, this.terrain, playerVulnerable, this.hooks, d2 > 70 * 70);
+      b.update(dt, playerPos, this.terrain, playerVulnerable, this.hooks, d2 > 70 * 70, this.detectionMult);
+      // Fase 22 — a DoT tick finished him: route the death loot
+      if (b.dotKilled) {
+        b.dotKilled = false;
+        this.handleBanditDeath(b);
+        if (b.legend) this.hooks.bossHud?.(null);
+      }
       // Fase 17 — a thrown bandit just crash-landed: detonate the AoE
       if (b.pendingCrash) {
         const at = b.pendingCrash;

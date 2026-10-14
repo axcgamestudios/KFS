@@ -875,6 +875,42 @@ export const DIALOGUES: Record<string, NPCDialogue> = {
       },
     ],
   },
+
+  // ---- Fase 22 — THE FORGE: Sister Ysolt, the sanctuary merchant ----
+  santuario: {
+    npcId: 'santuario',
+    name: 'Sister Ysolt',
+    trees: [
+      {
+        start: 'y1',
+        nodes: {
+          y1: {
+            text: 'Welcome to the Sanctuary of Thalassar, traveller. The tide brings everything here eventually — silk, incense, and novices who cannot yet tell a blade from a bread knife. Perhaps something on my cloth speaks to you?',
+            options: [
+              { text: 'Let me see the sanctuary\'s wares.', action: { t: 'shop', vendor: 'santuario' } },
+              { text: 'Novices? You train fighters here?', next: 'y2' },
+              { text: 'The tide keep its peace, sister.', action: { t: 'close' } },
+            ],
+          },
+          y2: {
+            text: 'We train GUARDIANS — the ones who watch while others sleep. The wooden sword first, always: it cannot cut, but it teaches the wrists what a guard is and how it breaks. The cotton weave lets a learner counter instead of tank. When a novice survives three winters, the temple gives them steel.',
+            options: [
+              { text: 'The wooden sword and the weave, then.', action: { t: 'shop', vendor: 'santuario' } },
+              { text: 'Three winters is a long apprenticeship.', next: 'y3' },
+              { text: 'Peace to your guardians.', action: { t: 'close' } },
+            ],
+          },
+          y3: {
+            text: 'The sea is patient, and so are we. Speak to no one of the silk — the shadow-weave is a covenant, not a merchandise. But the guardians of the Mist Isles carry it, and what falls… the tide brings here.',
+            options: [
+              { text: 'I understand, sister. The wares, please.', action: { t: 'shop', vendor: 'santuario' } },
+              { text: 'Until the tide turns.', action: { t: 'close' } },
+            ],
+          },
+        },
+      },
+    ],
+  },
 };
 
 /** Narrator-style lore interactions (tablets, stones, doors). */

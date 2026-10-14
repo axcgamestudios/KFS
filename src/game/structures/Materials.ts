@@ -21,6 +21,13 @@ export const MAT = {
   roofSlate: new THREE.MeshStandardMaterial({ color: 0x4e545c, roughness: 0.8, metalness: 0.05 }),
   metal: new THREE.MeshStandardMaterial({ color: 0x8f9296, roughness: 0.45, metalness: 0.75 }),
   gold: new THREE.MeshStandardMaterial({ color: 0xc9a227, roughness: 0.35, metalness: 0.8 }),
+  // ---- Fase 22 — the forge stations ----
+  steel: new THREE.MeshStandardMaterial({ color: 0x9fa6ad, roughness: 0.32, metalness: 0.85 }),
+  steelDark: new THREE.MeshStandardMaterial({ color: 0x4d5258, roughness: 0.42, metalness: 0.8 }),
+  stoneLight: new THREE.MeshStandardMaterial({ color: 0xb9b2a2, roughness: 0.9, metalness: 0 }),
+  goldBright: new THREE.MeshStandardMaterial({ color: 0xffd977, roughness: 0.25, metalness: 0.9, emissive: 0x8a6a10, emissiveIntensity: 0.55 }),
+  waterDeep: new THREE.MeshStandardMaterial({ color: 0x16333a, roughness: 0.15, metalness: 0.3 }),
+  ember: new THREE.MeshStandardMaterial({ color: 0xff9a3c, emissive: 0xff7a1a, emissiveIntensity: 1.6, roughness: 0.6 }),
   clothRed: new THREE.MeshStandardMaterial({ color: 0x7a1f1f, roughness: 0.9, metalness: 0, side: THREE.DoubleSide }),
   clothGold: new THREE.MeshStandardMaterial({ color: 0xb08a2e, roughness: 0.9, metalness: 0, side: THREE.DoubleSide }),
   sail: new THREE.MeshStandardMaterial({ color: 0xd8cdb4, roughness: 0.9, metalness: 0, side: THREE.DoubleSide }),
@@ -37,6 +44,14 @@ export const MAT = {
   }),
   /** Fase 4: cobbled ground (castle courtyard, stable yard, market plaza). */
   cobble: new THREE.MeshStandardMaterial({ color: 0x9a948a, roughness: 0.94, metalness: 0 }),
+  /** Fase 23: hand-laid flagstones (village paths + fountain plaza).
+   *  vertexColors carries the per-stone weathering tint; the cobblestone
+   *  photo is mapped per-stone via custom UV windows so the pattern never
+   *  repeats (the old world-scaled boxes tiled the same 6-stone patch every
+   *  2 metres — the “cheap asset pack” read). */
+  flagstone: new THREE.MeshStandardMaterial({ color: 0xcfc9bd, roughness: 0.93, metalness: 0, vertexColors: true }),
+  /** Fase 23: kerb stones framing the flagstone roads (same PBR set, darker). */
+  kerb: new THREE.MeshStandardMaterial({ color: 0xb2aca1, roughness: 0.9, metalness: 0, vertexColors: true }),
   /** Fase 4: worn dirt path / stable floor. */
   dirt: new THREE.MeshStandardMaterial({ color: 0x8a7255, roughness: 0.96, metalness: 0 }),
   /** Fase 4: sun-bleached bone (cove decoration). */
@@ -63,6 +78,9 @@ export type MatKey = keyof typeof MAT;
  *  Used to scale box/cylinder UVs so photos don't stretch on big walls. */
 const TEX_WORLD_SCALE: Partial<Record<MatKey, number>> = {
   stone: 3.2, stoneDark: 3.2, stoneMoss: 3.2, cobble: 2.6, dirt: 3.0,
+  stoneLight: 3.2,
+  // flagstone/kerb UVs are authored per-stone (custom UV windows) — no
+  // world-scale pass must touch them.
   wood: 2.2, woodDark: 2.2, woodLight: 2.2, timber: 2.0, woodShip: 2.4, woodPirate: 2.4,
   roofRed: 1.9, roofSlate: 1.9, roofThatch: 1.7,
   concreteWhite: 3.0,
@@ -175,11 +193,16 @@ export class StaticBuilder {
     this.created.push([id, collider]);
   }
 
-  cylinder(key: MatKey, rTop: number, rBottom: number, h: number, seg: number, x: number, y: number, z: number, collide = false): this {
+  /** Cylinder part. The 9th arg is overloaded for compatibility:
+   *  · boolean (legacy) — the old `collide` flag (kept for call-site compat;
+   *    geometry-only, same behavior as before).
+   *  · number (Fase 22) — a yaw rotation applied to the part. */
+  cylinder(key: MatKey, rTop: number, rBottom: number, h: number, seg: number, x: number, y: number, z: number, rotYOrCollide: boolean | number = false): this {
+    const rotY = typeof rotYOrCollide === 'number' ? rotYOrCollide : 0;
     const geo = new THREE.CylinderGeometry(rTop, rBottom, h, seg);
     const tex = TEX_WORLD_SCALE[key];
     if (tex) worldUvCylinder(geo, rTop, rBottom, h, tex);
-    return this.add(geo, key, x, y, z, 0);
+    return this.add(geo, key, x, y, z, rotY);
   }
 
   addCylinderCollider(x: number, z: number, r: number, minY: number, maxY: number): void {

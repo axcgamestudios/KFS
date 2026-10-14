@@ -99,6 +99,10 @@ export interface AnimParams {
   riding?: boolean;
   /** Fase 4 — riding bounce phase (0..1), driven by the horse gait. */
   rideBounce?: number;
+  /** Fase 22 — vertical velocity (m/s, + up). Feeds the cape cloth layer. */
+  vy?: number;
+  /** Fase 22 — smoothed yaw rate (rad/s). The cape lags turns with it. */
+  yawRate?: number;
 }
 
 export class CharacterModel {

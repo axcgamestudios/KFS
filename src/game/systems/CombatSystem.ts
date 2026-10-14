@@ -39,7 +39,7 @@ export interface WeaponDef {
  *                   stance (cannot move while aiming) and heavy javelin
  *                   projectiles.
  */
-export type BowClass = 'short' | 'long' | 'greatbow';
+export type BowClass = 'short' | 'long' | 'greatbow' | 'apollo';
 
 export interface RangedDef {
   /** Seconds from click to 100% draw (Archer's Eye speeds it +30%). */
@@ -64,7 +64,7 @@ export interface RangedDef {
   /** Short bow: draw & loose even mid-roll (Dodge Shot). */
   dodgeShot?: boolean;
   /** Greatbow javelins are fat, slow, heavy things. */
-  projKind?: 'arrow' | 'javelin';
+  projKind?: 'arrow' | 'javelin' | 'solar';
   /** Legacy min-damage fraction (kept for save compatibility reads). */
   minDmgFrac?: number;
 }
@@ -159,12 +159,83 @@ export const WEAPONS: Record<string, WeaponDef> = {
     lightDmg: 65, heavyDmg: 110, reach: 2.68, arc: 1.9,
     lightDur: 0.43, heavyDur: 0.7, recovery: 0.26, lightStamina: 7, heavyStamina: 14,
   },
+  // ---- Fase 22 — THE FORGE OF LEGENDS ----
+  // Common band (Lv 1-10)
+  machete_oxidado: {
+    id: 'machete_oxidado', kind: 'sword',
+    lightDmg: 16, heavyDmg: 28, reach: 2.3, arc: 1.62,
+    lightDur: 0.42, heavyDur: 0.62, recovery: 0.28, lightStamina: 7, heavyStamina: 13,
+  },
+  bokken: {
+    // cannot cut — but it BREAKS GUARD like a hammer (guardBreak + stagger)
+    id: 'bokken', kind: 'sword',
+    lightDmg: 8, heavyDmg: 14, reach: 2.25, arc: 1.55,
+    lightDur: 0.44, heavyDur: 0.7, recovery: 0.3, lightStamina: 6, heavyStamina: 11,
+  },
+  // Rare band (Lv 11-25)
+  sable_mareas: {
+    // Flow of the Wind: swings quicken 8% under rain or in the water
+    id: 'sable_mareas', kind: 'sword',
+    lightDmg: 30, heavyDmg: 52, reach: 2.52, arc: 1.78,
+    lightDur: 0.46, heavyDur: 0.74, recovery: 0.3, lightStamina: 8, heavyStamina: 15,
+  },
+  wakizashi: {
+    // Quick Draw: the first strike after switching to it is a guaranteed
+    // critical on any enemy that has not noticed you
+    id: 'wakizashi', kind: 'sword',
+    lightDmg: 26, heavyDmg: 44, reach: 2.34, arc: 1.6,
+    lightDur: 0.36, heavyDur: 0.58, recovery: 0.24, lightStamina: 6, heavyStamina: 12,
+  },
+  // Epic band (Lv 26-40)
+  hoja_draco: {
+    // Ember Residue: charged heavies leave a burning patch on the ground
+    id: 'hoja_draco', kind: 'sword', element: 'fire',
+    lightDmg: 38, heavyDmg: 66, reach: 2.6, arc: 1.82,
+    lightDur: 0.48, heavyDur: 0.78, recovery: 0.31, lightStamina: 8, heavyStamina: 16,
+  },
+  // Base legendary blades (Goliath's four)
+  espada_rey_pirata: {
+    id: 'espada_rey_pirata', kind: 'sword',
+    lightDmg: 44, heavyDmg: 74, reach: 2.56, arc: 1.8,
+    lightDur: 0.45, heavyDur: 0.74, recovery: 0.29, lightStamina: 8, heavyStamina: 15,
+  },
+  gemelas_viento: {
+    id: 'gemelas_viento', kind: 'sword',
+    lightDmg: 48, heavyDmg: 82, reach: 2.58, arc: 1.84,
+    lightDur: 0.42, heavyDur: 0.7, recovery: 0.27, lightStamina: 7, heavyStamina: 14,
+  },
+  espada_garra: {
+    // +25% vs dragons — carved from the Ancestor's own claw
+    id: 'espada_garra', kind: 'sword',
+    lightDmg: 62, heavyDmg: 105, reach: 2.66, arc: 1.88,
+    lightDur: 0.46, heavyDur: 0.76, recovery: 0.3, lightStamina: 8, heavyStamina: 16,
+  },
+  // MYTHIC (Divine / Titan — the forge's two endings)
+  espada_goliath: {
+    // 360° guard-breaking heavies · super armor while charging · V active
+    id: 'espada_goliath', kind: 'sword',
+    lightDmg: 95, heavyDmg: 165, reach: 3.1, arc: 2.4,
+    lightDur: 0.55, heavyDur: 0.95, recovery: 0.42, lightStamina: 10, heavyStamina: 20,
+  },
+  arco_apolo: {
+    id: 'arco_apolo', kind: 'bow',
+    lightDmg: 0, heavyDmg: 0, reach: 0, arc: 0,
+    lightDur: 0.3, heavyDur: 0.3, recovery: 0.18, lightStamina: 0, heavyStamina: 0,
+    ranged: {
+      drawTime: 0.42, dmg: 55, tapFrac: 0.34, speed: 44, bowClass: 'apollo',
+      gravityFull: 3.8, gravityTap: 11, overdrawGrace: 4.2, overdrawDrain: 4,
+      dodgeShot: true, projKind: 'solar',
+    },
+  },
 };
 
 /** Slot order for keys 1-4. Slot 1 is the sword the player actually owns
  * (Fase 10: the starting Espada de acero upgrades through Bram's forge and
  * heirlooms are found along the way — the HUD always shows the best one). */
 export const SWORD_PRIORITY = [
+  // Fase 22 — the mythic colossus outranks everything the smiths ever broke
+  'espada_goliath',
+  'espada_garra',
   // Fase 16 — the smith's broken (OP) blades sit above the boss legendaries
   'espada_almirante_rota', 'espada_plata_rota',
   'espada_fuego', 'espada_escarcha', 'espada_tormenta',
@@ -173,7 +244,7 @@ export const SWORD_PRIORITY = [
 ];
 export const WEAPON_SLOTS = ['espada_acero', 'hacha_orden', 'lanza_caza', 'arco_naufragio'];
 /** Fase 18 — the bow family, in cycle order (slot 4 presses walk this list). */
-export const BOW_CYCLE = ['arco_corto', 'arco_naufragio', 'gran_arco'];
+export const BOW_CYCLE = ['arco_corto', 'arco_naufragio', 'gran_arco', 'arco_apolo'];
 
 /** Fase 18 — arrow families. Basic arrows are INFINITE (standard ammo);
  *  the special ones are consumable items. */
@@ -202,7 +273,7 @@ export const SWORD_TIER_MULT = [1, 1.3, 1.7, 2.05];
 
 export interface CombatHooks {
   sound(kind: Parameters<import('./AudioSystem').AudioSystem['playEvent']>[0]): void;
-  notify(kind: 'info' | 'item', title: string, body?: string): void;
+  notify(kind: 'info' | 'item' | 'quest', title: string, body?: string): void;
   /** Melee query against dragons. */
   dragonMelee(origin: THREE.Vector3, yaw: number, reach: number, arc: number):
     { dragon: Dragon; head: boolean; point: THREE.Vector3 } | null;
@@ -214,7 +285,7 @@ export interface CombatHooks {
   /** Fase 10 — red knight bandits: melee query + damage sink. */
   banditMelee?(origin: THREE.Vector3, yaw: number, reach: number, arc: number):
     { bandit: unknown; point: THREE.Vector3 } | null;
-  damageBandit?(bandit: unknown, amount: number, heavy: boolean): void;
+  damageBandit?(bandit: unknown, amount: number, heavy: boolean, opts?: { guardBreak?: boolean; forceStagger?: boolean }): void;
   /** Fase 11 — multi-target sweep for spin finishers (up to `max` victims). */
   banditMeleeMulti?(origin: THREE.Vector3, yaw: number, reach: number, arc: number, max: number):
     Array<{ bandit: unknown; point: THREE.Vector3 }>;
@@ -269,6 +340,9 @@ interface Arrow {
   hitSet?: Set<unknown>;
   /** Boss-part crit already applied. */
   headshot?: boolean;
+  /** Fase 22 — APOLLO: a shaft of light pulled from the sun. Never spends
+   *  ammo; carries the day blessing + solar burn; weak points purify. */
+  solar?: boolean;
 }
 
 interface ArrowPickup {
@@ -366,6 +440,19 @@ export class CombatSystem {
   // ---- Fase 17 — the Spider-Man-grade layer ----
   /** SEA FURY (Valor): 0..300 — segments of 100 (tonic + finishers). */
   private valor = 0;
+  // ---- Fase 22 — THE FORGE OF LEGENDS: weapon passives + mythic actives ----
+  /** WAKIZASHI Quick Draw window (s): fresh after every swap TO it. The
+   *  first strike that connects inside it crits unaware enemies. */
+  private quickDrawT = 0;
+  /** EMBER RESIDUE patches burning on the ground (hoja_draco heavies). */
+  private emberPatches: Array<{ x: number; y: number; z: number; t: number }> = [];
+  /** Mythic active lock (s): CATACLISMO VOLCÁNICO / IRA DEL SOL own the hero. */
+  private mythicT = 0;
+  private mythicKind: 'goliath' | 'apollo' | null = null;
+  /** Refs wired by Game: radial bandit queries + the daylight factor for
+   *  Apollo's blessing. */
+  banditsInRadiusRef: ((pos: THREE.Vector3, r: number) => Array<{ bandit: unknown; point: THREE.Vector3 }>) | null = null;
+  dayFactorRef: (() => number) | null = null;
   /** Fired whenever the bar moves (the Game mirrors it to the HUD store). */
   onValorChange?: (v: number) => void;
   /** Air lights spent in the current stint (3 max; air bounce refreshes). */
@@ -528,6 +615,37 @@ export class CombatSystem {
   update(dt: number, input: Input, dialogueActive: boolean, dead: boolean, eReserved = false): void {
     const p = this.player;
     const weapon = this.weapon;
+
+    // ---- Fase 22 — THE FORGE passives tick ----
+    if (this.quickDrawT > 0) this.quickDrawT = Math.max(0, this.quickDrawT - dt);
+    for (let i = this.emberPatches.length - 1; i >= 0; i--) {
+      const e = this.emberPatches[i];
+      e.t -= dt;
+      if (e.t <= 0) { this.emberPatches.splice(i, 1); continue; }
+      // the patch flares and bites everything standing in it
+      if (Math.random() < dt * 24) {
+        this.vfx.firePuff(this.tmp.set(e.x, e.y + 0.12, e.z).clone(), 0.8);
+      }
+      if (this.banditsInRadiusRef) {
+        for (const h of this.banditsInRadiusRef(this.tmp2.set(e.x, e.y, e.z), 1.5)) {
+          this.hooks.damageBandit?.(h.bandit, 10 * dt, false);
+          this.banditStatusRef?.(h.bandit, 'burn', 1.2);
+        }
+      }
+    }
+    if (this.mythicT > 0) {
+      // the active's brief lock: the hero holds the pose, nothing else fires
+      this.mythicT = Math.max(0, this.mythicT - dt);
+      if (this.mythicT === 0) this.mythicKind = null;
+      p.attackT = Math.max(p.attackT, 0.001); // keep the swing pose alive
+      p.superArmor = true; // the mythic pose cannot be interrupted
+      return;
+    }
+    // Fase 22 — GOLIATH super armor: the heavy's charge window carries the
+    // colossus — blows are halved, nothing staggers, nothing shoves
+    p.superArmor = this.state.equippedWeapon === 'espada_goliath'
+      && p.attackT > 0 && p.attackKind === 'heavy'
+      && p.attackT < p.attackDur * 0.55;
 
     // --- Weapon switching (1-3 melee; 4 CYCLES the bow family, Fase 18) ---
     for (let i = 0; i < WEAPON_SLOTS.length; i++) {
@@ -744,9 +862,21 @@ export class CombatSystem {
     }
     this.updateGrapple(dt);
 
+    // ---- Fase 22 — MYTHIC ACTIVES (V with the divine/titan weapon out):
+    // they take the key BEFORE the finisher when a mythic is equipped;
+    // Shift+Space keeps the classic execution path either way.
+    if (input.pressed('finisher')
+        && this.valor >= 100 && this.finisherLockT <= 0 && !p.dashing && this.grabSpinT <= 0
+        && (this.state.equippedWeapon === 'espada_goliath' || this.state.equippedWeapon === 'arco_apolo')
+        && p.grounded && p.attackT === 0 && !p.rolling) {
+      p.suppressJump = false;
+      this.fireMythicActive();
+    }
     // FINISHER (V, or Shift+Space on a valid target): a cinematic execution
-    // paid for with a full Valor segment.
-    if ((input.pressed('finisher')
+    // paid for with a full Valor segment. (Yields to a mythic active fired
+    // this same frame — the colossus takes the key first.)
+    if (this.mythicT <= 0
+        && (input.pressed('finisher')
         || (input.pressed('jump') && input.isDown('sprint')))
         && this.valor >= 100 && this.finisherLockT <= 0 && !p.dashing && this.grabSpinT <= 0) {
       const fin = this.hooks.finisherTarget?.(p.position) ?? null;
@@ -1245,6 +1375,84 @@ export class CombatSystem {
     this.hooks.notify('item', 'FINISHER!', 'Sabre planted, rope whirled, and the tide took him.');
   }
 
+  // -------------------------------------------------- Fase 22 — mythic actives
+
+  /**
+   * V — the mythic weapon's ultimate, paid for with a full Valor segment:
+   *  · GOLIATH — CATACLISMO VOLCÁNICO: the colossus drinks the storm and
+   *    the ground ERUPTS around the hero (9 m ring, 150 + burn).
+   *  · APOLLO  — IRA DEL SOL: a solar flare detonates from the string-arm
+   *    (11 m, 130 + solar burn + blind).
+   */
+  private fireMythicActive(): void {
+    const p = this.player;
+    const id = this.state.equippedWeapon;
+    if (id !== 'espada_goliath' && id !== 'arco_apolo') return;
+    this.valor -= 100;
+    this.onValorChange?.(this.valor);
+    this.mythicKind = id === 'espada_goliath' ? 'goliath' : 'apollo';
+    this.mythicT = 1.05;
+    p.attackKind = 'heavy';
+    p.attackDur = 1.05;
+    p.attackT = 0.001;
+    p.blocking = false;
+    p.bowDraw = -1;
+    this.finisherLockT = 0.9;
+    const c = new THREE.Vector3(p.position.x, p.position.y + 0.1, p.position.z);
+
+    if (this.mythicKind === 'goliath') {
+      // CATACLISMO VOLCÁNICO — the eruption ring
+      this.onCameraPunch?.(1.0);
+      this.onHitStop?.(0.16);
+      this.hooks.sound('roar_big');
+      this.vfx.elementalBurst(c, 'fire');
+      this.vfx.landingDust(c.clone(), 26, 2.2);
+      for (let i = 0; i < 7; i++) {
+        const a = (i / 7) * Math.PI * 2;
+        this.vfx.firePuff(new THREE.Vector3(c.x + Math.cos(a) * 2.6, c.y, c.z + Math.sin(a) * 2.6), 2.4);
+      }
+      // a ring of ember patches — the ground keeps burning
+      for (let i = 0; i < 5; i++) {
+        const a = (i / 5) * Math.PI * 2 + 0.4;
+        this.emberPatches.push({ x: c.x + Math.cos(a) * 3.2, y: c.y, z: c.z + Math.sin(a) * 3.2, t: 5.5 });
+      }
+      // the damage: bandits eat the ring, dragons the blast
+      if (this.banditsInRadiusRef) {
+        for (const h of this.banditsInRadiusRef(c, 9)) {
+          this.hooks.damageBandit?.(h.bandit, 150, true);
+          this.hooks.knockdownBandit?.(h.bandit, 1.3);
+          this.banditStatusRef?.(h.bandit, 'burn', 4);
+        }
+      }
+      const dHit = this.hooks.dragonMelee(p.position, p.yaw, 9.5, Math.PI * 2);
+      if (dHit) this.hooks.damageDragon(dHit.dragon, 260, true);
+      this.hooks.crewHit(p.position, p.yaw, 150, 9.5, Math.PI * 2);
+      this.flashEvent('CATACLISMO VOLCÁNICO!');
+      this.hooks.notify('quest', 'CATACLISMO VOLCÁNICO', 'The blade drinks the storm — and the mountain answers through it. Point it at something you no longer need.');
+    } else {
+      // IRA DEL SOL — the solar flare
+      this.onCameraPunch?.(0.85);
+      this.onHitStop?.(0.12);
+      this.hooks.sound('eclipse');
+      this.vfx.elementalBurst(c, 'fire');
+      this.vfx.firePuff(c.clone().add(new THREE.Vector3(0, 1.4, 0)), 3.4);
+      this.vfx.elementalTrail(c.clone().add(new THREE.Vector3(0, 1.8, 0)), 'fire');
+      if (this.banditsInRadiusRef) {
+        for (const h of this.banditsInRadiusRef(c, 11)) {
+          this.hooks.damageBandit?.(h.bandit, 130, true);
+          this.banditStatusRef?.(h.bandit, 'burn', 5);
+        }
+      }
+      const dHit = this.hooks.dragonMelee(p.position, p.yaw, 11.5, Math.PI * 2);
+      if (dHit) this.hooks.damageDragon(dHit.dragon, 230, true);
+      this.hooks.crewHit(p.position, p.yaw, 130, 11.5, Math.PI * 2);
+      // the flare purifies its wielder too
+      p.stamina = Math.min(p.stats.maxStamina, p.stamina + 40);
+      this.flashEvent('IRA DEL SOL!');
+      this.hooks.notify('quest', 'IRA DEL SOL', 'A bead of the first morning, spent in one breath. Noon, aimed.');
+    }
+  }
+
   /** Live position of a bandit hook target (duck-typed, no import cycle). */
   private banditPos(bandit: unknown): THREE.Vector3 | null {
     if (!bandit) return null;
@@ -1252,6 +1460,33 @@ export class CombatSystem {
     if (b.pos) return b.pos;
     if (b.group) return b.group.position;
     return null;
+  }
+
+  // ------------------------------------------- Fase 22 — hit-passive helpers
+
+  /** Per-weapon opts passed through to BanditSystem.damage (guard work). */
+  private banditOpts(wid: string, isBokken: boolean, heavy: boolean): { guardBreak?: boolean; forceStagger?: boolean } | undefined {
+    // BOKKEN: the guard collapses (+50% posture damage is the guard break);
+    // solid strikes can stun outright
+    if (isBokken) return { guardBreak: true, forceStagger: heavy };
+    void wid;
+    return undefined;
+  }
+
+  /** Per-weapon effects that ride ON a connecting hit (DoT, embers). */
+  private applyHitPassives(wid: string, bandit: unknown, point: THREE.Vector3, heavy: boolean): void {
+    // MACHETE — LIGHT CUTS: 10% chance the notched edge leaves bleeding
+    // embers that burn on for 3 s (burn = damage over time)
+    if (wid === 'machete_oxidado' && Math.random() < 0.1) {
+      this.banditStatusRef?.(bandit, 'burn', 3);
+      this.flashEvent('LIGHT CUTS');
+    }
+    // HOJA DRACO — EMBER RESIDUE: charged heavies leave a burning patch
+    // where the blade bit the ground
+    if (wid === 'hoja_draco' && heavy) {
+      this.emberPatches.push({ x: point.x, y: point.y - 0.6, z: point.z, t: 4 });
+      this.vfx.firePuff(point.clone(), 1.1);
+    }
   }
 
   // ------------------------------------------------- Fase 17 rope visual
@@ -1419,6 +1654,12 @@ export class CombatSystem {
       this.swingIsMulti = false;
     }
     if (isFinisher) p.attackDur *= 1.12;                   // weighty finisher
+    // Fase 22 — SABLE DE MAREAS · Flow of the Wind: under rain or wading in
+    // the surf the steel drinks the weather and every swing comes 8% quicker
+    if (this.state.equippedWeapon === 'sable_mareas') {
+      const wet = this.isRainingRef?.() === true || p.wading || p.swimming;
+      if (wet) p.attackDur *= 0.92;
+    }
     p.attackT = 0.001;
     this.swingHitDone = false;
     this.launchPending = false;
@@ -1437,6 +1678,10 @@ export class CombatSystem {
     } else if (isFinisher) {
       this.onCameraPunch?.(0.45);
       this.onHitStop?.(0.07);
+    } else if (heavy) {
+      // Fase 22 — plain heavies get a taste of the lens too: the FOV opens
+      // with the raise, sells the weight without a single frame of shake
+      this.onCameraPunch?.(0.28);
     }
     // spear heavies lunge the fencer forward along the thrust
     if (weapon.kind === 'spear' && heavy) {
@@ -1465,9 +1710,16 @@ export class CombatSystem {
       element = weapon.element;
       dmg *= element === 'fire' ? 1.35 : element === 'storm' ? 1.30 : 1.25;
     }
+    // ---- Fase 22 — THE FORGE passives on the damage model ----
+    const wid = this.state.equippedWeapon ?? '';
+    // GOLIATH: the heavy is a 360° sweep that BREAKS any guard
+    const goliathHeavy = wid === 'espada_goliath' && heavy;
+    // BOKKEN: cannot cut, but the guard work is a hammer's
+    const isBokken = wid === 'bokken';
     const big = this.swingIsFinisher;
     const kind = p.attackKind;
-    const multiArc = kind === 'spin' ? 2.75 : kind === 'sweep' ? 2.3 : weapon.arc;
+    let multiArc = kind === 'spin' ? 2.75 : kind === 'sweep' ? 2.3 : weapon.arc;
+    if (goliathHeavy) multiArc = Math.PI * 2;
     const reach = kind === 'sweep' ? weapon.reach + 0.35 : weapon.reach;
     // Fase 17 — LAUNCH (hold LMB): the rising cut that carries men skyward
     if (this.launchPending) {
@@ -1481,7 +1733,9 @@ export class CombatSystem {
     // 1) Dragons — the big game (single query, untouched lane)
     const hit = this.hooks.dragonMelee(p.position, p.yaw, weapon.reach, multiArc);
     if (hit) {
-      const final = hit.head ? dmg * 1.5 : dmg;
+      // ESPADA GARRA — carved from the Ancestor's own claw: +25% vs dragons
+      let final = hit.head ? dmg * 1.5 : dmg;
+      if (wid === 'espada_garra') final *= 1.25;
       this.hooks.damageDragon(hit.dragon, final, heavy);
       this.vfx.weaponImpact(hit.point);
       if (element) this.hooks.elementalHit?.(hit.point, element);
@@ -1494,13 +1748,31 @@ export class CombatSystem {
     //      for the rest; LAUNCHES fling the struck man into the air
     if (this.hooks.banditMelee) {
       const launchNow = kind === 'uppercut';
+      // GOLIATH heavies sweep EVERYONE around (360°, up to six)
+      if (goliathHeavy && this.hooks.banditMeleeMulti) {
+        const hits = this.hooks.banditMeleeMulti(p.position, p.yaw, reach, multiArc, 6);
+        if (hits.length > 0) {
+          for (const h of hits) {
+            this.hooks.damageBandit?.(h.bandit, dmg, heavy, { guardBreak: true });
+            this.hooks.knockdownBandit?.(h.bandit, 0.9);
+          }
+          this.vfx.weaponImpact(hits[0].point);
+          this.vfx.elementalBurst(hits[0].point, 'storm');
+          this.hooks.sound('hit_scale');
+          this.onCameraPunch?.(0.6);
+          this.onHitStop?.(0.1);
+          this.gainValor(5 * hits.length);
+          return;
+        }
+      }
       if (this.swingIsMulti && this.hooks.banditMeleeMulti) {
         const hits = this.hooks.banditMeleeMulti(p.position, p.yaw, reach, multiArc, kind === 'sweep' ? 3 : 4);
         if (hits.length > 0) {
           for (const h of hits) {
-            this.hooks.damageBandit?.(h.bandit, dmg, heavy);
+            this.hooks.damageBandit?.(h.bandit, dmg, heavy, this.banditOpts(wid, isBokken, heavy));
             // the whirlwind finisher repels its victims into rails & masts
             if (kind === 'spin') this.hooks.knockdownBandit?.(h.bandit, 0.8);
+            this.applyHitPassives(wid, h.bandit, h.point, heavy);
           }
           this.vfx.weaponImpact(hits[0].point);
           if (element) {
@@ -1522,10 +1794,20 @@ export class CombatSystem {
       } else {
         const bHit = this.hooks.banditMelee(p.position, p.yaw, reach, multiArc);
         if (bHit) {
-          this.hooks.damageBandit?.(bHit.bandit, dmg, heavy);
+          let strikeDmg = dmg;
+          // WAKIZASHI — QUICK DRAW: the first strike after the swap is a
+          // guaranteed critical on any enemy that has not noticed you
+          const unaware = !(bHit.bandit as { aggroed?: boolean }).aggroed;
+          if (wid === 'wakizashi' && this.quickDrawT > 0 && unaware) {
+            strikeDmg *= 2.2;
+            this.quickDrawT = 0;
+            this.flashEvent('QUICK DRAW!');
+          }
+          this.hooks.damageBandit?.(bHit.bandit, strikeDmg, heavy, this.banditOpts(wid, isBokken, heavy));
           if (launchNow) this.hooks.launchBandit?.(bHit.bandit, 6.2);
           this.vfx.weaponImpact(bHit.point);
           if (element) this.hooks.elementalHit?.(bHit.point, element);
+          this.applyHitPassives(wid, bHit.bandit, bHit.point, heavy);
           this.hooks.sound(big ? 'hit_scale' : 'damage');
           if (big) {
             this.onCameraPunch?.(0.5);
@@ -1585,11 +1867,15 @@ export class CombatSystem {
       // DODGE SHOT: short bows keep drawing straight through a roll
       && (ranged.dodgeShot ? !p.swimming : (!p.rolling && p.grounded && !p.swimming))
       && p.stamina > 1;
+    // Fase 22 — APOLLO: the sun strings it — always ready, never a quiver
+    // count; and the wielder WALKS AT FULL SPEED while aiming (no aim slow)
+    const isApolloBow = weapon.id === 'arco_apolo';
+    p.bowFreeMove = isApolloBow;
 
     if (canHold) {
       if (p.bowDraw < 0) {
-        // basic arrows are infinite; specials need stock
-        if (this.ammoReady()) {
+        // basic arrows are infinite; specials need stock; APOLLO needs nothing
+        if (isApolloBow || this.ammoReady()) {
           p.bowDraw = 0.001;
           this.overdrawT = 0;
           this.hooks.sound('bow_draw');
@@ -1633,7 +1919,7 @@ export class CombatSystem {
       p.bowDraw = -1;
       const held = this.overdrawT;
       this.overdrawT = 0;
-      if (draw > 0.16 && p.attackT === 0 && this.ammoReady()) {
+      if (draw > 0.16 && p.attackT === 0 && (isApolloBow || this.ammoReady())) {
         this.fireArrow(weapon, draw, held);
       }
     }
@@ -1666,9 +1952,14 @@ export class CombatSystem {
     this.flashEvent(def.name.toUpperCase() + 'S');
   }
 
-  private fireArrow(weapon: WeaponDef, draw: number, overdrawHeld = 0, ammo: AmmoKind = this.ammoKind): void {
+  private fireArrow(weapon: WeaponDef, draw: number, overdrawHeld = 0, ammoIn?: AmmoKind): void {
     const p = this.player;
-    this.spendAmmoFor(ammo);
+    // Fase 22 — APOLLO'S BOW: every pull of the string LIGHTS one from the
+    // sun. Infinite stock (the quiver is never touched), +30% outdoors by
+    // day, solar burn, and weak-point hits purify the wielder.
+    const isApollo = weapon.id === 'arco_apolo';
+    const ammo: AmmoKind = isApollo ? 'basic' : (ammoIn ?? this.ammoKind);
+    if (!isApollo) this.spendAmmoFor(ammo);
     const ranged = weapon.ranged!;
     const { origin, dir } = this.hooks.aimRay();
     // Aim point along the camera ray (taps aim closer — short range feel),
@@ -1679,7 +1970,7 @@ export class CombatSystem {
     const chest = this.tmp2.set(p.position.x, p.position.y + 1.35, p.position.z);
     const flightDir = new THREE.Vector3().copy(aimPoint).sub(chest).normalize();
     const javelin = ranged.projKind === 'javelin';
-    const mesh = this.buildArrowMesh(ammo, javelin);
+    const mesh = this.buildArrowMesh(ammo, javelin, isApollo);
     mesh.position.copy(chest).addScaledVector(flightDir, 0.6);
     mesh.lookAt(mesh.position.clone().add(flightDir));
     this.scene.add(mesh);
@@ -1692,6 +1983,11 @@ export class CombatSystem {
     if (ranged.bowClass === 'long' && this.streak > 0) dmg *= 1 + Math.min(0.4, this.streak * 0.08);
     // Ammo families tweak the payload
     if (ammo === 'piercing') dmg *= 1.15;
+    // APOLLO's day blessing (+30% outdoors by day)
+    if (isApollo) {
+      const day = this.dayFactorRef?.() ?? 0;
+      if (day > 0.25) dmg *= 1.3;
+    }
 
     this.arrows.push({
       mesh,
@@ -1700,12 +1996,14 @@ export class CombatSystem {
       dmg,
       stuck: false,
       ammo,
+      solar: isApollo,
       gravity: isTap ? ranged.gravityTap : ranged.gravityFull,
       origin: chest.clone(),
     });
     // Release animation (short bows snap, greatbows heave)
     p.attackKind = 'bowRelease';
     p.attackDur = ranged.bowClass === 'short' ? 0.24 : ranged.bowClass === 'greatbow' ? 0.5 : 0.35;
+    if (isApollo) p.attackDur = 0.26; // as fast as a short bow
     p.attackT = 0.001;
     this.swingHitDone = true;
     this.hooks.sound('bow_release');
@@ -1719,13 +2017,15 @@ export class CombatSystem {
     return this.state.removeItem(def.item, 1);
   }
 
-  private buildArrowMesh(ammo: AmmoKind = 'basic', javelin = false): THREE.Group {
+  private buildArrowMesh(ammo: AmmoKind = 'basic', javelin = false, solar = false): THREE.Group {
     const g = new THREE.Group();
     const shaftMat = new THREE.MeshStandardMaterial({
-      color: javelin ? 0x5c452a : 0x6a5232, roughness: 0.8,
+      color: solar ? 0xc9a64e : javelin ? 0x5c452a : 0x6a5232, roughness: solar ? 0.3 : 0.8,
+      metalness: solar ? 0.7 : 0,
     });
     const tipMat = new THREE.MeshStandardMaterial({
-      color: 0x9aa2a8, roughness: 0.4, metalness: 0.7,
+      color: solar ? 0xffd977 : 0x9aa2a8, roughness: 0.4, metalness: 0.7,
+      emissive: solar ? 0xffa726 : 0x000000, emissiveIntensity: solar ? 2.4 : 0,
     });
     // element tints
     if (ammo === 'fire') tipMat.color.set(0xd05a1e);
@@ -1763,13 +2063,13 @@ export class CombatSystem {
       g.add(grip);
     }
     // elemental glow aura on the tip
-    if (ammo === 'fire' || ammo === 'shock' || ammo === 'poison') {
+    if (ammo === 'fire' || ammo === 'shock' || ammo === 'poison' || solar) {
       const aura = new THREE.Mesh(
         new THREE.SphereGeometry(javelin ? 0.09 : 0.045, 6, 5),
         new THREE.MeshStandardMaterial({
           color: 0x101010,
-          emissive: ammo === 'fire' ? 0xff7a2a : ammo === 'shock' ? 0x48c8e8 : 0x7ab02a,
-          emissiveIntensity: 2.2, roughness: 0.5,
+          emissive: solar ? 0xffc44d : ammo === 'fire' ? 0xff7a2a : ammo === 'shock' ? 0x48c8e8 : 0x7ab02a,
+          emissiveIntensity: solar ? 3.2 : 2.2, roughness: 0.5,
         }),
       );
       aura.position.z = L / 2 + 0.06;
@@ -1804,9 +2104,16 @@ export class CombatSystem {
           this.flashEvent('WEAK POINT!');
           this.onCameraPunch?.(0.4);
           this.hooks.sound('hit_scale');
+          // Fase 22 — APOLLO: weak-point hits PURIFY the wielder (stamina back)
+          if (a.solar) {
+            p.stamina = Math.min(p.stats.maxStamina, p.stamina + 25);
+            this.flashEvent('PURIFIED');
+          }
         }
         this.hooks.damageDragon(dragonPart.dragon, dmg, dragonPart.head || a.pierce === true);
         this.applyArrowEffects(a, a.mesh.position, null, dragonPart.dragon);
+        // Fase 22 — APOLLO: solar burn smoulders at the impact
+        if (a.solar) this.vfx.firePuff(a.mesh.position.clone(), 0.7);
         this.vfx.weaponImpact(a.mesh.position);
         this.hooks.sound('arrow_hit');
         this.noteStreak(a);
@@ -1824,6 +2131,11 @@ export class CombatSystem {
           this.onCameraPunch?.(0.35);
           this.hooks.sound('hit_scale');
           this.banditKnockdownRef?.(bandit, 0.7);
+          // Fase 22 — APOLLO: weak-point hits PURIFY the wielder
+          if (a.solar) {
+            p.stamina = Math.min(p.stats.maxStamina, p.stamina + 25);
+            this.flashEvent('PURIFIED');
+          }
         } else if (a.pierce) {
           // greatbow + piercing javelins break posture outright
           this.banditKnockdownRef?.(bandit, 0.9);
@@ -1831,6 +2143,11 @@ export class CombatSystem {
         // piercing ammo ignores the guard entirely
         this.damageBanditRef?.(bandit, dmg, a.ammo === 'piercing' || a.pierce === true);
         this.applyArrowEffects(a, a.mesh.position, bandit, null);
+        // Fase 22 — APOLLO: solar burn around the impact
+        if (a.solar) {
+          this.banditStatusRef?.(bandit, 'burn', 3.5);
+          this.vfx.firePuff(a.mesh.position.clone(), 0.7);
+        }
         this.vfx.weaponImpact(a.mesh.position);
         this.hooks.sound('arrow_hit');
         this.noteStreak(a);
@@ -2120,6 +2437,15 @@ export class CombatSystem {
     }
     if (this.state.equippedWeapon === id) return;
     this.state.equip(id);
+    // Fase 22 — the level gate can refuse the strap: say WHY nothing happened
+    if (this.state.equippedWeapon !== id) {
+      const req = ITEMS[id]?.level ?? 0;
+      this.hooks.notify('info', 'Too heavy for you yet',
+        `${ITEMS[id]?.name ?? 'That weapon'} requires level ${req}. The forge does not check your birth certificate — the strap does.`);
+      return;
+    }
+    // Fase 22 — WAKIZASHI Quick Draw: swapping TO it opens the crit window
+    if (id === 'wakizashi') this.quickDrawT = 5;
     this.player.attackT = 0;
     this.player.bowDraw = -1;
     this.player.bowPlanted = false;

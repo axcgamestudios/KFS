@@ -26,6 +26,11 @@ interface SkyPalette {
   fogDensity: number;
 }
 
+/** Fase 22 — the eclipse tints: the sun a ring of fire, the sky bruised. */
+const ECLIPSE_SUN = new THREE.Color(0xff7a33);
+const ECLIPSE_ZENITH = new THREE.Color(0x1b1626);
+const ECLIPSE_HORIZON = new THREE.Color(0x54301f);
+
 const PALETTE_NIGHT: SkyPalette = {
   zenith: new THREE.Color(0x0a1226), horizon: new THREE.Color(0x1a2537),
   fog: new THREE.Color(0x121a2a), sunColor: new THREE.Color(0x9db6e8),
@@ -53,6 +58,9 @@ const PALETTE_DAY: SkyPalette = {
  */
 export class SkySystem {
   dayFraction = 0.30; // 0=midnight … 0.5=noon. Start ~7:12
+  /** Fase 22 — THE ECLIPSE: 0 clear … 1 total. The ForgeSystem drives it;
+   *  the update() dims the sun to a ring of fire and bruises the sky. */
+  eclipseFactor = 0;
   dayCount = 1;
   timePaused = false;
   /** Fase 8 — quality fog multiplier (Ultra-Bajo pulls the world in close). */
@@ -396,6 +404,23 @@ export class SkySystem {
 
     this.domeMat.uniforms.uNight.value = this.nightFactor;
     this.domeMat.uniforms.uTime.value = this.time;
+
+    // ---- Fase 22 — THE ECLIPSE: the sun closes like an eye ----
+    if (this.eclipseFactor > 0.001) {
+      const e = this.eclipseFactor;
+      // the directional light collapses to a ruddy ring-glow
+      this.sunLight.intensity *= 1 - 0.72 * e;
+      this.sunLight.color.lerp(ECLIPSE_SUN, 0.85 * e);
+      this.hemiLight.intensity *= 1 - 0.5 * e;
+      // the sky and fog bruise toward deep slate-violet
+      this.zenithColor.lerp(ECLIPSE_ZENITH, 0.8 * e);
+      this.horizonColor.lerp(ECLIPSE_HORIZON, 0.7 * e);
+      if (scene && scene.fog) {
+        const f = scene.fog as THREE.FogExp2;
+        f.color.lerp(ECLIPSE_ZENITH, 0.6 * e);
+      }
+      this.sunColor.lerp(ECLIPSE_SUN, 0.8 * e);
+    }
 
     // Keep dome centered on the camera
     this.dome.position.set(camera.position.x, 0, camera.position.z);

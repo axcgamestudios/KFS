@@ -150,6 +150,22 @@ export class PirateAmbushSystem {
     this.rollCount = 0;
     if (victory) {
       this.hooks.music(0.5);
+      // Fase 22 — THE FORGE: the fleet's working steel rides the flotsam.
+      // Pirates carry sea iron as ballast; the rest is what they wore.
+      const got: string[] = [];
+      if (Math.random() < 0.6) {
+        this.gameState.addItem('machete_oxidado', 1);
+        got.push('Rusted Boarding Machete');
+      }
+      if (Math.random() < 0.45) {
+        this.gameState.addItem('harapos', 1);
+        got.push("High-Seas Sailor's Rags");
+      }
+      const ingots = 1 + Math.floor(Math.random() * 2);
+      this.gameState.addItem('ingote_hierro_mar', ingots);
+      got.push(`sea iron ×${ingots}`);
+      this.hooks.notify('item', 'From the wreck',
+        `Flotsam for the satchel: ${got.join(', ')}. The smiths pay for the iron; the forge can work it.`);
     }
   }
 

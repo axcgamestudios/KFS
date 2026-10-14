@@ -50,6 +50,28 @@ export interface GameApi {
   // Fase 15 — pirate toll negotiation
   /** Resolve the standing pirate negotiation ('item' | 'coins' | 'mercy'). */
   negotiateChoice(option: 'item' | 'coins' | 'mercy'): void;
+  // Fase 22 — THE FORGE OF LEGENDS
+  /** Live catalog for a forge station (recipes + eclipse state at the altar). */
+  forgeCatalog(station: 'anvil' | 'altar' | 'titans'): {
+    station: 'anvil' | 'altar' | 'titans';
+    name: string;
+    title: string;
+    greeting: string;
+    level: number;
+    coins: number;
+    eclipse: { active: boolean; left: number; hasEssence: boolean; canSummon: boolean };
+    recipes: Array<{
+      id: string; out: string; outName: string; outIcon: string; outRarity: string;
+      gold: number; note: string; canCraft: boolean;
+      status: 'ok' | 'materials' | 'gold' | 'level' | 'gate';
+      level: number; levelOk: boolean;
+      mats: Array<{ id: string; name: string; icon: string; have: number; need: number }>;
+    }>;
+  } | null;
+  /** Run a recipe (ALL validation on the game side). */
+  forgeCraft(station: 'anvil' | 'altar' | 'titans', recipeId: string): 'ok' | 'materials' | 'gold' | 'gate' | 'level';
+  /** Present the Primal Sun Essence at the Altar of the Gods. */
+  summonEclipse(): boolean;
   // Progression
   journal(): JournalEntry[];
   quests(): QuestView[];
@@ -133,6 +155,9 @@ export const gameApi: GameApi = {
   shopCatalog: () => null,
   buyShopItem: () => 'gold',
   negotiateChoice: () => undefined,
+  forgeCatalog: () => null,
+  forgeCraft: () => 'gate',
+  summonEclipse: () => false,
   journal: () => [],
   quests: () => [],
   skills: () => [],

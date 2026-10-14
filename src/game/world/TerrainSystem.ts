@@ -269,6 +269,35 @@ vec3 terrainTex(sampler2D t, vec2 uv, float s1, float s2) {
     return `${cx},${cz}`;
   }
 
+  /**
+   * Fase 23 — the height of the RENDERED ground surface. The chunk mesh is
+   * a piecewise-linear tessellation of height() on a grid of step
+   * 64/res (2.0–3.2 m depending on quality): between grid vertices the
+   * visible surface can sit many centimetres above or below the analytic
+   * height. Structures that must lie FLUSH with the visible ground (the
+   * flagstone roads, the fountain plaza) are placed against THIS value —
+   * exact barycentric interpolation on the same triangles buildChunk emits.
+   */
+  meshHeight(x: number, z: number): number {
+    const step = CHUNK_SIZE / this.res;
+    const gx = Math.floor(x / step) * step;
+    const gz = Math.floor(z / step) * step;
+    const fx = (x - gx) / step;
+    const fz = (z - gz) / step;
+    if (fx + fz <= 1) {
+      // triangle (a, c, b) — the same diagonal buildChunk uses
+      const h00 = this.terrain.height(gx, gz);
+      const h10 = this.terrain.height(gx + step, gz);
+      const h01 = this.terrain.height(gx, gz + step);
+      return h00 + fx * (h10 - h00) + fz * (h01 - h00);
+    }
+    // triangle (b, c, d)
+    const h11 = this.terrain.height(gx + step, gz + step);
+    const h10 = this.terrain.height(gx + step, gz);
+    const h01 = this.terrain.height(gx, gz + step);
+    return h11 + (1 - fx) * (h01 - h11) + (1 - fz) * (h10 - h11);
+  }
+
   private buildChunk(cx: number, cz: number, res = this.res): void {
     if (!this.sceneRef) return;
     const key = this.keyOf(cx, cz);

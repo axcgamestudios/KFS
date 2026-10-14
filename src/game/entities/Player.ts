@@ -86,6 +86,19 @@ export class Player {
   invulnT = 0;
   /** Movement multiplier (block / bow draw slow the player). */
   moveMult = 1;
+  /** Fase 22 — APOLLO: aim without the stride penalty (walk at full speed). */
+  bowFreeMove = false;
+  /** Fase 22 — GOLIATH: super armor while charging the heavy — damage −50%,
+   *  no stagger, no knockdown (set by CombatSystem each frame). */
+  superArmor = false;
+  /** Fase 22 — the equipped armor's passive tag (set by Game on equip sync):
+   *  harapos (weightless) · kimono (wind) · peto_vigia (anchor) ·
+  *  do_sombras (silent) · coraza_tormenta (conductive) · coraza_cria
+  *  (thermal) · armadura_ancestral (titan skin). '' = mundane steel. */
+  armorPassive = '';
+  /** Fase 22 — ARMADURA ANCESTRAL: melee wounds answer with a burning
+   *  shockwave (wired by Game to an AoE strike back at the attacker). */
+  onRetaliation?: (fromX: number, fromZ: number) => void;
   /** Damage taken while blocking is also paid with stamina. */
   hasShieldEquipped = false;
 
@@ -119,6 +132,9 @@ export class Player {
   /** Seconds since the body left the ground (Fase 11: air-combat windows read it). */
   airTime = 0;
   private speedSm = 0;
+  // Fase 22 — cape cloth layer inputs: smoothed yaw rate + last-yaw tracking
+  private yawRateSm = 0;
+  private lastYawAnim = 0;
   /** Fase 4 — water-vault lunge window: horizontal damping disabled. */
   private vaultT = 0;
   /** Fase 4 — walking through shallow water (slowed, no swimming). */
@@ -128,6 +144,17 @@ export class Player {
     maxHealth: 100, maxStamina: 100,
     walkSpeed: 3.6, runSpeed: 6.6, swimSpeed: 2.3,
   };
+
+  /** Fase 22 — cape cloth layer: smoothed yaw rate from the body's turning
+   *  (wrap-safe) + vertical velocity. Drives the cape springs in the model. */
+  private tickCloth(dt: number): void {
+    let dy = this.yaw - this.lastYawAnim;
+    if (dy > Math.PI) dy -= Math.PI * 2;
+    else if (dy < -Math.PI) dy += Math.PI * 2;
+    this.lastYawAnim = this.yaw;
+    const rate = dt > 1e-4 ? dy / dt : 0;
+    this.yawRateSm = damp(this.yawRateSm, rate, 10, Math.max(1e-4, dt));
+  }
 
   onFootstep?: (surface: FootstepSurface) => void;
   onAttackSwing?: () => void;
@@ -301,6 +328,22 @@ export class Player {
     return this.rollT > 0;
   }
 
+  /** Fase 22 — KIMONO: +5% stamina recovery (Flowing Movement). */
+  get staminaRegenMult(): number {
+    return this.armorPassive === 'kimono' ? 1.05 : 1;
+  }
+
+  /** Fase 22 — the dodge's cost: HARPOS are weightless (−30%); the
+   *  ANCESTRAL plate drags a little (the price of a legend, −5% speed). */
+  get dodgeCostMult(): number {
+    if (this.armorPassive === 'harapos') return 0.7;
+    return 1;
+  }
+
+  get dodgeSpeedMult(): number {
+    return this.armorPassive === 'armadura_ancestral' ? 0.95 : 1;
+  }
+
   get invulnerable(): boolean {
     return this.invulnT > 0 || this.rollT > 0; // roll grants i-frames
   }
@@ -371,22 +414,35 @@ export class Player {
     // Fase 16 — ARMOR: the smith's cuero/malla/placas eat a fraction of
     // every hit that actually LANDS (unblocked). Never below 0.2 damage.
     const dr = Math.min(0.8, Math.max(0, this.stats.damageReduction ?? 0));
-    const dealt = Math.max(0.2, damage * (1 - dr));
-    if (dr > 0 && dealt < damage) {
+    // Fase 22 — GOLIATH super armor: mid heavy-charge the colossus answers
+    // for its wielder — the blow is halved, nothing staggers, nothing moves
+    let dealt = Math.max(0.2, damage * (1 - dr));
+    const armored = dr > 0 && dealt < damage;
+    if (this.superArmor) {
+      dealt = Math.max(0.2, dealt * 0.5);
+    }
+    if (armored) {
       this.onArmored?.(damage - dealt);
     }
     this.health = Math.max(0, this.health - dealt);
     this.invulnT = 0.7;
     this.model.flash();
     // Fase 9 — hit reaction: a light knockback impulse away from the source
+    // (PETO VIGÍA anchors −30%; GOLIATH's charge shrugs it off entirely;
+    // the ANCESTRAL plate answers melee wounds with a burning shockwave)
     if (fromX !== undefined && fromZ !== undefined) {
       const dx = this.position.x - fromX;
       const dz = this.position.z - fromZ;
       const len = Math.hypot(dx, dz);
       if (len > 0.01) {
-        this.knockX = (dx / len) * 3.1;
-        this.knockZ = (dz / len) * 3.1;
-        this.knockT = 0.22;
+        const anchor = this.armorPassive === 'peto_vigia' ? 0.7 : 1;
+        const power = this.superArmor ? 0 : 3.1 * anchor;
+        this.knockX = (dx / len) * power;
+        this.knockZ = (dz / len) * power;
+        this.knockT = power > 0 ? 0.22 : 0;
+      }
+      if (this.armorPassive === 'armadura_ancestral' && dealt > 1) {
+        this.onRetaliation?.(fromX, fromZ);
       }
     }
     return dealt;
@@ -458,12 +514,14 @@ export class Player {
         this.yaw = dampAngle(this.yaw, Math.atan2(this.velocity.x, this.velocity.z), 12, dt);
       }
       this.group.rotation.y = this.yaw;
+      this.tickCloth(dt);
       // sky-diver lean
       this.model.root.rotation.x = damp(this.model.root.rotation.x, 0.32, 6, dt);
       this.model.root.position.y = damp(this.model.root.position.y, 0, 8, dt);
       this.model.update({
         dt, speed: this.speedSm, moving: inputLen > 0, grounded: false,
         swimming: false, attackT: 0, blockT: 0, rollT: 0, bowDraw: -1,
+        vy: this.verticalVel, yawRate: this.yawRateSm,
       });
       this.wasGrounded = false;
       return;
@@ -484,8 +542,8 @@ export class Player {
     // (CombatSystem pours the draw trickle + the accelerating overdraw
     // burn; with regen live they cancelled and overdraw never tired you)
     else if (this.bowDraw >= 0) { /* the arms are locked — nothing comes back */ }
-    else if (inputLen > 0) this.stamina = Math.min(this.stats.maxStamina, this.stamina + dt * 9);
-    else this.stamina = Math.min(this.stats.maxStamina, this.stamina + dt * 17);
+    else if (inputLen > 0) this.stamina = Math.min(this.stats.maxStamina, this.stamina + dt * 9 * this.staminaRegenMult);
+    else this.stamina = Math.min(this.stats.maxStamina, this.stamina + dt * 17 * this.staminaRegenMult);
 
     // --- Horizontal velocity (smooth accel) ---
     let targetVX: number;
@@ -829,7 +887,8 @@ export class Player {
     // Fase 18 — archery spec: PRECISION AIM (RMB with a bow out) slows the
     // stride 40%; drawing slows further by bow class; the GREATBOW plants
     // (the stance commits — no movement at all while aiming).
-    if (this.bowAiming) mm *= 0.6;
+    // Fase 22 — APOLLO exempt: the sun's wielder walks at full speed.
+    if (this.bowAiming && !this.bowFreeMove) mm *= 0.6;
     if (this.bowDraw >= 0) {
       if (this.bowPlanted) mm = 0;
       else mm *= this.bowDrawMult;
@@ -838,6 +897,8 @@ export class Player {
     this.moveMult = mm;
 
     // --- Animate ---
+    // Fase 22 — feed the cape cloth layer (turn lag + vertical velocity)
+    this.tickCloth(dt);
     this.model.update({
       dt,
       speed: this.speedSm,
@@ -852,6 +913,8 @@ export class Player {
       dodgeStep: this.rollT > 0 && this.dodgeStyle === 'step',
       bowDraw: this.bowDraw,
       dashKick: this.dashKick,
+      vy: this.velocity.y,
+      yawRate: this.yawRateSm,
     });
 
     // --- Footsteps ---

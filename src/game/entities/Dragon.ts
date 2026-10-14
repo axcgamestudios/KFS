@@ -36,7 +36,7 @@ export interface DragonDef {
   /** HP fractions where behaviour changes (bosses). */
   phase2At?: number;
   phase3At?: number;
-  drops?: Array<{ id: string; count: number }>;
+  drops?: Array<{ id: string; count: number; chance?: number }>;
   lootGold?: number;
   /** Starts asleep until the player comes close (guardian / ancestor). */
   startsAsleep?: boolean;

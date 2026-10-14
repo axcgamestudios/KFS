@@ -254,6 +254,9 @@ export class SeaBeastSystem {
       this.state.addItem('escama_abismo', 3);
       this.state.addItem('perla_negra', 1);
       this.state.addItem('coin', 600);
+      // Fase 22 — THE FORGE: the King's hide + living tide for the forge
+      this.state.addItem('cuero_bestia', 3);
+      this.state.addItem('esencia_agua', 2);
       this.state.giveXp(1000);
       this.state.registerKill('rey_del_mar');
       if (!this.state.hasFlag('rey_del_mar_dead')) {
@@ -266,7 +269,7 @@ export class SeaBeastSystem {
         });
       }
       this.hooks.notify('quest', 'THE KING OF THE SEA HAS FALLEN!',
-        `Loot: abyssal scales ×3, black pearl, 600 coins${gotSword ? ', SOVEREIGN SWORD!' : ''}${gotHeart ? ', HEART OF THE BEAST!' : ''}. +1000 XP`);
+        `Loot: abyssal scales ×3, black pearl, beast leather ×3, water essence ×2, 600 coins${gotSword ? ', SOVEREIGN SWORD!' : ''}${gotHeart ? ', HEART OF THE BEAST!' : ''}. +1000 XP`);
       if (!gotSword) {
         this.hooks.notify('info', 'The Sovereign Sword remains in the abyss',
           'They say it drops 1 in every 10 times the King is defeated. Another horn, another chance.');
@@ -284,6 +287,10 @@ export class SeaBeastSystem {
       this.state.addItem('tentaculo', tent);
       drops.push(`serpent tentacle ×${tent}`);
       if (Math.random() < 0.8) { this.state.addItem('carne_bestia', 1); drops.push('sea-beast meat'); }
+      // Fase 22 — THE FORGE: serpent hide for the Shadow Dō + a chance of
+      // the living tide the Tide-Steel Saber is quenched in
+      if (Math.random() < 0.75) { this.state.addItem('cuero_bestia', 1); drops.push('beast leather'); }
+      if (Math.random() < 0.30) { this.state.addItem('esencia_agua', 1); drops.push('water essence'); }
       if (Math.random() < 0.35) { this.state.addItem('escama_abismo', 1); drops.push('abyssal scale'); }
       if (Math.random() < 0.18) {
         this.state.addItem('perla_negra', 1);

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { StaticBuilder, MAT } from './Materials';
+import { buildCobblePlaza } from './StonePaths';
 import { mulberry32 } from '../core/MathUtils';
 
 /**
@@ -400,16 +401,27 @@ export function buildBritishCabin(b: StaticBuilder, o: CabinOpts): void {
   o.anchors?.(anchors);
 }
 
-/** The village green fountain — two stone tiers, water jet, curb benches. */
+/** The village green fountain — two stone tiers, water jet, curb benches.
+ *  Fase 23 — the old 18-gon cobble disc (a flat polygonal plate that
+ *  floated half a metre over the sloped green) is now a true flagstone
+ *  plaza: concentric brick-staggered courses sunk and tilted to the
+ *  terrain, a proud kerb ring, trodden earth in the joints. */
 export function buildFountain(
   b: StaticBuilder, x: number, z: number, groundY: number,
+  terrainH?: (x: number, z: number) => number,
 ): { waterJet: THREE.Vector3 } {
-  // cobble apron
-  b.cylinder('cobble', 6.4, 6.6, 0.07, 18, x, groundY + 0.04, z);
-  // curb ring seats
+  // the plaza conforms to the real terrain (the green is NOT a flat pad —
+  // a level disc here would float on the downhill rim)
+  buildCobblePlaza(b, mulberry32(150 + Math.round(x * 7 + z)), x, z, 2.75, 6.35,
+    terrainH ?? (() => groundY));
+  // curb ring seats — each bench sits at ITS OWN terrain height (the green
+  // slopes; a ring of benches at the centre's height floated downhill)
+  const seatH = terrainH ?? (() => groundY);
   for (let i = 0; i < 8; i++) {
     const a = (i / 8) * Math.PI * 2 + 0.3;
-    b.box('stone', 1.5, 0.42, 0.5, x + Math.cos(a) * 5.4, groundY + 0.24, z + Math.sin(a) * 5.4, -a + Math.PI / 2);
+    const bx = x + Math.cos(a) * 5.4;
+    const bz = z + Math.sin(a) * 5.4;
+    b.box('stone', 1.5, 0.42, 0.5, bx, seatH(bx, bz) + 0.18, bz, -a + Math.PI / 2);
   }
   // lower basin
   b.cylinder('stoneDark', 2.5, 2.65, 0.62, 16, x, groundY + 0.31, z);
@@ -530,23 +542,30 @@ export function buildVillageStable(
   b.add(new THREE.TorusGeometry(0.16, 0.045, 6, 12), 'metal', sgx + 0.55 * Math.cos(rotY), y0 + 2.3, sgz - 0.55 * Math.sin(rotY), 0, 1, 1, 1, 0.15);
 }
 
-/** Hedge + flower dressing around the green. */
-export function dressVillageGreen(b: StaticBuilder, cx: number, cz: number, groundY: number, rand: () => number): void {
+/** Hedge + flower dressing around the green. Fase 23 — every bush and
+ *  flower sits at ITS OWN terrain height (the green slopes; a ring placed
+ *  at the centre's height floated downhill). */
+export function dressVillageGreen(
+  b: StaticBuilder, cx: number, cz: number, groundY: number, rand: () => number,
+  terrainH?: (x: number, z: number) => number,
+): void {
+  const g = terrainH ?? (() => groundY);
   // low hedge ring segments (broken by the paths)
   for (let i = 0; i < 14; i++) {
     const a = (i / 14) * Math.PI * 2;
     if (Math.abs(Math.sin(a * 2)) < 0.35) continue; // gaps for paths
     const px = cx + Math.cos(a) * 8.6;
     const pz = cz + Math.sin(a) * 8.6;
-    b.add(new THREE.SphereGeometry(0.75, 7, 6), 'leaf', px, groundY + 0.45, pz, rand() * 3, 1, 0.72, 1);
+    b.add(new THREE.SphereGeometry(0.75, 7, 6), 'leaf', px, g(px, pz) + 0.32, pz, rand() * 3, 1, 0.72, 1);
   }
-  // flower patches
+  // flower patches (kept OUTSIDE the plaza kerb so nothing grows through
+  // the flagstones)
   for (let i = 0; i < 16; i++) {
     const a = rand() * Math.PI * 2;
-    const r = 3.2 + rand() * 4.6;
+    const r = 6.9 + rand() * 1.5;
     const px = cx + Math.cos(a) * r;
     const pz = cz + Math.sin(a) * r;
-    b.add(new THREE.SphereGeometry(0.06, 5, 4), rand() < 0.5 ? 'clothRed' : 'clothGold', px, groundY + 0.14, pz);
-    b.cylinder('leaf', 0.02, 0.02, 0.16, 4, px, groundY + 0.07, pz);
+    b.add(new THREE.SphereGeometry(0.06, 5, 4), rand() < 0.5 ? 'clothRed' : 'clothGold', px, g(px, pz) + 0.14, pz);
+    b.cylinder('leaf', 0.02, 0.02, 0.16, 4, px, g(px, pz) + 0.07, pz);
   }
 }
