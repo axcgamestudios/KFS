@@ -93,6 +93,16 @@ export class KnightModelGLB implements CharacterVisual {
   private airT = 0;
   private speedSm = 0;
   private cur: PoseTarget = {};
+  // ---- Fase 24 — POSE MEMORY + ATTACK WEAPON CHANNEL ----
+  // A swing used to teleport the arm to the curve's zero-start in one frame
+  // (the "tieso" pop). We capture the live pose at the swing's first frame
+  // and blend the first ~90 ms of the curve out of it.
+  private lastAttackT = 0;
+  private attackFrom: PoseTarget | null = null;
+  private attackFromY = 0;
+  /** Per-attack extra weapon pitch (spear thrust align / plunge flip) —
+   *  applied on top of the tuned grip in post() and decays when idle. */
+  private attackWeaponPitch = 0;
   // ---- Fase 22 — THE CAPE CLOTH LAYER (spring-damper secondary motion) ----
   private capeBone1: THREE.Object3D | null = null;
   private capeBone2: THREE.Object3D | null = null;
@@ -580,31 +590,40 @@ export class KnightModelGLB implements CharacterVisual {
 
   /** Per-weapon grip orientation in the hand.
    *
-   * Fase 23 — THE GRIP, rebuilt from the fist geometry: the wrist bone sits
-   * at the anatomical joint and the gauntlet fist hangs a few cm BELOW it,
-   * palm facing the thigh. A held sword therefore crosses that fist
-   * diagonally — grip centred inside the fist, pommel at the pinky edge,
-   * blade sweeping up-forward-outward at roughly 45 degrees. That single
-   * change is what makes the weapon read CARRIED rather than bolted on. */
+   * Fase 24 — THE REAL GRIP. The rig's bones carry IDENTITY axes at bind
+   * (the arm hangs at the side in the statue pose), so the sword's +Y blade
+   * axis maps to "model up" — a small pitch made the blade stand straight
+   * out of the fist like a torch, and during the windups the accumulated
+   * arm rotation carried it to point DOWN-BACK at the ground behind the
+   * knight (the literal "pegas al revés"). A blade held in a hammer grip
+   * rides roughly PERPENDICULAR to the forearm, along the curled fingers:
+   * pitch ≈ +1.52 rad. Then the idle reads as a low guard (tip forward-up),
+   * every windup cocks the steel back over the shoulder, and every strike
+   * sweeps it down THROUGH the target in front.
+   *
+   * The tuned pose is stored on userData.gripPose — post() restores it
+   * EXACTLY (the old baseRotX damp eroded the pitch to 0 within half a
+   * second, which is why the blade kept reading "pose predeterminada"). */
   private tuneWeaponPose(kind: WeaponKind): void {
     if (!this.activeWeapon) return;
     switch (kind) {
       case 'sword':
-        // grip centre inside the fist (≈4 cm below the joint, 5 cm to the
-        // palm side); blade pitched 47° forward, 8° out, flat of the blade
-        // rolled toward the camera.
+        // grip centre inside the fist (the F23-measured fist centroid);
+        // blade along the curled fingers, edge forward, guard just past the
+        // knuckles, pommel out the heel of the hand.
         this.activeWeapon.position.set(0.012, -0.046, 0.052);
-        this.activeWeapon.rotation.set(0.82, -0.14, 0.16);
+        this.activeWeapon.rotation.set(1.52, -0.12, 0.1);
         break;
       case 'axe':
-        this.activeWeapon.position.set(0.01, -0.04, 0.05);
-        this.activeWeapon.rotation.set(0.55, -0.1, 0.35);
+        // haft along the fingers, head up-forward — a working carry
+        this.activeWeapon.position.set(0.01, -0.042, 0.05);
+        this.activeWeapon.rotation.set(1.32, -0.1, 0.14);
         break;
       case 'spear':
-        // held a third of the way up the shaft, shaft angled back over the
-        // shoulder like a marching spear
-        this.activeWeapon.position.set(0.01, -0.03, 0.03);
-        this.activeWeapon.rotation.set(-0.28, -0.08, 0.05);
+        // shaft along the fingers, tip forward-up: a ready pike. The thrust
+        // channel in post() pitches it the rest of the way into the stab.
+        this.activeWeapon.position.set(0.01, -0.034, 0.06);
+        this.activeWeapon.rotation.set(1.35, -0.06, 0.04);
         break;
       case 'bow':
         // bow held vertically in the LEFT hand — moved at aim time
@@ -613,6 +632,12 @@ export class KnightModelGLB implements CharacterVisual {
       default:
         break;
     }
+    // Fase 24 — remember the tuned pose: the swim shouldering restores to
+    // THIS, never to a bare zero.
+    this.activeWeapon.userData.gripPose = {
+      pos: this.activeWeapon.position.toArray(),
+      rot: this.activeWeapon.rotation.toArray(),
+    };
   }
 
   /** Fase 23 — the shield lies ALONG the left forearm like a strapped
@@ -715,11 +740,45 @@ export class KnightModelGLB implements CharacterVisual {
 
     // ---- attack overlays (timed curves — ground OR air) ----
     if (p.attackT > 0) {
+      // Fase 24 — POSE MEMORY: a swing used to snap the arm from the
+      // locomotion pose straight to the curve's zero-start — a one-frame
+      // teleport, the loudest "tieso" tell the game had. Capture the live
+      // pose at the swing's first frame and blend the first ~90 ms of the
+      // curve out of it; a chained swing blends out of the previous swing's
+      // follow-through, which is what makes a combo read as ONE motion.
+      if (this.lastAttackT <= 0) {
+        const cap: PoseTarget = {};
+        for (const n of BONE_NAMES) {
+          const c = this.cur[n];
+          cap[n] = c ? [c[0], c[1], c[2]] : [0, 0, 0];
+        }
+        this.attackFrom = cap;
+        this.attackFromY = this.inner.position.y;
+      }
+      this.lastAttackT = p.attackT;
       this.poseAttack(target, p.attackT, p.attackKind ?? 'light1', bowDraw);
+      const elapsed = p.attackT * (p.attackDur ?? 0.5);
+      if (this.attackFrom && elapsed < 0.09) {
+        let b = THREE.MathUtils.clamp(elapsed / 0.09, 0, 1);
+        b = b * b * (3 - 2 * b);
+        for (const n of BONE_NAMES) {
+          const tv = target[n];
+          const fv = this.attackFrom[n];
+          if (tv && fv) {
+            target[n] = [
+              THREE.MathUtils.lerp(fv[0], tv[0], b),
+              THREE.MathUtils.lerp(fv[1], tv[1], b),
+              THREE.MathUtils.lerp(fv[2], tv[2], b),
+            ];
+          }
+        }
+        this.inner.position.y = THREE.MathUtils.lerp(this.attackFromY, this.inner.position.y, b);
+      }
       this.apply(target, dt, true);
       this.post(p);
       return;
     }
+    this.lastAttackT = 0;
 
     // Fase 17 — the sweep-kick spin unwinds when the kick isn't driving it
     this.inner.rotation.y = damp(this.inner.rotation.y, 0, 14, dt);
@@ -770,11 +829,25 @@ export class KnightModelGLB implements CharacterVisual {
       }
     }
     // the kit weapon stays in the hand; while swimming it is shouldered up
+    // (Fase 24 — restores the EXACT tuned grip afterwards. The old code
+    // damped rotation.x toward userData.baseRotX, which the hero sword sets
+    // to 0 — the grip pitch eroded to nothing in half a second and the blade
+    // stood straight up out of the fist like a torch)
     if (this.activeWeapon) {
-      const swim = p.swimming;
-      this.activeWeapon.rotation.x = damp(
-        this.activeWeapon.rotation.x, swim ? -1.2 : this.activeWeapon.userData.baseRotX ?? this.activeWeapon.rotation.x, 6, Math.max(1e-4, p.dt),
-      );
+      const gp = this.activeWeapon.userData.gripPose as { rot?: number[] } | undefined;
+      // NB: Euler.toArray() = [x, y, z, order-string] — length 4
+      if (gp?.rot && gp.rot.length >= 3) {
+        const dtd = Math.max(1e-4, p.dt);
+        const tx = p.swimming ? -1.2 : gp.rot[0] + this.attackWeaponPitch;
+        this.activeWeapon.rotation.x = damp(this.activeWeapon.rotation.x, tx, 10, dtd);
+        this.activeWeapon.rotation.y = damp(this.activeWeapon.rotation.y, gp.rot[1], 10, dtd);
+        this.activeWeapon.rotation.z = damp(this.activeWeapon.rotation.z, gp.rot[2], 10, dtd);
+      }
+    }
+    // the attack weapon channel (spear thrust align / plunge flip) bleeds
+    // back to the tuned grip once the swing is over
+    if (p.attackT <= 0 && this.attackWeaponPitch !== 0) {
+      this.attackWeaponPitch = damp(this.attackWeaponPitch, 0, 8, Math.max(1e-4, p.dt));
     }
   }
 
@@ -810,19 +883,18 @@ export class KnightModelGLB implements CharacterVisual {
       t.j_ankleL = [-0.1 + legPhL * 0.18, 0, Math.max(0, legPhL) * 0.08];
 
       // ---- ARMS ----
-      // Fase 23 — the armed arm LIVES: the old ready-carry was a frozen
-      // statue arm (the literal "predetermined pose" read). The sword arm
-      // now rides the gait — a modest counter-swing with the elbow breathing
-      // and the wrist rocking the blade — while charging it still settles
-      // back into the lance-at-rest trail.
+      // Fase 24 — the armed arm swings LIKE AN ARM: ±0.2-0.34 rad with the
+      // gait (the F23 ±0.13 was sub-perceptual at walking speed and read as
+      // a pinned statue limb — the core of the "tieso" complaint). Charging
+      // still settles back into the lance-at-rest trail.
       const armAmp = 0.34 + runK * 0.5;
       if (armed) {
         const gait = Math.sin(ph + 0.35);                  // arm lags the leg a touch
-        const ready = -0.3 + gait * (0.13 + runK * 0.1);   // low ready, gently swinging
+        const ready = -0.32 + gait * (0.2 + runK * 0.14);  // low carry that SWINGS
         const trailing = 0.55 + gait * 0.08;
-        t.j_shoulderR = [THREE.MathUtils.lerp(ready, trailing, charge), -gait * 0.04, THREE.MathUtils.lerp(-0.12, -0.18, charge)];
+        t.j_shoulderR = [THREE.MathUtils.lerp(ready, trailing, charge), -gait * 0.05, THREE.MathUtils.lerp(-0.12, -0.18, charge)];
         t.j_elbowR = [THREE.MathUtils.lerp(-0.72 - Math.max(0, -gait) * 0.16, -0.3, charge), 0, 0];
-        t.j_wristR = [-0.1 + gait * 0.07, 0, 0.1 + Math.sin(ph * 2) * 0.03];
+        t.j_wristR = [-0.1 + gait * 0.1, 0, 0.1 + Math.sin(ph * 2) * 0.04];
       } else {
         t.j_shoulderR = [legPhR * armAmp * (1 - charge * 0.5), 0, -0.06];
         t.j_elbowR = [-0.18 - runK * 0.35 - Math.max(0, -legPhR) * (0.3 + runK * 0.3), 0, 0];
@@ -849,19 +921,23 @@ export class KnightModelGLB implements CharacterVisual {
 
       // ---- TORSO & HEAD ----
       // The charge crouches into the run: deep lean, eyes UP over the rim.
+      // Fase 24 — the counter-rotation grew: shoulders twist AGAINST the
+      // hips like a real gait (the old ±0.05-0.13 was barely a shrug).
       const lean = 0.05 + runK * 0.2 + charge * 0.16;
-      t.j_torso = [lean, Math.sin(ph) * (0.05 + runK * 0.08), 0];
+      t.j_torso = [lean, Math.sin(ph) * (0.07 + runK * 0.12), 0];
       t.j_head = [
         -0.04 - runK * 0.08 - charge * 0.2,
-        -Math.sin(ph) * 0.06,
+        -Math.sin(ph) * (0.07 + runK * 0.05),
         -Math.sin(ph) * 0.02,
       ];
       // Fase 21 — the whole body ROLLS over the stance foot (weight shift in
       // the ribcage, not just a positional sway: kills the stiff-plank read)
-      this.inner.rotation.z = damp(this.inner.rotation.z, Math.sin(ph) * (0.02 + runK * 0.035), 8, 1 / 60);
-      this.inner.position.y = Math.abs(Math.sin(ph)) * 0.028 * (0.5 + runK + charge * 0.5) - charge * 0.05;
+      this.inner.rotation.z = damp(this.inner.rotation.z, Math.sin(ph) * (0.025 + runK * 0.045), 8, 1 / 60);
+      // Fase 24 — the bounce grew with speed: the stride now has a real
+      // flight phase at a sprint (the old 2.8 cm bob never left the ground)
+      this.inner.position.y = Math.abs(Math.sin(ph)) * 0.042 * (0.5 + runK + charge * 0.5) - charge * 0.05;
       // Fase 12 — subtle lateral sway of the whole body over the stance foot
-      this.inner.position.x = Math.sin(ph) * 0.012 * (0.6 + runK);
+      this.inner.position.x = Math.sin(ph) * 0.014 * (0.6 + runK);
       // Fase 21 — WRIST follow-through: the hands lag the arm swing a beat
       // (relaxed wrists are half of "not rigid"). Fase 23: the armed wrist
       // is now authored inside the armed-arm block above — it rocks the
@@ -963,6 +1039,16 @@ export class KnightModelGLB implements CharacterVisual {
     this.inner.position.y = 0;
     // Fase 22 — micro roll into the fall (weight reads through the ribcage)
     this.inner.rotation.z = fall * 0.02 * fallInv;
+    // Fase 24 — the fall LIVES: the old spread-eagle froze rock-solid after
+    // half a second aloft. Slow micro-scissor in the legs + opposing arm
+    // drift keep the silhouette moving against the air.
+    const wob = Math.sin(airT * 5.3) * 0.05;
+    const wob2 = Math.cos(airT * 4.1) * 0.045;
+    t.j_shoulderR = [t.j_shoulderR[0] + wob2 * 0.6, t.j_shoulderR[1], t.j_shoulderR[2] + wob];
+    t.j_shoulderL = [t.j_shoulderL[0] + wob2 * 0.6, t.j_shoulderL[1], t.j_shoulderL[2] - wob];
+    t.j_hipR = [t.j_hipR[0] + wob * 0.7, t.j_hipR[1], t.j_hipR[2]];
+    t.j_hipL = [t.j_hipL[0] - wob * 0.7, t.j_hipL[1], t.j_hipL[2]];
+    t.j_kneeR = [t.j_kneeR[0] + Math.abs(wob) * 0.35, 0, 0];
   }
 
   private poseRoll(t: PoseTarget, rollT: number, moving: boolean, ph: number, step = false): void {
@@ -1127,20 +1213,27 @@ export class KnightModelGLB implements CharacterVisual {
     const wuEase = (u: number) => 1 - (1 - u) * (1 - u);
     const strikeEase = (u: number) => 1 - Math.pow(1 - u, 3);
     if (kind === 'heavy') {
-      // overhead smash: windup up-back (0..0.42), slam (0.42..0.68), recover
+      // overhead smash: windup raised through X (arm swings forward-up
+      // overhead — Fase 24: raising via Z left the blade pointing
+      // forward-down at the ground; raising via X cocks it up-back over
+      // the shoulder like a headsman's windup), slam (0.42..0.68), recover
       if (k < 0.42) {
         const u = wuEase(k / 0.42);
-        t.j_shoulderR = [L(0, -0.52, u), 0, L(0, -2.95, u)];
+        t.j_shoulderR = [L(0, -2.35, u), 0, L(0, -0.55, u)];
         t.j_elbowR = [-0.6, 0, 0];
+        // the wrist cocks the blade back over the shoulder
+        t.j_wristR = [0.55 * u, 0, 0.05 * u];
         t.j_torso = [0.1, L(0, -0.5, u), 0];
         t.j_head = [L(0, -0.3, u), 0, 0];
         this.inner.position.y = -0.09 * u;
       } else if (k < 0.68) {
         const u = strikeEase((k - 0.42) / 0.26);
-        t.j_shoulderR = [L(-0.52, 1.08, u), 0, L(-2.95, -0.42, u)];
+        t.j_shoulderR = [L(-2.35, 1.08, u), 0, L(-0.55, -0.45, u)];
         t.j_elbowR = [L(-0.6, -0.1, u), 0, 0];
-        // Fase 21 — the wrist WHIP of the overhead smash
-        t.j_wristR = [Math.sin(u * Math.PI) * -0.4, 0, 0];
+        // Fase 24 — the wrist WHIP: un-cocks through the smash so the edge
+        // leads the drop (the old -0.4 sin flick dragged the blade backward
+        // through the cut — reversed)
+        t.j_wristR = [L(0.55, 0.3, u), 0, 0];
         t.j_torso = [L(0.1, 0.5, u), L(-0.5, 0.5, u), 0];
         t.j_head = [L(-0.3, 0.34, u), 0, 0];
         t.j_kneeR = [0.5 * u, 0, 0];
@@ -1150,6 +1243,7 @@ export class KnightModelGLB implements CharacterVisual {
         const u = (k - 0.68) / 0.32;
         t.j_shoulderR = [L(0.95, 0, u), 0, L(-0.35, -0.06, u)];
         t.j_elbowR = [L(-0.1, -0.25, u), 0, 0];
+        t.j_wristR = [L(0.2, -0.1, u), 0, 0];
         t.j_torso = [L(0.42, 0.05, u), L(0.42, 0, u), 0];
         t.j_head = [L(0.3, 0, u), 0, 0];
         t.j_kneeR = [0.5 * (1 - u), 0, 0];
@@ -1163,6 +1257,8 @@ export class KnightModelGLB implements CharacterVisual {
         const u = wuEase(k / 0.35);
         t.j_shoulderR = [L(0, -0.58, u), 0, L(0, -0.18, u)];
         t.j_elbowR = [L(0, -1.95, u), 0, 0];
+        // Fase 24 — chamber: the fist pulls in, the blade tips up-back
+        t.j_wristR = [0.2 * u, 0, 0];
         t.j_torso = [0.08, L(0, 0.5, u), 0];
         t.j_hipR = [L(0, 0.15, u), 0, 0];
         this.inner.position.y = -0.03 * u;
@@ -1170,8 +1266,13 @@ export class KnightModelGLB implements CharacterVisual {
         const u = strikeEase((k - 0.35) / 0.27);
         t.j_shoulderR = [L(-0.58, -1.75, u), 0, L(-0.18, -0.05, u)];
         t.j_elbowR = [L(-1.95, -0.05, u), 0, 0];
-        // Fase 21 — the wrist SNAP at full extension sells the pierce
-        t.j_wristR = [Math.sin(u * Math.PI) * -0.35, 0, 0];
+        // Fase 24 — the wrist HOLDS the blade on the thrust line: with the
+        // perpendicular grip, +1.7 rad of wrist pitches the steel out along
+        // the extended arm — the stab finally points AT the enemy (it used
+        // to poke up-back). The same ramp aligns the spear: its 1.35 grip +
+        // 1.7 wrist ≈ π, the shaft rides straight out the fist.
+        t.j_wristR = [L(0.2, 1.7, u), 0, 0];
+        this.attackWeaponPitch = 0; // the wrist alone aligns ANY weapon (grip 1.35-1.52 + 1.7 ≈ π) on the thrust line
         t.j_torso = [0.16, L(0.4, -0.32, u), 0];
         t.j_hipR = [L(0.15, -0.4, u), 0, 0];
         t.j_kneeR = [0.25, 0, 0];
@@ -1179,7 +1280,8 @@ export class KnightModelGLB implements CharacterVisual {
         const u = (k - 0.62) / 0.38;
         t.j_shoulderR = [L(-1.55, 0, u), 0, -0.05 * (1 - u)];
         t.j_elbowR = [L(-0.05, -0.2, u), 0, 0];
-        t.j_wristR = [-0.1 * (1 - u), 0, 0];
+        t.j_wristR = [L(1.7, -0.1, u), 0, 0];
+        this.attackWeaponPitch = 0;
         t.j_torso = [L(0.16, 0.04, u), L(-0.32, 0, u), 0];
         t.j_hipR = [L(-0.4, 0, u), 0, 0];
       }
@@ -1192,17 +1294,21 @@ export class KnightModelGLB implements CharacterVisual {
         t.j_shoulderR = [L(0, -2.05, u), 0, L(0, 0.68, u)];
         t.j_torso = [0.08, L(0, 0.5, u), 0];
         t.j_elbowR = [-0.3, 0, 0];
+        t.j_wristR = [0.15 * u, 0, 0];
       } else if (k < 0.75) {
         const u = strikeEase((k - 0.35) / 0.4);
         t.j_shoulderR = [L(-2.05, 0.62, u), 0, L(0.68, -1.05, u)];
         t.j_torso = [0.12, L(0.5, -0.58, u), 0];
         t.j_head = [0, L(0, -0.2, u), 0];
         t.j_hipR = [-0.2 * u, 0, 0];
+        // Fase 24 — the backhand whip: the blade snaps across the body
+        t.j_wristR = [L(0.15, -0.3, u), 0, 0];
       } else {
         const u = (k - 0.75) / 0.25;
         t.j_shoulderR = [L(0.5, 0, u), 0, L(-0.9, -0.06, u)];
         t.j_torso = [L(0.12, 0.03, u), L(-0.5, 0, u), 0];
         t.j_head = [0, L(-0.2, 0, u), 0];
+        t.j_wristR = [L(-0.2, -0.08, u), 0, 0];
       }
       t.j_elbowR = [-0.25, 0, 0];
       t.j_shoulderL = [-0.35, 0, 0.22];
@@ -1220,15 +1326,20 @@ export class KnightModelGLB implements CharacterVisual {
       if (k < 0.34) {
         const u = wuEase(k / 0.34);
         t.j_shoulderR = [L(0, -2.45, u), 0, L(0, -0.95, u)];
+        // Fase 24 — the wrist cocks the blade UP-BACK over the shoulder as
+        // the arm lifts (with the perpendicular grip this is what makes the
+        // windup read RAISED instead of dropped behind the back)
+        t.j_wristR = [0.5 * u, 0, 0.06 * u];
         t.j_torso = [0.08, L(0, -0.5, u), 0];
         t.j_elbowR = [-0.5, 0, 0];
         this.inner.position.y = -0.05 * u;
       } else if (k < 0.74) {
         const u = strikeEase((k - 0.34) / 0.4);
         t.j_shoulderR = [L(-2.45, 0.68, u), 0, L(-0.95, 0.62, u)];
-        // Fase 21 — wrist FLICK: the blade whips through the cut (the hand
-        // leads, the steel snaps after — the signature of a living swing)
-        t.j_wristR = [Math.sin(u * Math.PI) * 0.45, 0, Math.sin(u * Math.PI) * -0.3];
+        // Fase 24 — the wrist UNCOCKS through the cut: the hand leads, the
+        // steel snaps after — from the cocked +0.5 back through the plane
+        // of the cut into the follow-through wrap (-0.35)
+        t.j_wristR = [L(0.5, -0.35, u), 0, L(0.06, -0.2, u)];
         t.j_torso = [L(0.08, 0.44, u), L(-0.5, 0.52, u), 0];
         t.j_head = [0, L(0, 0.18, u), 0];
         t.j_hipR = [-0.22 * u, 0, 0];
@@ -1237,7 +1348,7 @@ export class KnightModelGLB implements CharacterVisual {
       } else {
         const u = (k - 0.74) / 0.26;
         t.j_shoulderR = [L(0.55, 0, u), 0, L(0.5, -0.06, u)];
-        t.j_wristR = [0.18 * (1 - u), 0, -0.12 * (1 - u)];
+        t.j_wristR = [L(-0.25, -0.1, u), 0, -0.1 * (1 - u)];
         t.j_torso = [L(0.38, 0.04, u), L(0.45, 0, u), 0];
         t.j_head = [0, L(0.15, 0, u), 0];
         t.j_hipR = [-0.22 * (1 - u), 0, 0];
@@ -1315,6 +1426,8 @@ export class KnightModelGLB implements CharacterVisual {
         const u = strikeEase((k - 0.3) / 0.42);
         t.j_shoulderR = [L(-1.15, -1.05, u), 0, L(1.05, -1.15, u)];
         t.j_elbowR = [L(-0.2, -0.08, u), 0, 0];
+        // Fase 24 — the wrist keeps the blade laid out through the whirl
+        t.j_wristR = [0.25, 0, 0];
         t.j_torso = [0.1, L(0.85, -0.95, u), 0];
         t.j_head = [0, L(0.5, -0.55, u), 0];
         t.j_hipR = [0.1, L(0.3, -0.35, u), 0];
@@ -1349,6 +1462,10 @@ export class KnightModelGLB implements CharacterVisual {
         const u = strikeEase((k - 0.38) / 0.28);
         t.j_shoulderR = [L(-0.9, -2.6, u), 0, L(0.85, -0.15, u)];
         t.j_elbowR = [L(-1.5, -0.12, u), 0, 0];
+        // Fase 24 — the rising slash: the wrist sweeps the blade up through
+        // the launch so the steel leads the rise (it used to end pointing
+        // back over the shoulder — the launch read as a shrug)
+        t.j_wristR = [L(0, 0.9, u), 0, 0];
         t.j_torso = [L(0.5, -0.38, u), L(0.55, -0.5, u), 0];
         t.j_head = [L(0, -0.4, u), 0, 0];
         t.j_hipR = [L(0, -0.3, u), 0, 0];
@@ -1369,6 +1486,11 @@ export class KnightModelGLB implements CharacterVisual {
       const u = Math.min(1, k * 3);
       t.j_shoulderR = [L(0, -2.9, u), 0, 0];
       t.j_elbowR = [L(0, -0.06, u), 0, 0];
+      // Fase 24 — the weapon FLIPS into the dive: the blade reverses down
+      // the arm line (the old pose held the sword pointing back over the
+      // shoulder while falling — a dive that read backwards)
+      t.j_wristR = [0.35 * u, 0, 0];
+      this.attackWeaponPitch = Math.PI * Math.min(1, u * 1.5);
       t.j_shoulderL = [L(0, -1.4, u), 0, 0.55];
       t.j_elbowL = [L(0, -1.1, u), 0, 0];
       t.j_torso = [L(0, -0.24, u), 0, 0];
@@ -1391,6 +1513,8 @@ export class KnightModelGLB implements CharacterVisual {
         const u = strikeEase((k - 0.3) / 0.38);
         t.j_shoulderR = [L(-2.3, 0.35, u), 0, L(-0.7, 0.85, u)];
         t.j_elbowR = [L(-0.3, -0.1, u), 0, 0];
+        // Fase 24 — mild whip through the air cut
+        t.j_wristR = [0.25 * Math.sin(u * Math.PI), 0, 0];
         t.j_torso = [0.14, L(-0.5, 0.55, u), 0];
         t.j_head = [0, L(0, 0.2, u), 0];
         t.j_hipR = [-0.25 * u, 0, 0];

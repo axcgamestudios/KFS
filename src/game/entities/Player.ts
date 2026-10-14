@@ -907,6 +907,7 @@ export class Player {
       swimming: this.swimming,
       attackT: this.attackT,
       attackKind: this.attackKind,
+      attackDur: this.attackDur,
       blockT: this.blockT,
       // the marometa borrows the roll's tucked pose (limbs folded tight)
       rollT: this.rollT > 0 ? this.rollT : this.flipT,

@@ -280,7 +280,6 @@ export function buildHeroSword(opts: HeroSwordOpts = {}): THREE.Group {
   const g = new THREE.Group();
   g.name = 'hero_sword';
   g.userData.heroSword = true;
-  g.userData.baseRotX = 0;
 
   const gold = new THREE.MeshStandardMaterial({
     map: goldTexCache,

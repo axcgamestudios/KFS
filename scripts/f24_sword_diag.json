@@ -1,0 +1,119 @@
+{
+  "checks": [
+    {
+      "name": "swordDiag",
+      "boot": "ok",
+      "samples": {
+        "idleFresh": {
+          "bladeLocalDir": {
+            "x": -0.145,
+            "y": 0.953,
+            "z": -0.265
+          },
+          "gripLocal": {
+            "x": -0.301,
+            "y": 1.086,
+            "z": 0.364
+          },
+          "swordRotX": 0.247,
+          "swordScale": 1
+        },
+        "idleEroded": {
+          "bladeLocalDir": {
+            "x": -0.145,
+            "y": 0.953,
+            "z": -0.265
+          },
+          "gripLocal": {
+            "x": -0.301,
+            "y": 1.086,
+            "z": 0.364
+          },
+          "swordRotX": 0.247,
+          "swordScale": 1
+        },
+        "light1Windup": {
+          "bladeLocalDir": {
+            "x": 0.67,
+            "y": -0.739,
+            "z": -0.073
+          },
+          "gripLocal": {
+            "x": -0.562,
+            "y": 1.961,
+            "z": -0.245
+          },
+          "swordRotX": 0.136,
+          "swordScale": 1
+        },
+        "light1Strike": {
+          "bladeLocalDir": {
+            "x": 0.67,
+            "y": -0.739,
+            "z": -0.073
+          },
+          "gripLocal": {
+            "x": -0.562,
+            "y": 1.961,
+            "z": -0.245
+          },
+          "swordRotX": 0.136,
+          "swordScale": 1
+        },
+        "thrustStrike": {
+          "bladeLocalDir": {
+            "x": 0.67,
+            "y": -0.739,
+            "z": -0.073
+          },
+          "gripLocal": {
+            "x": -0.562,
+            "y": 1.961,
+            "z": -0.245
+          },
+          "swordRotX": 0.136,
+          "swordScale": 1
+        },
+        "heavyWindup": {
+          "bladeLocalDir": {
+            "x": 0.483,
+            "y": -0.875,
+            "z": -0.044
+          },
+          "gripLocal": {
+            "x": -0.422,
+            "y": 1.98,
+            "z": 0.034
+          },
+          "swordRotX": 0.041,
+          "swordScale": 1
+        }
+      },
+      "pop": {
+        "worstJump": 0,
+        "atMs": 0,
+        "n": 3,
+        "series": [
+          {
+            "t": 0,
+            "sx": -2.45
+          }
+        ]
+      },
+      "finalSample": {
+        "bladeLocalDir": {
+          "x": -0.195,
+          "y": 0.844,
+          "z": -0.5
+        },
+        "gripLocal": {
+          "x": -0.28,
+          "y": 1.085,
+          "z": 0.377
+        },
+        "swordRotX": 0,
+        "swordScale": 1
+      }
+    }
+  ]
+}

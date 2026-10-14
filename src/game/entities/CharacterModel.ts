@@ -79,6 +79,9 @@ export interface AnimParams {
   grounded: boolean;
   swimming: boolean;
   attackT: number;      // 0 = idle, 0..1 during swing
+  /** Fase 24 — seconds the current swing takes (the pose-blend window reads
+   *  real time, not curve fraction). */
+  attackDur?: number;
   talking?: boolean;
   /** Attack animation variant (Fase 3). Default keeps the classic diagonal slash.
    *  Fase 11 adds the cinematic set: spin / uppercut / plunge / aircut. */

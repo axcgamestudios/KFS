@@ -690,3 +690,31 @@ Work Log:
 Stage Summary:
 - v0.23.0 LIVE: the village's stone roads and the fountain plaza are real hand-laid flagstone paving (individual weathered slabs, worn into the rendered ground, kerbed and aged — no more floating tiling boxes), the knight grips his sword properly (blade in a natural ready carry, clear of the leg), the shield rides the forearm, the cape flows, and the gait/idle lost their frozen-seam stiffness (continuous cadence, living sword arm, weight-shift idle, settle-cascade damping).
 - Key reusable additions: TerrainSystem.meshHeight (any future ground-flush structure should use it), StonePaths.ts (paths + plazas anywhere), scripts/shot_one.cjs (reliable single-screenshot harness), scripts/probe_f23_geo.cjs (stone-burial verifier).
+
+---
+Task ID: 24
+Agent: Super Z (main agent)
+Task: Fase 24 — user report: "ve como esta la espada, mal puesta y pegas al reves, y todo el resto de animaciones esta muy tieso" — the sword was still badly placed, the swings read BACKWARDS, and every other animation still stiff. Full rework of the grip, the swing choreography and the fluidity layer; deploy v0.24.0.
+
+Work Log:
+- DIAGNOSIS (geometric probe scripts/probe_f24_sword.cjs, blade world-direction sampled in the character frame at held poses — not guesses):
+  · THE DAMP BUG: post() damped the weapon's rotation.x toward userData.baseRotX every frame — the hero sword ships baseRotX = 0, so the F23 grip pitch (0.82) eroded to 0 within half a second of gameplay. Probe: swordRotX 0.82 → 0.247 → 0. The blade stood straight out of the fist like a torch ("mal puesta", "pose predeterminada").
+  · THE BACKWARDS SWING: the rig's bones carry IDENTITY axes at bind (arm hangs at the side), so the sword's +Y maps to MODEL-UP — during the windups the accumulated arm rotation (~-2.95 rad) flipped the blade to point DOWN-BACK at the ground behind the knight. Probe at light1 windup: blade dir (0.67, -0.739, -0.073) — DOWN, barely forward. Heavy windup: (0.483, -0.875, -0.044). The literal "pegas al revés".
+  · THE STIFFNESS: every attack curve started at (0,0,0) and applied DIRECT (no damping) — the arm teleported from the locomotion pose to the curve start in one frame. The armed walk arm swung ±0.13 rad (sub-perceptual — a pinned statue limb). The fall pose froze rock-solid after 0.5 s.
+- THE GRIP (tuneWeaponPose rebuilt): a held blade rides PERPENDICULAR to the forearm, along the curled fingers — pitch ≈ +1.52 rad (hammer grip). The tuned pose is stored on userData.gripPose; post() now restores it EXACTLY (swim shoulders to -1.2 and returns to the stored pose, never to zero). Probe after: idle blade (−0.05, 0.525, 0.85) = forward-up guard, swordRotX stays 1.52 after 3+ s. Axe 1.32, spear 1.35 (ready pike, tip forward-up).
+- THE SWING CHOREOGRAPHY (poseAttack reauthored, wrist channel per attack):
+  · light1: wrist cocks +0.5 back over the shoulder on the windup, uncocks to −0.35 through the cut. Probe: windup blade (0.16, 0.707, −0.688) UP-BACK ✓, strike (0.08, −0.29, 0.953) forward-down through the target ✓.
+  · heavy: windup re-raised via X (the old Z-raise left the blade pointing forward-down at the ground): shoulder −2.35 x-raise + wrist +0.55 = the headsman's cock. Probe: (0.35, 0.683, −0.642) up-back ✓. The old −0.4 sin wrist flick (reversed drag) flipped positive.
+  · thrust: the wrist now HOLDS +1.7 rad through the extension — grip 1.52 + wrist 1.7 ≈ π puts the steel straight out the fist along the stab line (it used to poke up-back). Probe: arm −1.69, wrist 1.62, blade (−0.41, 0.13, 0.901) forward ✓. The same ramp aligns the SPEAR (grip 1.35 + 1.7 ≈ π).
+  · uppercut: wrist sweeps +0.9 through the launch (the steel leads the rise); spin: blade laid out through the whirl; aircut: mild whip; light2: backhand snap across the body.
+  · plunge: the new attackWeaponPitch channel flips the weapon +π into the dive (post() applies it on top of the grip pose and decays it after). Probe: blade (−0.098, −0.076, 0.992) dead-forward on the dive ✓.
+  · Euler.toArray() trap found by the channel probe: it returns [x,y,z,ORDER-STRING] — the length===3 guard silently skipped the whole weapon block. Fixed (>= 3).
+- THE FLUIDITY LAYER:
+  · POSE MEMORY: at a swing's first frame the live pose is captured and the first ~90 ms of the curve blends out of it (smoothstep on real elapsed seconds via the new AnimParams.attackDur). Chained combos blend out of the previous swing's follow-through — no more one-frame teleports.
+  · Locomotion: the armed arm swings ±0.2-0.34 rad with the gait (was ±0.13), torso counter-yaw ±0.07-0.19, head counter ±0.07-0.12, stride bounce 2.8 → 4.2 cm, lateral sway 1.2 → 1.4 cm, body roll ±0.025-0.07.
+  · The fall LIVES: micro-scissor in the legs + opposing arm drift (0.05 rad @ ~5 Hz) after the spread-eagle settles — no more frozen silhouette.
+- VERIFICATION: tsc src 0 errors; boot probe alive (104 MB heap, 893 calls — F23 baseline); LIVE-frame-verified follow-cam shots (a bone polled until the pose provably rendered, then captured — freeCam resets the hero to idle by design, so the follow cam was parked at his right side instead): thrust = "sword pointing forward, handle inside fist", walk = natural armed carry, strike = blade forward through the target; blade-tip ground clearance measured 0.756 m at the strike follow-through (the VLM's "ground clipping" read was the dirt shadow). VLM reads on windup: "upward and forward, high guard, handle in fist, no clipping" — the headsman's cock reads.
+- Probe tooling added: probe_f24_sword.cjs / probe_f24_verify.cjs (held-pose blade geometry), debug_f24_channel.cjs (weapon-channel trace), shot_f24_follow.cjs (live-frame-verified pose photography — the reliable pattern in the throttled SwiftShader env), check_f24_tipclear.cjs.
+
+Stage Summary:
+- v0.24.0 "THE LIVING BLADE": the knight grips his sword like a sword (perpendicular hammer grip, guard just past the knuckles, pommel out the heel — and the grip never erodes again), every windup cocks the steel back over the shoulder, every strike sweeps it down through the target in front (no more backwards hits), the thrust finally points AT the enemy (sword AND spear), the plunge dives blade-first, combos blend pose-to-pose with no teleports, the armed arm walks like an arm, and the fall keeps moving.
