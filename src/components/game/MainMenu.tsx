@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useGameStore } from '@/store/gameStore';
 import { gameApi } from '@/game/api';
 import { SaveSystem } from '@/game/systems/SaveSystem';
-import { Play, ScrollText, Settings2, Sparkles, ChevronRight, Ship } from 'lucide-react';
+import { Play, ScrollText, Settings2, Sparkles, ChevronRight, Ship, BookOpen } from 'lucide-react';
 import { Embers, SeaWaves } from './menuFx';
 import { ASSET_BASE } from '@/game/core/Graphics';
 
@@ -74,9 +74,94 @@ function SlotButton({ slot, onPick, onEmpty }: { slot: number; onPick: () => voi
   );
 }
 
+/** Fase 25 — HOW TO PLAY: every control and combination in the game.
+ *  The action legend mirrors the live input map (Input.ts + CombatSystem +
+ *  Game.ts) — update both together when a binding changes. */
+const K = ({ children, gold }: { children: React.ReactNode; gold?: boolean }) => (
+  <span className={`kfs2-key${gold ? ' kfs2-key-gold' : ''}`}>{children}</span>
+);
+const Row = ({ act, keys, desc }: { act: string; keys: React.ReactNode; desc?: string }) => (
+  <div className="kfs2-h2p-row">
+    <span className="kfs2-h2p-act">{act}</span>
+    <span className="kfs2-h2p-desc">
+      {keys}
+      {desc ? <span className="opacity-80"> — {desc}</span> : null}
+    </span>
+  </div>
+);
+const Cat = ({ children }: { children: React.ReactNode }) => (
+  <p className="kfs2-h2p-cat">{children}</p>
+);
+
+function HowToPlay({ onBack }: { onBack: () => void }) {
+  return (
+    <div className="kfs2-rise kfs2-panel w-[34rem] max-w-[92vw] p-6" style={{ ['--rise-delay' as string]: '0.1s' }}>
+      <h3 className="kfs2-btn-title mb-1 flex items-center gap-2 text-sm">
+        <BookOpen size={15} /> HOW TO PLAY
+      </h3>
+      <p className="mb-2 text-[0.68rem] leading-relaxed text-[#8e9aab]">
+        Click the world to lock the mouse. <K>Esc</K> pauses and frees it again.
+      </p>
+      <div className="kfs2-h2p-scroll pr-1">
+        <Cat>Movement</Cat>
+        <Row act="Move" keys={<><K>W</K><K>A</K><K>S</K><K>D</K></>} desc="or the arrow keys" />
+        <Row act="Sprint" keys={<K>Shift</K>} desc="hold to run; drains stamina" />
+        <Row act="Jump" keys={<K gold>Space</K>} desc="press again mid-air for a somersault double-jump" />
+        <Row act="Dodge roll" keys={<K>C</K>} desc="invulnerable frames while rolling" />
+        <Row act="Swim" keys={<><K>Shift</K> dive · <K>Space</K> rise</>} desc="underwater; Space at a shore or dock climbs out" />
+
+        <Cat>Melee Combat</Cat>
+        <Row act="Attack" keys={<K>LMB</K>} desc="chains 4-hit combos — each hit is a different cut" />
+        <Row act="Heavy attack" keys={<>hold <K>LMB</K></>} desc="charge, then release: a staggering blow" />
+        <Row act="Air combat" keys={<><K>LMB</K> in the air</>} desc="air-slash juggle (up to 3); hold LMB to plunge-dive" />
+        <Row act="Block / Parry" keys={<><K>Q</K> or <K>RMB</K></>} desc="parry just before the blow lands for a riposte window" />
+        <Row act="Hook dash" keys={<K>F</K>} desc="grapple to a distant enemy — press C mid-dash for a vault kick" />
+        <Row act="Rope dart" keys={<K>E</K>} desc="pull a distant enemy to your feet" />
+        <Row act="Finisher" keys={<K>V</K>} desc="execute a staggered enemy — or Shift + Space on the stunned" />
+        <Row act="Sea tonic" keys={<K>R</K>} desc="heal 45% of your health; burns a full Valor bar" />
+        <Row act="Weapons" keys={<><K>1</K> sword · <K>2</K> axe · <K>3</K> spear</>} />
+
+        <Cat>The Bow</Cat>
+        <Row act="Draw & aim" keys={<>hold <K>RMB</K></>} desc="kneeling stance, mouse aims" />
+        <Row act="Release" keys={<K>LMB</K>} desc="the longer the draw, the harder the hit" />
+        <Row act="Cycle bow" keys={<K>4</K>} desc="walks every bow you own" />
+        <Row act="Cycle arrows" keys={<K>X</K>} desc="basic (infinite), piercing, fire, shock, poison" />
+        <Row act="Arrow rain" keys={<K>G</K>} desc="special — a volley falls on the mark" />
+        <Row act="Pierce shot" keys={<K>T</K>} desc="special — one arrow through everything" />
+
+        <Cat>Camera</Cat>
+        <Row act="Look / aim" keys={<K>Mouse</K>} />
+        <Row act="Zoom" keys={<K>Wheel</K>} />
+        <Row act="First person" keys={<K gold>B</K>} desc="the lens rides the knight's eyes; B again for third person" />
+        <Row act="Free camera" keys={<K>P</K>} desc="detach the lens — photo mode" />
+
+        <Cat>World & Screens</Cat>
+        <Row act="Interact" keys={<K gold>E</K>} desc="talk, chests, doors, shops, the forge, board a ship" />
+        <Row act="Inventory" keys={<K>Tab</K>} />
+        <Row act="Map" keys={<K>M</K>} />
+        <Row act="Journal" keys={<K>J</K>} />
+        <Row act="Skills" keys={<K>K</K>} />
+        <Row act="Lantern / torch" keys={<K>L</K>} desc="after dusk the torch lights the way" />
+        <Row act="Pause" keys={<K>Esc</K>} />
+
+        <Cat>Mounts & Sailing</Cat>
+        <Row act="Whistle horse" keys={<K>H</K>} desc="Tempesta trots to you once she joins the family" />
+        <Row act="Board ship" keys={<K>E</K>} desc="at the dock or a beached hull" />
+        <Row act="Sails" keys={<><K>W</K> raise · <K>S</K> furl</>} desc="half sail, full sail" />
+        <Row act="Rudder" keys={<><K>A</K> port · <K>D</K> starboard</>} />
+        <Row act="Anchor" keys={<K>Space</K>} />
+        <Row act="Broadside" keys={<><K>LMB</K> port · <K>RMB</K> starboard</>} desc="watch your reload" />
+      </div>
+      <div className="mt-4">
+        <MenuButton icon={<ChevronRight size={15} />} label="Back" onClick={onBack} />
+      </div>
+    </div>
+  );
+}
+
 export default function MainMenu() {
   const hasSave = useGameStore((s) => s.hasSave);
-  const [subMenu, setSubMenu] = useState<null | 'load' | 'credits'>(null);
+  const [subMenu, setSubMenu] = useState<null | 'load' | 'credits' | 'howto'>(null);
   const [flash, setFlash] = useState<string | null>(null);
   const musicRef = useRef<HTMLAudioElement | null>(null);
 
@@ -196,6 +281,12 @@ export default function MainMenu() {
               sheenDelay="3.4s"
             />
             <MenuButton
+              icon={<BookOpen size={15} />}
+              label="How to Play"
+              onClick={() => setSubMenu('howto')}
+              sheenDelay="3.4s"
+            />
+            <MenuButton
               icon={<Settings2 size={15} />}
               label="Settings"
               onClick={() => useGameStore.getState().openOverlay('settings')}
@@ -227,6 +318,10 @@ export default function MainMenu() {
               <MenuButton icon={<ChevronRight size={15} />} label="Back" onClick={() => setSubMenu(null)} />
             </div>
           </div>
+        )}
+
+        {subMenu === 'howto' && (
+          <HowToPlay onBack={() => setSubMenu(null)} />
         )}
 
         {subMenu === 'credits' && (
@@ -272,7 +367,7 @@ export default function MainMenu() {
       {subMenu === null && (
         <div className="absolute bottom-6 right-8 z-10 flex items-center gap-4">
           <span className="text-[0.6rem] font-semibold tracking-[0.28em] text-[#a9b4c2] opacity-60">
-            v0.24.0 — THE LIVING BLADE
+            v0.25.0 — THE ARMOURY
           </span>
           <button
             className="flex items-center gap-2 text-[0.68rem] font-semibold tracking-[0.34em] text-[#a9b4c2] opacity-80 transition hover:text-[#e2b95c] hover:opacity-100"

@@ -59,24 +59,24 @@
           "swordRotX": 1.52
         },
         "blendTest": {
-          "walkX": -0.314,
+          "walkX": -0.506,
           "blend0": -1.175,
           "blendHalf": -0.084,
-          "full": 0.423
+          "full": 0.646
         },
         "spearIdle": {
           "bladeLocalDir": {
-            "x": -0.007,
-            "y": 0.68,
-            "z": 0.733
+            "x": -0.011,
+            "y": 0.679,
+            "z": 0.734
           },
           "gripOffsetFromFist": 0.07,
           "swordRotX": 1.35
         },
         "spearThrust": {
           "bladeLocalDir": {
-            "x": -0.343,
-            "y": 0.282,
+            "x": -0.345,
+            "y": 0.279,
             "z": 0.896
           },
           "gripOffsetFromFist": 0.07,
@@ -84,7 +84,7 @@
         },
         "plunge": {
           "bladeLocalDir": {
-            "x": -0.101,
+            "x": -0.102,
             "y": 0.193,
             "z": 0.976
           },

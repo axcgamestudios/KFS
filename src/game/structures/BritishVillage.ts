@@ -98,15 +98,15 @@ export function buildBritishCabin(b: StaticBuilder, o: CabinOpts): void {
 
   // ---- Walls: back (-Z), sides (±X), front (+Z with door gap) ----
   // back wall
-  put('plaster', w, wallH, wallT, 0, y0 + wallH / 2, -hd + 0.09, rotY, true);
+  put('concreteWhite', w, wallH, wallT, 0, y0 + wallH / 2, -hd + 0.09, rotY, true);
   // side walls
-  put('plaster', wallT, wallH, d, +hw - 0.09, y0 + wallH / 2, 0, rotY, true);
-  put('plaster', wallT, wallH, d, -hw + 0.09, y0 + wallH / 2, 0, rotY, true);
+  put('concreteWhite', wallT, wallH, d, +hw - 0.09, y0 + wallH / 2, 0, rotY, true);
+  put('concreteWhite', wallT, wallH, d, -hw + 0.09, y0 + wallH / 2, 0, rotY, true);
   // front wall: two segments + lintel over the door
   const segW = (w - doorW) / 2;
-  put('plaster', segW, wallH, wallT, -(doorW / 2 + segW / 2), y0 + wallH / 2, +hd - 0.09, rotY, true);
-  put('plaster', segW, wallH, wallT, +(doorW / 2 + segW / 2), y0 + wallH / 2, +hd - 0.09, rotY, true);
-  put('plaster', doorW + 0.2, wallH - 2.05, wallT, 0, y0 + 2.05 + (wallH - 2.05) / 2, +hd - 0.09, rotY, true);
+  put('concreteWhite', segW, wallH, wallT, -(doorW / 2 + segW / 2), y0 + wallH / 2, +hd - 0.09, rotY, true);
+  put('concreteWhite', segW, wallH, wallT, +(doorW / 2 + segW / 2), y0 + wallH / 2, +hd - 0.09, rotY, true);
+  put('concreteWhite', doorW + 0.2, wallH - 2.05, wallT, 0, y0 + 2.05 + (wallH - 2.05) / 2, +hd - 0.09, rotY, true);
 
   // ---- Timber framing (visual, outside the plaster) ----
   const posts: Array<[number, number]> = [
@@ -202,8 +202,8 @@ export function buildBritishCabin(b: StaticBuilder, o: CabinOpts): void {
     gableGeo.translate(0, 0, -0.08);
     const [g1x, g1z] = LW(hw - 0.12, 0);
     const [g2x, g2z] = LW(-hw + 0.12, 0);
-    b.add(gableGeo.clone(), 'plaster', g1x, topY, g1z, rotY + Math.PI / 2);
-    b.add(gableGeo, 'plaster', g2x, topY, g2z, rotY + Math.PI / 2);
+    b.add(gableGeo.clone(), 'concreteWhite', g1x, topY, g1z, rotY + Math.PI / 2);
+    b.add(gableGeo, 'concreteWhite', g2x, topY, g2z, rotY + Math.PI / 2);
   }
 
   // ---- Stone chimney + hearth (every cottage has a fireplace) ----

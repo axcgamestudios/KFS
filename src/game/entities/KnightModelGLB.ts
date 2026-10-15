@@ -326,15 +326,22 @@ export class KnightModelGLB implements CharacterVisual {
         if (glow === null) {
           std.emissive?.setHex(0x000000);
         } else {
-          std.emissive?.setHex(glow);
+          // Fase 25 — elemental legendaries repaint the uploaded blade's glow
+          const elem = this.weaponElement;
+          const elemColor = elem === 'fire' ? 0xff5a1a : elem === 'frost' ? 0x6fd6ff : elem === 'storm' ? 0xb08aff : null;
+          std.emissive?.setHex(elemColor ?? glow);
           std.emissiveIntensity = 0.55 + this.weaponTier * 0.3;
         }
         std.needsUpdate = true;
       }
     });
-    // each tier forges a slightly longer, prouder blade
+    // each tier forges a slightly longer, prouder blade — MULTIPLIED onto the
+    // weapon's own base scale (the F25 uploaded models carry a normalizing
+    // scale: setting it outright restored the raw 2-metre mesh!)
     const s = 1 + this.weaponTier * 0.06;
-    w.scale.set(s, s, s);
+    const base = w.userData?.baseScale as [number, number, number] | undefined;
+    if (base) w.scale.set(base[0] * s, base[1] * s, base[2] * s);
+    else w.scale.set(s, s, s);
   }
 
   private refreshProps(): void {

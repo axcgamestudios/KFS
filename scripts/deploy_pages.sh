@@ -8,15 +8,20 @@ set -euo pipefail
 cd /home/z/my-project
 
 ORIGIN=$(git remote get-url origin)
-MSG_SITE="v0.24.0 — THE LIVING BLADE: the sword grip reworked into a true perpendicular hammer grip (blade along the curled fingers, guard past the knuckles, pommel out the heel) with the tuned pose stored as userData.gripPose and restored EXACTLY every frame — the old baseRotX damp eroded the pitch to zero within half a second (the torch-hold read); every windup now cocks the steel UP-BACK over the shoulder and every strike sweeps it down THROUGH the target in front (the identity-axes rig used to flip the blade down-back — the literal backwards hits), the thrust finally points at the enemy for sword AND spear (wrist holds +1.7 rad along the stab line), the plunge flips the weapon into the dive, heavy re-raised through X as a headsman's windup; POSE MEMORY blends the first 90ms of every swing out of the live pose (no more one-frame teleports, combos flow), the armed arm swings with the gait, the fall keeps moving, torso counter-rotation and stride bounce grew"
-MSG_SRC="Fase 24 — v0.24.0: KnightModelGLB grip rebuild (perpendicular hammer grip + gripPose restore, Euler.toArray order-string trap fixed), poseAttack wrist choreography per attack + attackWeaponPitch channel (plunge flip), AnimParams.attackDur + pose-memory blend-in, locomotion life pass (armed arm swing, torso counter, bounce, living fall), HeroSword baseRotX removed; probe tooling (probe_f24_*, shot_f24_follow live-frame-verified photography)"
+MSG_SITE="v0.25.0 — THE ARMOURY: the player becomes the studio's new lightweight armour model (medieval_knight_armour.glb, A-pose, 9.3k verts — auto-rigged onto the 15-bone skeleton + cape chain by scripts/rig_armour.ts: full plate with great helm, tassets pinned to the pelvis, a built crimson cape skinned to the spring-damper cloth bones; 1.28 MB vs the old 10.7), the hero's steel is the uploaded medieval_sword.glb greatsword (grip-normalized: 0.93 m of blade above the fist, perpendicular hammer grip, forge-tier glow preserved and grows per tier — and the scale never erodes again: tier scaling now MULTIPLIES the weapon base scale) and the uploaded medieval_bow_game_model.glb longbow rides the left hand with the string facing the archer; every attack verified direction-correct on the new rig (idle forward-up guard, windups cocked back-up over the shoulder, strikes swept down through the target, thrust on the stab line, walk with living sword arm and flowing cape); Crowhaven's cottage walls now wear the Concreto_Blanco photo PBR (white concrete + dark timber framing); HOW TO PLAY ships in the main menu AND the pause menu — every control and combination (movement, 4-hit combos, heavy charge, air juggle/plunge, parry, hook dash, rope dart, finisher, tonic, bow aim/arrows/specials, first person on B, free cam on P, all screens, horse whistle, full sailing) with forged key chips; FIRST PERSON verified live (B: camera at eye height 1.70, helm hidden, badge on)"
+MSG_SRC="Fase 25 — v0.25.0: rig_armour.ts (A-pose armour auto-rigger + cape mesh builder + 2-mesh GLB writer), GlbWeapons.ts (uploaded sword/bow normalizers), Game.ts model swap + weapon factory, KnightModelGLB baseScale tier fix + element glow, BritishVillage concreteWhite walls, MainMenu HowToPlay + PauseMenu controles tab, deploy preserves root uploads, probe/shot tooling (probe_f25_*, shot_f25.cjs)"
 
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
 echo "== site -> main =="
 git clone -q --depth 1 -b main "$ORIGIN" "$WORK/site"
+# F25 — PRESERVE the studio's uploads at the repo root (the GLB models the
+# team pushes via the GitHub web UI): rsync --delete must never remove them.
+mkdir -p "$WORK/keep"
+find "$WORK/site" -maxdepth 1 -type f \( -name '*.glb' -o -name '*.JPG' -o -name '*.jpg' -o -name '*.png' \) -exec cp -a {} "$WORK/keep/" \; || true
 rsync -a --delete --exclude '.git' --exclude '.nojekyll' out/ "$WORK/site/"
+cp -a "$WORK/keep/." "$WORK/site/" 2>/dev/null || true
 touch "$WORK/site/.nojekyll"
 git -C "$WORK/site" add -A
 git -C "$WORK/site" commit -q -m "$MSG_SITE" || { echo "nothing to commit on main?"; exit 1; }

@@ -16,6 +16,7 @@ import { Player } from './entities/Player';
 import { KnightModelGLB } from './entities/KnightModelGLB';
 import { KitSystem } from './world/KitSystem';
 import { buildHeroSword } from './world/HeroSword';
+import { initGlbWeapons, buildGlbSword, buildGlbBow } from './world/GlbWeapons';
 import { CameraRig } from './entities/CameraRig';
 import { NPC } from './entities/NPC';
 import { villagerPalette, VillagerModel, type CharacterVisual } from './entities/CharacterModel';
@@ -284,30 +285,41 @@ export class Game {
     // The kits were already exploded during buildWorld (world.dressing);
     // here we only load the rigged knight and wire the same kit instance.
     const kits = world.kits;
+    // Fase 25 — warm the user's uploaded weapon models (greatsword + longbow)
+    // so the (synchronous) weapon factory can hand them out instantly.
+    await initGlbWeapons(world.assets);
     let playerVisual;
     try {
-      // Fase 21 — the NEW knight: the user's medieval_knight.glb, auto-rigged
-      // offline onto the game's 15-bone skeleton (scripts/rig_knight.ts), so
-      // the whole procedural animation layer (run/jump/dodge/swim/ride/block/
-      // bow/5 attack curves) drives it unchanged. Falls back to the original
-      // rigged statue knight if the file is missing.
+      // Fase 25 — the NEW body: the user's lightweight A-pose armour model
+      // (medieval_knight_armour.glb), auto-rigged offline onto the game's
+      // 15-bone skeleton + cape chain (scripts/rig_armour.ts), so the whole
+      // procedural animation layer (run/jump/dodge/swim/ride/block/bow/
+      // attack curves + cloth cape) drives it unchanged. Falls back to the
+      // earlier rigged knights if the file is missing.
       let knightScene: THREE.Object3D;
       try {
-        knightScene = await world.assets.loadModel('medieval_knight_rigged.glb');
+        knightScene = await world.assets.loadModel('knight_armour_rigged.glb');
       } catch {
-        knightScene = await world.assets.loadModel('knight_rigged.glb');
+        try {
+          knightScene = await world.assets.loadModel('medieval_knight_rigged.glb');
+        } catch {
+          knightScene = await world.assets.loadModel('knight_rigged.glb');
+        }
       }
       playerVisual = new KnightModelGLB({
         scene: knightScene,
-        // Fase 11 — the player's sword is the master-forged HeroSword (real
-        // steel/gold/leather/gem materials + rune glow by forge tier); every
-        // other weapon keeps its kit model.
-        weaponFactory: (kind) => kind === 'sword'
-          ? buildHeroSword({
+        // Fase 25 — the hero's steel is the user's uploaded greatsword
+        // (medieval_sword.glb, grip-normalized + forge-tier glow); the bow is
+        // the uploaded longbow. Everything else keeps its kit model, and a
+        // missing file falls back to the HeroSword / kit bow.
+        weaponFactory: (kind) => (kind === 'sword'
+          ? buildGlbSword() ?? buildHeroSword({
               tier: this.state?.swordTier ?? 0,
               element: swordElementOf(this.state?.equippedWeapon) ?? undefined,
             })
-          : kits.weapon(kind),
+          : kind === 'bow'
+            ? buildGlbBow() ?? kits.weapon('bow')
+            : kits.weapon(kind)),
         shieldFactory: () => kits.create('shield_02'),
       });
       playerVisual.root.scale.setScalar(1.0);
