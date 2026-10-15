@@ -16,7 +16,7 @@ import { Player } from './entities/Player';
 import { KnightModelGLB, ARMOUR_REST } from './entities/KnightModelGLB';
 import { KitSystem } from './world/KitSystem';
 import { buildHeroSword } from './world/HeroSword';
-import { initGlbWeapons, buildGlbSword, buildGlbBow } from './world/GlbWeapons';
+import { initGlbWeapons, buildGlbBow } from './world/GlbWeapons';
 import { CameraRig } from './entities/CameraRig';
 import { NPC } from './entities/NPC';
 import { villagerPalette, VillagerModel, type CharacterVisual } from './entities/CharacterModel';
@@ -311,12 +311,17 @@ export class Game {
         // Fase 26 — re-express the A-pose armour bind into the old statue's
         // arm hang so the tuned F23/F24 layer + grip transfer unchanged.
         restOffsets: ARMOUR_REST,
-        // Fase 25 — the hero's steel is the user's uploaded greatsword
-        // (medieval_sword.glb, grip-normalized + forge-tier glow); the bow is
-        // the uploaded longbow. Everything else keeps its kit model, and a
-        // missing file falls back to the HeroSword / kit bow.
+        // Fase 27 — this is the uploaded plate-armour kit: add the
+        // articulation collars (the plates read as separate parts when the
+        // joints bend — "tiene como partes separadas el modelo").
+        armourRig: true,
+        // Fase 27 — THE HERO'S STEEL IS THE MASTER-FORGED HERO SWORD again
+        // (user call: "mejor no uses el glb de la espada, usa el que
+        // teniamos" — the uploaded greatsword is retired; the procedural
+        // arming sword with the damascus blade, gem pommel and forge-tier
+        // runes returns). The uploaded LONGBOW stays (no complaint).
         weaponFactory: (kind) => (kind === 'sword'
-          ? buildGlbSword() ?? buildHeroSword({
+          ? buildHeroSword({
               tier: this.state?.swordTier ?? 0,
               element: swordElementOf(this.state?.equippedWeapon) ?? undefined,
             })
