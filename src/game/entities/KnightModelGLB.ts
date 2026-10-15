@@ -667,8 +667,9 @@ export class KnightModelGLB implements CharacterVisual {
           // (the elbow's z-offset rolls about the ARM axis once the shoulder
           // pitches forward) — empirically topped up at full draw: a ~19°
           // cant remains, reading as a natural archer's cant.
-          const czBase = shL && elL ? -(shL[2] + elL[2]) : 0;
-          const cz = czBase - 0.33;
+          const hasRest = !!(shL && elL);
+          const czBase = hasRest ? -(shL![2] + elL![2]) : 0;
+          const cz = czBase - (hasRest ? 0.33 : 0);
           this.activeWeapon.rotation.set(cx, 0, 0.08 + cz);
         }
         break;

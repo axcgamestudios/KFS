@@ -14,9 +14,9 @@
   "parent": "",
   "visible": true,
   "worldPos": [
-   20.6,
-   2.202,
-   244.311
+   20.585,
+   2.209,
+   244.315
   ],
   "scale": [
    0.62,
@@ -31,28 +31,28 @@
  },
  "arms": {
   "shoulderR": [
-   23.73785012461314,
-   8.91276761836666,
-   161.9671439001702
+   23.739041819708834,
+   8.912645356154,
+   161.96930043657838
   ],
   "elbowR": [
-   23.550650108112528,
-   8.43694895942549,
-   162.00312969772418
+   23.553316521802426,
+   8.435724158036763,
+   161.99748739285243
   ],
   "wristR": [
-   23.595644507516543,
-   8.03677628281061,
-   162.24548458814968
+   23.597896879950053,
+   8.035135465163512,
+   162.2392307501749
   ],
-  "upperArmOutDeg": 21.5,
+  "upperArmOutDeg": 21.3,
   "forearmInDeg": 6.4,
   "upperArmOutDegL": 15.4,
-  "forearmInDegL": 11.5,
+  "forearmInDegL": 11.3,
   "wristR_world": [
-   23.595644507516543,
-   8.03677628281061,
-   162.24548458814968
+   23.597896879950053,
+   8.035135465163512,
+   162.2392307501749
   ]
  },
  "foot": {
@@ -69,9 +69,9 @@
     ],
     "toeToAnkleR": 0.207,
     "toeToAnkleL": null,
-    "footSpanZ": 0.305,
-    "footSpanX": 0.382,
-    "toeWorldZ": 162.181
+    "footSpanZ": 0.307,
+    "footSpanX": 0.385,
+    "toeWorldZ": 162.179
    },
    {
     "t": 1,
@@ -83,9 +83,9 @@
     ],
     "toeToAnkleR": 0.207,
     "toeToAnkleL": null,
-    "footSpanZ": 0.305,
-    "footSpanX": 0.382,
-    "toeWorldZ": 162.181
+    "footSpanZ": 0.307,
+    "footSpanX": 0.385,
+    "toeWorldZ": 162.179
    },
    {
     "t": 2,
@@ -97,9 +97,9 @@
     ],
     "toeToAnkleR": 0.207,
     "toeToAnkleL": null,
-    "footSpanZ": 0.305,
-    "footSpanX": 0.382,
-    "toeWorldZ": 162.181
+    "footSpanZ": 0.307,
+    "footSpanX": 0.385,
+    "toeWorldZ": 162.179
    },
    {
     "t": 3,
@@ -111,9 +111,9 @@
     ],
     "toeToAnkleR": 0.207,
     "toeToAnkleL": null,
-    "footSpanZ": 0.305,
-    "footSpanX": 0.382,
-    "toeWorldZ": 162.181
+    "footSpanZ": 0.307,
+    "footSpanX": 0.385,
+    "toeWorldZ": 162.179
    },
    {
     "t": 4,
@@ -125,9 +125,9 @@
     ],
     "toeToAnkleR": 0.207,
     "toeToAnkleL": null,
-    "footSpanZ": 0.305,
-    "footSpanX": 0.382,
-    "toeWorldZ": 162.181
+    "footSpanZ": 0.307,
+    "footSpanX": 0.385,
+    "toeWorldZ": 162.179
    },
    {
     "t": 5,
@@ -139,9 +139,9 @@
     ],
     "toeToAnkleR": 0.207,
     "toeToAnkleL": null,
-    "footSpanZ": 0.305,
-    "footSpanX": 0.382,
-    "toeWorldZ": 162.181
+    "footSpanZ": 0.307,
+    "footSpanX": 0.385,
+    "toeWorldZ": 162.179
    },
    {
     "t": 6,
@@ -153,9 +153,9 @@
     ],
     "toeToAnkleR": 0.207,
     "toeToAnkleL": null,
-    "footSpanZ": 0.305,
-    "footSpanX": 0.382,
-    "toeWorldZ": 162.181
+    "footSpanZ": 0.307,
+    "footSpanX": 0.385,
+    "toeWorldZ": 162.179
    },
    {
     "t": 7,
@@ -167,9 +167,9 @@
     ],
     "toeToAnkleR": 0.207,
     "toeToAnkleL": null,
-    "footSpanZ": 0.305,
-    "footSpanX": 0.382,
-    "toeWorldZ": 162.181
+    "footSpanZ": 0.307,
+    "footSpanX": 0.385,
+    "toeWorldZ": 162.179
    },
    {
     "t": 8,
@@ -181,9 +181,9 @@
     ],
     "toeToAnkleR": 0.207,
     "toeToAnkleL": null,
-    "footSpanZ": 0.305,
-    "footSpanX": 0.382,
-    "toeWorldZ": 162.181
+    "footSpanZ": 0.307,
+    "footSpanX": 0.385,
+    "toeWorldZ": 162.179
    },
    {
     "t": 9,
@@ -195,9 +195,9 @@
     ],
     "toeToAnkleR": 0.207,
     "toeToAnkleL": null,
-    "footSpanZ": 0.305,
-    "footSpanX": 0.382,
-    "toeWorldZ": 162.181
+    "footSpanZ": 0.307,
+    "footSpanX": 0.385,
+    "toeWorldZ": 162.179
    },
    {
     "t": 10,
@@ -209,9 +209,9 @@
     ],
     "toeToAnkleR": 0.207,
     "toeToAnkleL": null,
-    "footSpanZ": 0.305,
-    "footSpanX": 0.382,
-    "toeWorldZ": 162.181
+    "footSpanZ": 0.307,
+    "footSpanX": 0.385,
+    "toeWorldZ": 162.179
    },
    {
     "t": 11,
@@ -223,9 +223,9 @@
     ],
     "toeToAnkleR": 0.207,
     "toeToAnkleL": null,
-    "footSpanZ": 0.305,
-    "footSpanX": 0.382,
-    "toeWorldZ": 162.181
+    "footSpanZ": 0.307,
+    "footSpanX": 0.385,
+    "toeWorldZ": 162.179
    },
    {
     "t": 12,
@@ -237,9 +237,9 @@
     ],
     "toeToAnkleR": 0.207,
     "toeToAnkleL": null,
-    "footSpanZ": 0.305,
-    "footSpanX": 0.382,
-    "toeWorldZ": 162.181
+    "footSpanZ": 0.307,
+    "footSpanX": 0.385,
+    "toeWorldZ": 162.179
    },
    {
     "t": 13,
@@ -251,9 +251,9 @@
     ],
     "toeToAnkleR": 0.207,
     "toeToAnkleL": null,
-    "footSpanZ": 0.305,
-    "footSpanX": 0.382,
-    "toeWorldZ": 162.181
+    "footSpanZ": 0.307,
+    "footSpanX": 0.385,
+    "toeWorldZ": 162.179
    },
    {
     "t": 14,
@@ -265,9 +265,9 @@
     ],
     "toeToAnkleR": 0.207,
     "toeToAnkleL": null,
-    "footSpanZ": 0.305,
-    "footSpanX": 0.382,
-    "toeWorldZ": 162.181
+    "footSpanZ": 0.307,
+    "footSpanX": 0.385,
+    "toeWorldZ": 162.179
    },
    {
     "t": 15,
@@ -279,9 +279,9 @@
     ],
     "toeToAnkleR": 0.207,
     "toeToAnkleL": null,
-    "footSpanZ": 0.305,
-    "footSpanX": 0.382,
-    "toeWorldZ": 162.181
+    "footSpanZ": 0.307,
+    "footSpanX": 0.385,
+    "toeWorldZ": 162.179
    },
    {
     "t": 16,
@@ -293,9 +293,9 @@
     ],
     "toeToAnkleR": 0.207,
     "toeToAnkleL": null,
-    "footSpanZ": 0.305,
-    "footSpanX": 0.382,
-    "toeWorldZ": 162.181
+    "footSpanZ": 0.307,
+    "footSpanX": 0.385,
+    "toeWorldZ": 162.179
    },
    {
     "t": 17,
@@ -307,9 +307,9 @@
     ],
     "toeToAnkleR": 0.207,
     "toeToAnkleL": null,
-    "footSpanZ": 0.305,
-    "footSpanX": 0.382,
-    "toeWorldZ": 162.181
+    "footSpanZ": 0.307,
+    "footSpanX": 0.385,
+    "toeWorldZ": 162.179
    },
    {
     "t": 18,
@@ -321,9 +321,9 @@
     ],
     "toeToAnkleR": 0.207,
     "toeToAnkleL": null,
-    "footSpanZ": 0.305,
-    "footSpanX": 0.382,
-    "toeWorldZ": 162.181
+    "footSpanZ": 0.307,
+    "footSpanX": 0.385,
+    "toeWorldZ": 162.179
    },
    {
     "t": 19,
@@ -335,9 +335,9 @@
     ],
     "toeToAnkleR": 0.207,
     "toeToAnkleL": null,
-    "footSpanZ": 0.305,
-    "footSpanX": 0.382,
-    "toeWorldZ": 162.181
+    "footSpanZ": 0.307,
+    "footSpanX": 0.385,
+    "toeWorldZ": 162.179
    },
    {
     "t": 20,
@@ -349,9 +349,9 @@
     ],
     "toeToAnkleR": 0.207,
     "toeToAnkleL": null,
-    "footSpanZ": 0.305,
-    "footSpanX": 0.382,
-    "toeWorldZ": 162.181
+    "footSpanZ": 0.307,
+    "footSpanX": 0.385,
+    "toeWorldZ": 162.179
    },
    {
     "t": 21,
@@ -363,9 +363,9 @@
     ],
     "toeToAnkleR": 0.207,
     "toeToAnkleL": null,
-    "footSpanZ": 0.305,
-    "footSpanX": 0.382,
-    "toeWorldZ": 162.181
+    "footSpanZ": 0.307,
+    "footSpanX": 0.385,
+    "toeWorldZ": 162.179
    },
    {
     "t": 22,
@@ -377,9 +377,9 @@
     ],
     "toeToAnkleR": 0.207,
     "toeToAnkleL": null,
-    "footSpanZ": 0.305,
-    "footSpanX": 0.382,
-    "toeWorldZ": 162.181
+    "footSpanZ": 0.307,
+    "footSpanX": 0.385,
+    "toeWorldZ": 162.179
    },
    {
     "t": 23,
@@ -391,9 +391,9 @@
     ],
     "toeToAnkleR": 0.207,
     "toeToAnkleL": null,
-    "footSpanZ": 0.305,
-    "footSpanX": 0.382,
-    "toeWorldZ": 162.181
+    "footSpanZ": 0.307,
+    "footSpanX": 0.385,
+    "toeWorldZ": 162.179
    },
    {
     "t": 24,
@@ -405,9 +405,9 @@
     ],
     "toeToAnkleR": 0.207,
     "toeToAnkleL": null,
-    "footSpanZ": 0.305,
-    "footSpanX": 0.382,
-    "toeWorldZ": 162.181
+    "footSpanZ": 0.307,
+    "footSpanX": 0.385,
+    "toeWorldZ": 162.179
    },
    {
     "t": 25,
@@ -419,35 +419,14 @@
     ],
     "toeToAnkleR": 0.207,
     "toeToAnkleL": null,
-    "footSpanZ": 0.305,
-    "footSpanX": 0.382,
-    "toeWorldZ": 162.181
+    "footSpanZ": 0.307,
+    "footSpanX": 0.385,
+    "toeWorldZ": 162.179
    }
   ],
-  "spanZmin": 0.305,
-  "spanZmax": 0.305,
+  "spanZmin": 0.307,
+  "spanZmax": 0.307,
   "toeAnkleRmin": 0.207,
   "toeAnkleRmax": 0.207
- },
- "bow": {
-  "localRot": [
-   0.24,
-   0,
-   -0.67
-  ],
-  "limbAxisChar": {
-   "x": -0.375,
-   "y": 0.864,
-   "z": -0.337
-  },
-  "stringSide": [
-   -0.02783322207632227,
-   -0.0035813162439874164,
-   0.021742491182260577
-  ],
-  "stringSideChar": {
-   "x": -24.028,
-   "z": -161.978
-  }
  }
 }
