@@ -102,7 +102,7 @@ const BASE = process.argv[2] ?? 'http://localhost:3000/';
     out.sword = {};
     if (vis) {
       let found = null;
-      vis.root.traverse((o) => { if (!found && (o.name === 'glb_sword' || o.userData?.glbSword || o.userData?.heroSword || o.name === 'hero_sword')) found = o; });
+      vis.root.traverse((o) => { if (!found && (o.name === 'glb_sword' || o.userData?.glbSword)) found = o; });
       out.sword.present = !!found;
       if (found) {
         out.sword.name = found.name;

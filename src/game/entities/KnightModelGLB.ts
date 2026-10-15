@@ -28,22 +28,14 @@ export interface KnightVisualDeps {
   scene: THREE.Object3D;
   weaponFactory?: (kind: Exclude<WeaponKind, 'none'>) => THREE.Object3D | null;
   shieldFactory?: () => THREE.Object3D | null;
-  /** Fase 26 — REST-POSE OFFSETS: applied on top of every animation target
-   *  for this model instance. The A-pose armour rig (knight_armour_rigged)
-   *  binds with the arms splayed 26 degrees out / forearms 40 in — the whole
-   *  F23/F24 animation layer (and the sword grip) was tuned on the old statue
-   *  rig whose bind had the arms HANGING at the sides (13 out / 6.5 in).
-   *  These offsets re-express the armour rig into that same rest silhouette,
-   *  so every pose, swing and timing transfers unchanged. */
-  restOffsets?: Partial<Record<string, Euler3>>;
-  /** Fase 27 — the uploaded plate-armour KIT (knight_armour_rigged): a
-   *  kit of separate plates whose articulation lines can read as gaps when
-   *  a joint bends. Adds steel laminate collars on the parent side of
-   *  every major joint so the plates overlap like real armour. */
-  armourRig?: boolean;
   /** Villager variant: re-tints the armour into clothes + headwear variety.
    *  When set, the statue sword & shield NEVER show. */
   villager?: { palette: import('./CharacterModel').CharacterPalette; seed: number; role?: string };
+  /** Fase 26 — player variant: the statue's OWN shield never shows. The user
+   *  removed it from the first knight ("quítale el escudo con el que viene");
+   *  the KIT shield still rides the forearm when a real shield item is
+   *  equipped, and bandits/villagers are unaffected. */
+  hideStatueShield?: boolean;
   /** Fase 10 — bandit variant: RED knights (dark crimson cloth + oxidised
    *  red-steel armour). When set the statue props never show. Fase 17:
    *  `shield: true` arms heavies with a kit shield on the left forearm.
@@ -65,21 +57,6 @@ const BONE_NAMES = [
   'j_hipR', 'j_kneeR', 'j_ankleR',
   'j_hipL', 'j_kneeL', 'j_ankleL',
 ] as const;
-
-/** Fase 26/27 — the A-pose armour rig re-expressed into a KNIGHTLY arm hang.
- *  F26 matched the old statue rig (13° out) but the user read the result as
- *  "brazos como muy abiertos" — measured idle splay was 20° (bind 26° out,
- *  the offset only pulled 13° in, and the armed idle target pushes 7° back
- *  out). F27 closes the silhouette to a courtly hang (~8° out): the
- *  shoulder offset now rotates the WHOLE arm-sword assembly 23° inboard
- *  (z +0.40), the elbow counter-rotation keeps the forearm plane beside
- *  the thigh. Mirrored Z for the left side. */
-export const ARMOUR_REST: Partial<Record<string, Euler3>> = {
-  j_shoulderR: [0.18, 0, 0.40],
-  j_elbowR: [-0.42, 0, -0.65],
-  j_shoulderL: [0.18, 0, -0.40],
-  j_elbowL: [-0.42, 0, 0.65],
-};
 
 export class KnightModelGLB implements CharacterVisual {
   readonly root = new THREE.Group();
@@ -103,6 +80,7 @@ export class KnightModelGLB implements CharacterVisual {
   private isVillager = false;
   private isBandit = false;
   private banditShield = false;
+  private hideStatueShield = false;
   private blockHitT = 0;   // shield impact recoil (0..1)
   private blockHitDir = 1;
   // Fase 8 — night torch: replaces the shield after dusk (light source)
@@ -138,16 +116,15 @@ export class KnightModelGLB implements CharacterVisual {
   private cape2st = { r: [0.09, 0], v: [0, 0] };
   private weaponFactory?: KnightVisualDeps['weaponFactory'];
   private shieldFactory?: KnightVisualDeps['shieldFactory'];
-  private restOffsets?: Partial<Record<string, Euler3>>;
 
   constructor(deps: KnightVisualDeps) {
     this.weaponFactory = deps.weaponFactory;
     this.shieldFactory = deps.shieldFactory;
-    this.restOffsets = deps.restOffsets;
     const scene = deps.scene;
     this.isVillager = !!deps.villager;
     this.isBandit = !!deps.bandit;
     this.banditShield = !!deps.bandit?.shield;
+    this.hideStatueShield = !!deps.hideStatueShield;
 
     // collect bones + meshes
     for (const name of BONE_NAMES) {
@@ -162,9 +139,6 @@ export class KnightModelGLB implements CharacterVisual {
 
     if (deps.villager) this.dressAsVillager(scene, deps.villager);
     if (deps.bandit) this.dressAsBandit(scene, deps.bandit);
-    // Fase 27 — the plate-kit articulation collars (player's armour rig
-    // only: the old statue rigs are single-mesh and need nothing).
-    if (deps.armourRig) this.addArmourJointCollars(scene);
 
     scene.traverse((o) => {
       const mesh = o as THREE.Mesh;
@@ -198,68 +172,6 @@ export class KnightModelGLB implements CharacterVisual {
   }
 
   // ------------------------------------------------------------ state API
-
-  /** Fase 27 — ARTICULATION COLLARS for the uploaded plate-armour kit.
-   * The kit is 317 separate plate islands; with rigid island skinning the
-   * articulation lines (shoulder/elbow/wrist/hip/knee/ankle) can open into
-   * visible gaps the moment a joint bends — the user's "tiene como partes
-   * separadas el modelo". Real plate armour bridges every articulation
-   * with a laminate cop: these tapered steel collars ride the PARENT side
-   * of each joint, centred on the child's landmark, so the plates overlap
-   * like real armour instead of reading as floating parts. Bone hierarchy
-   * (from rig_armour.ts): arms hang off j_torso, legs off j_root. */
-  private addArmourJointCollars(scene: THREE.Object3D): void {
-    interface CollarSpec { parent: string; child: string; rParent: number; rChild: number; len: number }
-    const specs: CollarSpec[] = [
-      { parent: 'j_torso', child: 'j_shoulderR', rParent: 0.130, rChild: 0.110, len: 0.105 },
-      { parent: 'j_torso', child: 'j_shoulderL', rParent: 0.130, rChild: 0.110, len: 0.105 },
-      { parent: 'j_shoulderR', child: 'j_elbowR', rParent: 0.095, rChild: 0.080, len: 0.095 },
-      { parent: 'j_shoulderL', child: 'j_elbowL', rParent: 0.095, rChild: 0.080, len: 0.095 },
-      { parent: 'j_elbowR', child: 'j_wristR', rParent: 0.065, rChild: 0.056, len: 0.075 },
-      { parent: 'j_elbowL', child: 'j_wristL', rParent: 0.065, rChild: 0.056, len: 0.075 },
-      { parent: 'j_root', child: 'j_hipR', rParent: 0.115, rChild: 0.100, len: 0.085 },
-      { parent: 'j_root', child: 'j_hipL', rParent: 0.115, rChild: 0.100, len: 0.085 },
-      { parent: 'j_hipR', child: 'j_kneeR', rParent: 0.100, rChild: 0.085, len: 0.100 },
-      { parent: 'j_hipL', child: 'j_kneeL', rParent: 0.100, rChild: 0.085, len: 0.100 },
-      { parent: 'j_kneeR', child: 'j_ankleR', rParent: 0.065, rChild: 0.058, len: 0.085 },
-      { parent: 'j_kneeL', child: 'j_ankleL', rParent: 0.065, rChild: 0.058, len: 0.085 },
-    ];
-    // steel matching the kit: clone the body's own PBR material so the
-    // collars wear the exact same finish (fallback: polished field-steel)
-    let mat: THREE.MeshStandardMaterial | null = null;
-    const body = scene.getObjectByName('knight_body') as THREE.Mesh | null;
-    if (body?.isMesh) {
-      const bm = Array.isArray(body.material) ? body.material[0] : body.material;
-      if ((bm as THREE.MeshStandardMaterial).isMeshStandardMaterial) {
-        mat = (bm as THREE.MeshStandardMaterial).clone();
-      }
-    }
-    if (!mat) {
-      mat = new THREE.MeshStandardMaterial({ color: 0x9aa0a8, roughness: 0.5, metalness: 0.8 });
-    }
-    const up = new THREE.Vector3(0, 1, 0);
-    for (const s of specs) {
-      const parent = this.bones.get(s.parent);
-      const child = this.bones.get(s.child);
-      if (!parent || !child) continue;
-      // joint line + limb direction, both in the PARENT bone's local space
-      const joint = child.position.clone();
-      if (joint.lengthSq() < 1e-6) continue;
-      const axis = joint.clone().normalize();
-      const collar = new THREE.Mesh(
-        new THREE.CylinderGeometry(s.rChild, s.rParent, s.len, 12),
-        mat,
-      );
-      collar.quaternion.setFromUnitVectors(up, axis);
-      // centred on the joint, pulled 4% back so the parent plates sit under
-      // the wide end and the child plates slide under the taper when bent
-      collar.position.copy(axis).multiplyScalar(joint.length() * 0.96);
-      collar.castShadow = true;
-      collar.receiveShadow = true;
-      collar.userData.armourCollar = true;
-      parent.add(collar);
-    }
-  }
 
   setWeapon(kind: WeaponKind): void {
     this.weaponKind = kind;
@@ -456,6 +368,7 @@ export class KnightModelGLB implements CharacterVisual {
           if (wristL) {
             wristL.add(w);
             w.position.set(0.02, -0.08, 0.05);
+            w.rotation.set(0, 0, 0.08);
           }
         } else {
           this.handSlot.add(w);
@@ -489,7 +402,8 @@ export class KnightModelGLB implements CharacterVisual {
         && !this.activeWeapon;
     }
     if (this.shieldProp) {
-      this.shieldProp.visible = !this.isVillager && this.wantsShield && !this.activeShield
+      this.shieldProp.visible = !this.hideStatueShield
+        && !this.isVillager && this.wantsShield && !this.activeShield
         && (!this.isBandit || this.banditShield);
     }
   }
@@ -727,24 +641,8 @@ export class KnightModelGLB implements CharacterVisual {
         this.activeWeapon.rotation.set(1.35, -0.06, 0.04);
         break;
       case 'bow':
-        // bow held vertically in the LEFT hand — moved at aim time.
-        // Fase 26 — with rest offsets active the wristL frame carries the
-        // accumulated (shoulder+elbow) rotation; counter-rotate so the bow
-        // stays vertical in character space (was canted ~24° right on the
-        // A-pose rig).
-        {
-          const shL = this.restOffsets?.j_shoulderL;
-          const elL = this.restOffsets?.j_elbowL;
-          const cx = shL && elL ? -(shL[0] + elL[0]) : 0;
-          // z: the additive cancellation undercounts at the raised aim pose
-          // (the elbow's z-offset rolls about the ARM axis once the shoulder
-          // pitches forward) — empirically topped up at full draw: a ~19°
-          // cant remains, reading as a natural archer's cant.
-          const hasRest = !!(shL && elL);
-          const czBase = hasRest ? -(shL![2] + elL![2]) : 0;
-          const cz = czBase - (hasRest ? 0.33 : 0);
-          this.activeWeapon.rotation.set(cx, 0, 0.08 + cz);
-        }
+        // bow held vertically in the LEFT hand — moved at aim time
+        this.activeWeapon.rotation.set(0, 0, 0);
         break;
       default:
         break;
@@ -927,9 +825,11 @@ export class KnightModelGLB implements CharacterVisual {
       for (const m of this.flashMats) m.emissive.setRGB(e, e * 0.12, e * 0.08);
     }
     if (this.hitT > 0) this.hitT = Math.max(0, this.hitT - p.dt * 2.6);
-    // the statue shield (fallback only) tucks away while aiming a bow
+    // the statue shield (fallback only) tucks away while aiming a bow —
+    // Fase 26: on the player it never shows at all (the user removed it)
     if (this.shieldProp && !this.isVillager) {
-      this.shieldProp.visible = this.wantsShield && !this.activeShield && (p.bowDraw ?? 0) < 0;
+      this.shieldProp.visible = !this.hideStatueShield
+        && this.wantsShield && !this.activeShield && (p.bowDraw ?? 0) < 0;
     }
     // shield impact recoil decay
     if (this.blockHitT > 0) this.blockHitT = Math.max(0, this.blockHitT - p.dt * 4.2);
@@ -983,7 +883,7 @@ export class KnightModelGLB implements CharacterVisual {
         : THREE.MathUtils.smoothstep(runK, 0.68, 0.92);
       const armed = this.weaponKind !== 'none' && this.weaponKind !== 'bow';
 
-      const amp = 0.48 + runK * 0.46 + charge * 0.10;
+      const amp = 0.52 + runK * 0.5 + charge * 0.12;
       const legPhL = Math.sin(ph);
       const legPhR = Math.sin(ph + Math.PI);
       // Fase 12 — pelvis rocks over the stance leg (secondary motion: the
@@ -992,45 +892,29 @@ export class KnightModelGLB implements CharacterVisual {
       const hipRoll = Math.sin(ph) * (0.035 + runK * 0.05);
       // right leg (x<0) — j_hipR: -X = forward
       t.j_hipR = [-legPhR * amp, 0, -hipRoll];
-      t.j_kneeR = [Math.max(0, -Math.sin(ph + Math.PI - 0.7)) * (0.52 + runK * 0.72 + charge * 0.20), 0, 0];
-      // Fase 27 — THE ANKLE CHANNEL WAS INVERTED: at heel strike
-      // (legPh +1) it pushed the toes DOWN (+0.08) and at toe-off (legPh
-      // -1) it lifted them UP (-0.28) — a backwards foot that read as
-      // "camina rarísimo" and "pies en ángulos raros". Natural gait:
-      // heel-first landing with the toes UP (~-0.12), flat through stance,
-      // plantarflexed toe-off (+0.32) and a pointed toe to clear the
-      // ground mid-swing.
-      t.j_ankleR = [0.10 - legPhR * 0.22, 0, Math.max(0, legPhR) * 0.08];
+      t.j_kneeR = [Math.max(0, -Math.sin(ph + Math.PI - 0.7)) * (0.55 + runK * 0.75 + charge * 0.22), 0, 0];
+      t.j_ankleR = [-0.1 + legPhR * 0.18, 0, Math.max(0, legPhR) * 0.08];
       // left leg
       t.j_hipL = [-legPhL * amp, 0, hipRoll];
-      t.j_kneeL = [Math.max(0, -Math.sin(ph - 0.7)) * (0.52 + runK * 0.72 + charge * 0.20), 0, 0];
-      t.j_ankleL = [0.10 - legPhL * 0.22, 0, Math.max(0, legPhL) * 0.08];
+      t.j_kneeL = [Math.max(0, -Math.sin(ph - 0.7)) * (0.55 + runK * 0.75 + charge * 0.22), 0, 0];
+      t.j_ankleL = [-0.1 + legPhL * 0.18, 0, Math.max(0, legPhL) * 0.08];
 
       // ---- ARMS ----
-      // Fase 27 — THE KNIGHTLY GAIT: "debe de caminar como caballero". The
-      // F24 "swing like an arm" overcorrected on this rig — measured arm
-      // splay peaked 31° at a walk (and the charge trail flung the blade
-      // arm wide at a sprint): "brazos como muy abiertos". A knight in
-      // plate walks COMPOSED: the blade arm rides a STILL low carry beside
-      // the thigh (a fingertip sway with the gait, never a pump), the free
-      // arm swings modestly and close to the body. The battering-ram
-      // CHARGE blend stays — but without a shield it no longer flings the
-      // arm as far back/out.
-      const armAmp = 0.22 + runK * 0.26;
+      // Fase 24 — the armed arm swings LIKE AN ARM: ±0.2-0.34 rad with the
+      // gait (the F23 ±0.13 was sub-perceptual at walking speed and read as
+      // a pinned statue limb — the core of the "tieso" complaint). Charging
+      // still settles back into the lance-at-rest trail.
+      const armAmp = 0.34 + runK * 0.5;
       if (armed) {
         const gait = Math.sin(ph + 0.35);                  // arm lags the leg a touch
-        const carryX = -0.12 + gait * (0.05 + runK * 0.07); // still, dignified low carry
-        const trailing = (hasShield ? 0.55 : 0.40) + gait * 0.08;
-        t.j_shoulderR = [
-          THREE.MathUtils.lerp(carryX, trailing, charge),
-          -gait * 0.03,
-          THREE.MathUtils.lerp(-0.05, hasShield ? -0.18 : -0.10, charge),
-        ];
-        t.j_elbowR = [THREE.MathUtils.lerp(-0.42 - Math.max(0, -gait) * 0.08, -0.3, charge), 0, 0];
-        t.j_wristR = [-0.07 + gait * 0.04, 0, 0.10];
+        const ready = -0.32 + gait * (0.2 + runK * 0.14);  // low carry that SWINGS
+        const trailing = 0.55 + gait * 0.08;
+        t.j_shoulderR = [THREE.MathUtils.lerp(ready, trailing, charge), -gait * 0.05, THREE.MathUtils.lerp(-0.12, -0.18, charge)];
+        t.j_elbowR = [THREE.MathUtils.lerp(-0.72 - Math.max(0, -gait) * 0.16, -0.3, charge), 0, 0];
+        t.j_wristR = [-0.1 + gait * 0.1, 0, 0.1 + Math.sin(ph * 2) * 0.04];
       } else {
-        t.j_shoulderR = [legPhR * armAmp * (1 - charge * 0.5), 0, 0.02];
-        t.j_elbowR = [-0.20 - runK * 0.26 - Math.max(0, -legPhR) * (0.22 + runK * 0.22), 0, 0];
+        t.j_shoulderR = [legPhR * armAmp * (1 - charge * 0.5), 0, -0.06];
+        t.j_elbowR = [-0.18 - runK * 0.35 - Math.max(0, -legPhR) * (0.3 + runK * 0.3), 0, 0];
       }
       // Fase 10/17 — SHIELD CARRY → SHIELD CHARGE: a knight does NOT swing
       // the shield arm like a pendulum. Walking: elbow bent, shield held low
@@ -1048,31 +932,29 @@ export class KnightModelGLB implements CharacterVisual {
         ];
         t.j_elbowL = [THREE.MathUtils.lerp(-0.94, -1.02, charge), 0, 0.16];
       } else {
-        t.j_shoulderL = [legPhL * armAmp * 0.85 * (1 - charge * 0.5), 0, -0.02];
-        t.j_elbowL = [-0.26 - runK * 0.24 - Math.max(0, -legPhL) * (0.22 + runK * 0.22), 0, 0];
+        t.j_shoulderL = [legPhL * armAmp * 0.8 * (1 - charge * 0.5), 0, 0.06];
+        t.j_elbowL = [-0.25 - runK * 0.3 - Math.max(0, -legPhL) * (0.28 + runK * 0.28), 0, 0];
       }
 
       // ---- TORSO & HEAD ----
-      // Fase 27 — UPRIGHT AND STEADY: a knight walks TALL (chest out,
-      // shoulders level); only the charge crouches into the run. The
-      // counter-rotation stays — shoulders twisting against the hips is
-      // what reads as a gait — but every channel dials back a touch so the
-      // silhouette stays composed.
-      const lean = 0.028 + runK * 0.16 + charge * 0.16;
-      t.j_torso = [lean, Math.sin(ph) * (0.05 + runK * 0.10), 0];
+      // The charge crouches into the run: deep lean, eyes UP over the rim.
+      // Fase 24 — the counter-rotation grew: shoulders twist AGAINST the
+      // hips like a real gait (the old ±0.05-0.13 was barely a shrug).
+      const lean = 0.05 + runK * 0.2 + charge * 0.16;
+      t.j_torso = [lean, Math.sin(ph) * (0.07 + runK * 0.12), 0];
       t.j_head = [
-        -0.015 - runK * 0.05 - charge * 0.2,
-        -Math.sin(ph) * (0.04 + runK * 0.04),
-        -Math.sin(ph) * 0.015,
+        -0.04 - runK * 0.08 - charge * 0.2,
+        -Math.sin(ph) * (0.07 + runK * 0.05),
+        -Math.sin(ph) * 0.02,
       ];
-      // Fase 21/27 — the weight shift stays visible but MEASURED: less
-      // ribcage roll, a walk that barely leaves the ground (a knight is no
-      // jogger) — the real bounce is reserved for the sprint's flight
-      // phase and the charge.
-      this.inner.rotation.z = damp(this.inner.rotation.z, Math.sin(ph) * (0.018 + runK * 0.038), 8, 1 / 60);
-      this.inner.position.y = Math.abs(Math.sin(ph)) * 0.028 * (0.45 + runK + charge * 0.5) - charge * 0.05;
+      // Fase 21 — the whole body ROLLS over the stance foot (weight shift in
+      // the ribcage, not just a positional sway: kills the stiff-plank read)
+      this.inner.rotation.z = damp(this.inner.rotation.z, Math.sin(ph) * (0.025 + runK * 0.045), 8, 1 / 60);
+      // Fase 24 — the bounce grew with speed: the stride now has a real
+      // flight phase at a sprint (the old 2.8 cm bob never left the ground)
+      this.inner.position.y = Math.abs(Math.sin(ph)) * 0.042 * (0.5 + runK + charge * 0.5) - charge * 0.05;
       // Fase 12 — subtle lateral sway of the whole body over the stance foot
-      this.inner.position.x = Math.sin(ph) * 0.010 * (0.6 + runK);
+      this.inner.position.x = Math.sin(ph) * 0.014 * (0.6 + runK);
       // Fase 21 — WRIST follow-through: the hands lag the arm swing a beat
       // (relaxed wrists are half of "not rigid"). Fase 23: the armed wrist
       // is now authored inside the armed-arm block above — it rocks the
@@ -1099,15 +981,14 @@ export class KnightModelGLB implements CharacterVisual {
       const glance = Math.sin(this.t * 0.21) * Math.sin(this.t * 0.07 + 1.3);
       t.j_head = [0.0, Math.sin(this.t * 0.5) * 0.13 + glance * 0.22, Math.sin(this.t * 0.33) * 0.05];
       if (armedIdle) {
-        // Fase 27 — the courtly rest: the sword arm hangs BESIDE the thigh
-        // (the old z -0.13 raised it 7° out — half of the "brazos abiertos"
-        // read at rest), elbow soft, the blade angled out a touch by the
-        // wrist alone. Still breathes with the ribcage.
-        t.j_shoulderR = [br * 0.045 - 0.08, -0.03, -0.07 + swayL * 0.02];
-        t.j_elbowR = [-0.30 - br * 0.05, 0, 0];
-        t.j_wristR = [-0.10 + br * 0.03, 0, 0.12];
+        // the sword arm holds a relaxed low carry that still breathes:
+        // shoulder rocks with the ribcage, elbow folds a touch on the
+        // exhale, wrist tips the blade out from the thigh.
+        t.j_shoulderR = [br * 0.045 - 0.1, -0.03, -0.13 + swayL * 0.02];
+        t.j_elbowR = [-0.34 - br * 0.05, 0, 0];
+        t.j_wristR = [-0.12 + br * 0.03, 0, 0.14];
       } else {
-        t.j_shoulderR = [br * 0.045 - 0.05, 0, -0.03];
+        t.j_shoulderR = [br * 0.045 - 0.05, 0, -0.06];
         t.j_elbowR = [-0.16 - br * 0.035, 0, 0];
         // Fase 21 — relaxed wrists at rest (a touch of life in the hands)
         t.j_wristR = [-0.04 + br * 0.02, 0, -0.04];
@@ -1401,11 +1282,7 @@ export class KnightModelGLB implements CharacterVisual {
       } else if (k < 0.62) {
         const u = strikeEase((k - 0.35) / 0.27);
         t.j_shoulderR = [L(-0.58, -1.75, u), 0, L(-0.18, -0.05, u)];
-        // Fase 27 — the elbow-z rest (-0.65 outboard, correct for the arm
-        // hanging at the side) becomes a YAW of the forearm when the arm
-        // extends forward: the blade canted 40° off the stab line. This
-        // counter-rotation straightens the forearm onto the thrust line.
-        t.j_elbowR = [L(-1.95, -0.05, u), 0, L(0, 0.72, u)];
+        t.j_elbowR = [L(-1.95, -0.05, u), 0, 0];
         // Fase 24 — the wrist HOLDS the blade on the thrust line: with the
         // perpendicular grip, +1.7 rad of wrist pitches the steel out along
         // the extended arm — the stab finally points AT the enemy (it used
@@ -1419,7 +1296,7 @@ export class KnightModelGLB implements CharacterVisual {
       } else {
         const u = (k - 0.62) / 0.38;
         t.j_shoulderR = [L(-1.55, 0, u), 0, -0.05 * (1 - u)];
-        t.j_elbowR = [L(-0.05, -0.2, u), 0, L(0.72, 0, u)];
+        t.j_elbowR = [L(-0.05, -0.2, u), 0, 0];
         t.j_wristR = [L(1.7, -0.1, u), 0, 0];
         this.attackWeaponPitch = 0;
         t.j_torso = [L(0.16, 0.04, u), L(-0.32, 0, u), 0];
@@ -1750,22 +1627,18 @@ export class KnightModelGLB implements CharacterVisual {
       if (!b) continue;
       const tv = target[name];
       if (!tv) continue;
-      // Fase 26 — rest-pose offsets ride on top of every target (the A-pose
-      // rig renders as the old statue's hang at animation-identity).
-      const off = this.restOffsets?.[name];
-      const t0: Euler3 = off ? [tv[0] + off[0], tv[1] + off[1], tv[2] + off[2]] : tv;
       if (direct) {
-        b.rotation.set(t0[0], t0[1], t0[2]);
+        b.rotation.set(tv[0], tv[1], tv[2]);
       } else {
         const rate = KnightModelGLB.DAMP_RATE[name] ?? 14;
         const c = this.cur[name] ?? [0, 0, 0] as Euler3;
-        c[0] = damp(c[0], t0[0], rate, dt);
-        c[1] = damp(c[1], t0[1], rate, dt);
-        c[2] = damp(c[2], t0[2], rate, dt);
+        c[0] = damp(c[0], tv[0], rate, dt);
+        c[1] = damp(c[1], tv[1], rate, dt);
+        c[2] = damp(c[2], tv[2], rate, dt);
         this.cur[name] = c;
         b.rotation.set(c[0], c[1], c[2]);
       }
-      if (direct) this.cur[name] = [t0[0], t0[1], t0[2]];
+      if (direct) this.cur[name] = [tv[0], tv[1], tv[2]];
     }
   }
 

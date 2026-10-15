@@ -336,63 +336,9 @@ async function main(): Promise<void> {
   const jointDist = (chain: Array<[number, number, number]>, x: number, y: number, z: number): number[] =>
     chain.slice(0, 3).map((j) => Math.hypot(x - j[0], y - j[1], z - j[2]));
 
-  const ARM_R = 0.20;   // F26: 0.115 sat in the steep sstep — the plate surfaces (0.10-0.16 off the chainline) fell to j_root (the vambrace 85%-root bug); ownership protects the interleaved zones now
-  const LEG_R = 0.20;   // F26: same — the shin/sabaton plates need full coverage
+  const ARM_R = 0.115;
+  const LEG_R = 0.135;
   const HEAD_R = 0.145;
-
-  // ---- Fase 26 — chain-PARAM weights: the old spread() assigned per-vertex
-  // influence by INVERSE-DISTANCE-TO-JOINT-POINTS, which on this A-pose put
-  // the mid upper arm 75% on the ELBOW, the whole forearm 85% on j_root and
-  // the fists 73% on the KNEES (measured on the shipped rig). Skin now follows
-  // the position ALONG the chain (s=0 root joint, s≈0.5 mid, s=1 end joint,
-  // s>1 beyond): each joint gets a clean zone with soft boundaries. ----
-  const chainGeom = (chain: Array<[number, number, number]>) => {
-    const cum = [0];
-    for (let i = 0; i < chain.length - 1; i++) {
-      cum.push(cum[i] + Math.hypot(chain[i + 1][0] - chain[i][0], chain[i + 1][1] - chain[i][1], chain[i + 1][2] - chain[i][2]));
-    }
-    return { cum, total: cum[cum.length - 1] };
-  };
-  const armGeomR = chainGeom(chainPtsR); const armGeomL = chainGeom(chainPtsL);
-  const legGeomR = chainGeom(legPtsR); const legGeomL = chainGeom(legPtsL);
-  /** s in [0, 1.2+]: fractional position along the polyline (closest segment). */
-  const chainParam = (chain: Array<[number, number, number]>, geo: { cum: number[]; total: number }, x: number, y: number, z: number): number => {
-    let best = Infinity, bestS = 0;
-    for (let i = 0; i < chain.length - 1; i++) {
-      const abx = chain[i + 1][0] - chain[i][0], aby = chain[i + 1][1] - chain[i][1], abz = chain[i + 1][2] - chain[i][2];
-      const len2 = abx * abx + aby * aby + abz * abz;
-      let t = len2 > 0 ? ((x - chain[i][0]) * abx + (y - chain[i][1]) * aby + (z - chain[i][2]) * abz) / len2 : 0;
-      t = clamp(t, 0, 1);
-      const dx = x - (chain[i][0] + abx * t), dy = y - (chain[i][1] + aby * t), dz = z - (chain[i][2] + abz * t);
-      const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
-      if (d < best) { best = d; bestS = (geo.cum[i] + t * (geo.cum[i + 1] - geo.cum[i])) / geo.total; }
-    }
-    return bestS;
-  };
-  const bell = (s: number, c: number, w: number) => Math.exp(-((s - c) * (s - c)) / (w * w));
-  const ARM_W = (s: number): [number, number, number] => {
-    const ws = sstep(0.65, 0.25, s);
-    const we = bell(s, 0.50, 0.22);
-    const ww = sstep(0.62, 0.95, s) + bell(s, 1.0, 0.18);
-    const tot = ws + we + ww;
-    if (tot <= 1e-6) return [1, 0, 0];
-    return [ws / tot, we / tot, ww / tot];
-  };
-  const LEG_W = (s: number): [number, number, number] => {
-    const wh = sstep(0.60, 0.20, s);
-    const wk = bell(s, 0.55, 0.26);
-    const wa = sstep(0.50, 0.92, s) + bell(s, 1.0, 0.2);
-    const tot = wh + wk + wa;
-    if (tot <= 1e-6) return [1, 0, 0];
-    return [wh / tot, wk / tot, wa / tot];
-  };
-  const spreadParam = (amt: number, chain: Array<[number, number, number]>, geo: { cum: number[]; total: number }, wfn: (s: number) => [number, number, number], names: string[], x: number, y: number, z: number) => {
-    if (amt <= 0.001) return;
-    const [w0, w1, w2] = wfn(chainParam(chain, geo, x, y, z));
-    if (w0 > 0) wAcc[boneIndex.get(names[0])!] += amt * w0;
-    if (w1 > 0) wAcc[boneIndex.get(names[1])!] += amt * w1;
-    if (w2 > 0) wAcc[boneIndex.get(names[2])!] += amt * w2;
-  };
 
   const skinIndex = new Uint16Array(N * 4);
   const skinWeight = new Float32Array(N * 4);
@@ -404,16 +350,9 @@ async function main(): Promise<void> {
 
     // --- TASSET override: the front skirt plates + back fauld + side skirt
     //     plates hang from the belt and must NEVER follow the legs (shear);
-    //     the groin culet rides the pelvis too.
-    //     Fase 26 FIX: the old gate `y < 1.06` reached all the way to the
-    //     ground — it pinned the SABATON TOES (z>0.115), the kneecap fronts
-    //     and half the thighs to j_root. Measured on the shipped rig: TOES
-    //     81% j_root (the "se estiran sus pies al caminar" tear — the toes
-    //     stayed frozen in world while the ankles swung), THIGH 49% j_root.
-    //     The skirt plates all live above y 0.62 — gate the override there so
-    //     everything below (thighs, knees, feet) follows the leg chain. ---
+    //     the groin culet rides the pelvis too ---
     if (
-      y < 1.06 && y > 0.60 && (z > 0.115 || z < -0.175
+      y < 1.06 && (z > 0.115 || z < -0.175
         || (Math.abs(x) > 0.225 && y > 0.72)
         || (Math.abs(x) < 0.09 && y > 0.80))
     ) {
@@ -425,37 +364,17 @@ async function main(): Promise<void> {
       continue;
     }
 
-    // --- arm influence (lateral of the torso only).
-    //     Fase 26: the old y-gate sstep(0.64,0.74,y) cut the arm off below the
-    //     A-pose wrist (y 0.75) — the vambrace measured 85% j_root and the
-    //     gauntlets 73% KNEE-driven (the fists swung with the legs, opposite
-    //     the forearms). The gate now reaches the hang (0.40-0.52), and the
-    //     latGate (which exists to keep ARM influence off the chest) is only
-    //     applied in the armpit band (y>1.02) — below that the only lateral
-    //     geometry is the arm itself (the thigh is protected by armOwn). ---
-    const dArmR = chainDist(chainPtsR, x, y, z);
-    const dArmL = chainDist(chainPtsL, x, y, z);
-    const dLegR = chainDist(legPtsR, x, y, z);
-    const dLegL = chainDist(legPtsL, x, y, z);
-    const latGateHigh = y > 1.02 ? sstep(torsoHalf * 0.92, torsoHalf * 1.18, Math.abs(x)) : 1;
-    // --- leg influence (inside the leg corridor; tassets already excluded).
-    //     Fase 26 armOwn: in the A-pose the fists hang BESIDE the thighs and
-    //     the two chains run parallel 6-10 cm apart — a vertex between them
-    //     must belong to its NEAREST chain, not both (the old sum+renormalize
-    //     gave the gauntlet a 50/50 coin flip and let the WRIST landmark leak
-    //     into the thigh corridor). Ownership is SYMMETRIC now: the arm
-    //     influence yields wherever the leg chain is clearly closer, and the
-    //     leg influence yields wherever the arm chain is clearly closer. ---
-    const ownArmR = sstep(-0.04, 0.04, dLegR - dArmR);
-    const ownArmL = sstep(-0.04, 0.04, dLegL - dArmL);
-    let armRk = sstep(ARM_R + 0.05, ARM_R - 0.06, dArmR)
-      * sstep(0.40, 0.52, y) * sstep(1.70, 1.58, y) * latGateHigh * ownArmR;
-    let armLk = sstep(ARM_R + 0.05, ARM_R - 0.06, dArmL)
-      * sstep(0.40, 0.52, y) * sstep(1.70, 1.58, y) * latGateHigh * ownArmL;
-    let legRk = sstep(LEG_R + 0.05, LEG_R - 0.06, dLegR)
-      * sstep(0.98, 0.88, y) * (1 - ownArmR);
-    let legLk = sstep(LEG_R + 0.05, LEG_R - 0.06, dLegL)
-      * sstep(0.98, 0.88, y) * (1 - ownArmL);
+    // --- arm influence (lateral of the torso only) ---
+    const latGate = sstep(torsoHalf * 0.92, torsoHalf * 1.18, Math.abs(x));
+    let armRk = sstep(ARM_R + 0.05, ARM_R - 0.06, chainDist(chainPtsR, x, y, z))
+      * sstep(0.64, 0.74, y) * sstep(1.70, 1.58, y) * latGate;
+    let armLk = sstep(ARM_R + 0.05, ARM_R - 0.06, chainDist(chainPtsL, x, y, z))
+      * sstep(0.64, 0.74, y) * sstep(1.70, 1.58, y) * latGate;
+    // --- leg influence (inside the leg corridor; tassets already excluded) ---
+    let legRk = sstep(LEG_R + 0.05, LEG_R - 0.06, chainDist(legPtsR, x, y, z))
+      * sstep(0.98, 0.88, y);
+    let legLk = sstep(LEG_R + 0.05, LEG_R - 0.06, chainDist(legPtsL, x, y, z))
+      * sstep(0.98, 0.88, y);
     // --- head (great helm) influence ---
     const dHead = Math.hypot(x - head[0], y - head[1] - 0.045, z - head[2]);
     let headK = sstep(HEAD_R + 0.07, HEAD_R - 0.04, dHead);
@@ -481,10 +400,10 @@ async function main(): Promise<void> {
       const inv = d.map((dd) => { const w = 1 / Math.pow(Math.max(dd, 0.025), 3); sum += w; return w; });
       for (let k = 0; k < 3; k++) wAcc[boneIndex.get(names[k])!] += amt * inv[k] / sum;
     };
-    spreadParam(armRk, chainPtsR, armGeomR, ARM_W, ['j_shoulderR', 'j_elbowR', 'j_wristR'], x, y, z);
-    spreadParam(armLk, chainPtsL, armGeomL, ARM_W, ['j_shoulderL', 'j_elbowL', 'j_wristL'], x, y, z);
-    spreadParam(legRk, legPtsR, legGeomR, LEG_W, ['j_hipR', 'j_kneeR', 'j_ankleR'], x, y, z);
-    spreadParam(legLk, legPtsL, legGeomL, LEG_W, ['j_hipL', 'j_kneeL', 'j_ankleL'], x, y, z);
+    spread(armRk, chainPtsR, ['j_shoulderR', 'j_elbowR', 'j_wristR']);
+    spread(armLk, chainPtsL, ['j_shoulderL', 'j_elbowL', 'j_wristL']);
+    spread(legRk, legPtsR, ['j_hipR', 'j_kneeR', 'j_ankleR']);
+    spread(legLk, legPtsL, ['j_hipL', 'j_kneeL', 'j_ankleL']);
     if (headK > 0) wAcc[boneIndex.get('j_head')!] += headK;
 
     const cands: Array<{ bi: number; w: number }> = [];
@@ -499,114 +418,6 @@ async function main(): Promise<void> {
       } else {
         skinIndex[i * 4 + k] = 0;
         skinWeight[i * 4 + k] = 0;
-      }
-    }
-  }
-
-  // ---------- 6.5 Fase 26 — ISLAND SNAP ----------
-  // The A-pose crosses the forearms THROUGH the thigh volume — the arm chain
-  // passes 1.4 cm from the thigh's outer surface at bind (measured), so no
-  // distance field can split the gauntlet from the cuisse there. But the
-  // armour is hundreds of separate plate islands: classify each island from
-  // its PRE-SNAP bone mass (data-driven, no threshold whack-a-mole) and
-  // rewrite its weights — ARM islands get the param split along the arm
-  // chain, LEG islands along the leg chain, skirt/culet/head/torso islands
-  // go to their single bone. Each plate then rides ONE coherent chain.
-  {
-    const parent = new Int32Array(N);
-    for (let i = 0; i < N; i++) parent[i] = i;
-    const find = (a: number): number => { while (parent[a] !== a) { parent[a] = parent[parent[a]]; a = parent[a]; } return a; };
-    const uni = (a: number, b: number) => { const ra = find(a), rb = find(b); if (ra !== rb) parent[rb] = ra; };
-    for (let t = 0; t < totalIdx; t += 3) {
-      uni(index[t], index[t + 1]); uni(index[t + 1], index[t + 2]); uni(index[t], index[t + 2]);
-    }
-    const members = new Map<number, number[]>();
-    for (let i = 0; i < N; i++) {
-      const r = find(i);
-      let arr = members.get(r);
-      if (!arr) { arr = []; members.set(r, arr); }
-      arr.push(i);
-    }
-    // PASS 1: per-island centroid + pre-snap bone mass + class
-    const islandClass = new Map<number, string>();
-    const side = (cx2: number): 1 | -1 => (cx2 >= 0 ? 1 : -1);
-    const limbSet = new Set<string>(['j_shoulderR','j_elbowR','j_wristR','j_shoulderL','j_elbowL','j_wristL','j_hipR','j_kneeR','j_ankleR','j_hipL','j_kneeL','j_ankleL']);
-    const tally: Record<string, number> = { arm: 0, leg: 0, root: 0, torso: 0, head: 0 };
-    for (const [rootId, arr] of members) {
-      let cx = 0, cy = 0, cz = 0;
-      for (const i of arr) { cx += position[i * 3]; cy += position[i * 3 + 1]; cz += position[i * 3 + 2]; }
-      cx /= arr.length; cy /= arr.length; cz /= arr.length;
-      const side = cx >= 0 ? 1 : -1;
-      const mass = new Map<string, number>();
-      let tot = 0, rootTorso = 0;
-      for (const i of arr) {
-        for (let k = 0; k < 4; k++) {
-          const w = skinWeight[i * 4 + k];
-          if (w <= 0) continue;
-          const bn = bones[skinIndex[i * 4 + k]].name;
-          mass.set(bn, (mass.get(bn) ?? 0) + w);
-          tot += w;
-          if (bn === 'j_root' || bn === 'j_torso') rootTorso += w;
-        }
-      }
-      const dA2 = chainDist(side < 0 ? chainPtsR : chainPtsL, cx, cy, cz);
-      const dL2 = chainDist(side < 0 ? legPtsR : legPtsL, cx, cy, cz);
-      let cls: string;
-      if (cy > 1.66) cls = 'head';                                        // great helm + visor
-      else if (Math.abs(cx) < 0.10 && cy > 0.55 && cy < 1.05) cls = 'root'; // culet/groin (y-banded: never the knees/sabatons)
-      else if (tot > 0 && rootTorso / tot > 0.60 && cy < 1.10 && dA2 > 0.15) cls = 'root'; // tasset skirt (far from the arm chain)
-      else if (Math.abs(cx) < 0.16 && cy > 1.12 && cy < 1.66) cls = 'torso'; // chest/backplate/collar
-      else if (Math.abs(dA2 - dL2) < 0.03) {
-        // interleaved zone (fist vs cuisse): fall back to the pre-snap mass vote
-        let bestBn = '', bestM = 0;
-        for (const [bn, m] of mass) if (bn !== 'j_root' && m > bestM) { bestBn = bn; bestM = m; }
-        if (limbSet.has(bestBn)) cls = /shoulder|elbow|wrist/.test(bestBn) ? 'arm' : 'leg';
-        else if (bestBn === 'j_head') cls = 'head';
-        else if (bestBn === 'j_torso') cls = 'torso';
-        else cls = dA2 < dL2 ? 'arm' : 'leg';
-      } else cls = dA2 < dL2 ? 'arm' : 'leg';
-      islandClass.set(rootId, cls);
-      tally[cls] = (tally[cls] ?? 0) + arr.length;
-    }
-    console.log(`island classes (verts): ${JSON.stringify(tally)}`);
-    // PASS 2: rewrite the weights per class
-    for (const [rootId, arr] of members) {
-      const cls = islandClass.get(rootId)!;
-      if (cls === 'arm' || cls === 'leg') {
-        // side from the island centroid sign
-        let cx = 0;
-        for (const i of arr) cx += position[i * 3];
-        const side: 1 | -1 = cx >= 0 ? 1 : -1;
-        const armChain = side < 0 ? chainPtsR : chainPtsL;
-        const legChain = side < 0 ? legPtsR : legPtsL;
-        const armGeo = side < 0 ? armGeomR : armGeomL;
-        const legGeo = side < 0 ? legGeomR : legGeomL;
-        for (const i of arr) {
-          const px = position[i * 3], py = position[i * 3 + 1], pz = position[i * 3 + 2];
-          if (cls === 'arm') {
-            const [wa, we, ww] = ARM_W(chainParam(armChain, armGeo, px, py, pz));
-            skinIndex[i * 4] = boneIndex.get(side < 0 ? 'j_shoulderR' : 'j_shoulderL')!;
-            skinIndex[i * 4 + 1] = boneIndex.get(side < 0 ? 'j_elbowR' : 'j_elbowL')!;
-            skinIndex[i * 4 + 2] = boneIndex.get(side < 0 ? 'j_wristR' : 'j_wristL')!;
-            skinWeight[i * 4] = wa; skinWeight[i * 4 + 1] = we; skinWeight[i * 4 + 2] = ww;
-          } else {
-            const [wh, wk, wa2] = LEG_W(chainParam(legChain, legGeo, px, py, pz));
-            skinIndex[i * 4] = boneIndex.get(side < 0 ? 'j_hipR' : 'j_hipL')!;
-            skinIndex[i * 4 + 1] = boneIndex.get(side < 0 ? 'j_kneeR' : 'j_kneeL')!;
-            skinIndex[i * 4 + 2] = boneIndex.get(side < 0 ? 'j_ankleR' : 'j_ankleL')!;
-            skinWeight[i * 4] = wh; skinWeight[i * 4 + 1] = wk; skinWeight[i * 4 + 2] = wa2;
-          }
-          skinIndex[i * 4 + 3] = 0; skinWeight[i * 4 + 3] = 0;
-        }
-      } else {
-        const bn = cls === 'head' ? 'j_head' : cls === 'torso' ? 'j_torso' : 'j_root';
-        const bi = boneIndex.get(bn)!;
-        for (const i of arr) {
-          skinIndex[i * 4] = bi; skinWeight[i * 4] = 1;
-          skinIndex[i * 4 + 1] = 0; skinWeight[i * 4 + 1] = 0;
-          skinIndex[i * 4 + 2] = 0; skinWeight[i * 4 + 2] = 0;
-          skinIndex[i * 4 + 3] = 0; skinWeight[i * 4 + 3] = 0;
-        }
       }
     }
   }
@@ -728,19 +539,6 @@ async function main(): Promise<void> {
       name: 'headTurn', apply: () => {
         B('j_head').rotation.y = 0.7; B('j_head').rotation.x = 0.2;
         B('j_elbowL').rotation.x = -1.4;
-      },
-    },
-    {
-      // Fase 26 — the user's exact complaint: a mid-stride swing. The FEET
-      // must pitch with the ankles and stay rigid (no toe tear), the fists
-      // must ride the WRIST bones, the thighs must follow the HIPS.
-      name: 'walkSwing', apply: () => {
-        B('j_hipR').rotation.x = -0.72; B('j_kneeR').rotation.x = 1.15; B('j_ankleR').rotation.x = -0.22;
-        B('j_hipL').rotation.x = 0.28; B('j_kneeL').rotation.x = 0.3; B('j_ankleL').rotation.x = 0.12;
-        B('j_shoulderR').rotation.x = 0.42; B('j_elbowR').rotation.x = -0.35;
-        B('j_shoulderL').rotation.x = -0.38; B('j_elbowL').rotation.x = -0.3;
-        B('j_torso').rotation.y = -0.14; B('j_torso').rotation.x = 0.1;
-        B('j_cape1').rotation.x = 0.3; B('j_cape2').rotation.x = 0.22;
       },
     },
   ];

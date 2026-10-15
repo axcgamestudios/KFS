@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""KFS — Knight rigger. v2 (corrected facing).
+"""KFS — Knight rigger. v3 (Fase 26: the feet ride their ankles).
 The knight_statue.glb sculpt faces +Z (toes at +Z, verified by foot histograms):
   - his RIGHT side = -X: arm hanging down, hand at y~8 gripping a great sword
     that points to the ground (blade to y=-103) — extracted as a rigid prop.
@@ -13,6 +13,17 @@ Produces knight_rigged.glb:
   - two hideable rigid props: j_sword_held (child of j_wristR), j_shield_held
     (child of j_wristL),
   - verification renders (bind / walk / attack) via software rasterizer.
+
+v3 — THE FOOT FIX (Fase 26, "que no se vayan a estirar sus pies"):
+  The v1/v2 leg sigmoids were INVERTED — 1/(1+exp((y+56)/9)) peaks BELOW the
+  knee, so the THIGH barely followed the hip while the FEET rode the hip
+  pivot with ~99% weight (probe: foot verts 98.8% j_hipL; a 0.95 rad knee
+  bend sheared the sabatons up to 64 cm off their ankle). Every hip swing
+  swept the feet through giant arcs — the historic "stretched feet". Now:
+    · u_hip / u_knee correctly peak ABOVE the knee / ankle (thigh→hip,
+      shin→knee), sharper bands (÷7, ÷5) fit rigid plate;
+    · RIGID SABATON: every vert below the ankle pivot (y < -93) is 100% on
+      its ankle bone — the feet CANNOT stretch, by construction.
 Usage: python3 scripts/rig_knight.py [--check]"""
 import json, struct, sys, math
 import numpy as np
@@ -156,9 +167,9 @@ def r_armR(x, y, z):
 def r_armL(x, y, z):
     return x >= 17 and 0 <= y <= 78 and -30 <= z <= 27
 def r_legR(x, y, z):
-    return y <= -24 and -37 <= x <= -9
+    return y <= -24 and -40 <= x <= -9
 def r_legL(x, y, z):
-    return y <= -24 and -9 <= x <= 26
+    return y <= -24 and -9 <= x <= 30
 def r_torso(x, y, z):
     return 13 <= y <= 78 and -34 <= x <= 34 and -30 <= z <= 27
 
@@ -288,12 +299,26 @@ def compute_weights(pos, part_of):
         if part in ('legR', 'legL'):
             side = 'R' if part == 'legR' else 'L'
             hipn = f'j_hip{side}'; kneen = f'j_knee{side}'; anklen = f'j_ankle{side}'
-            # y-based bands: crisp knee at -56, ankle at -93 (sigmoid blends)
-            u_hip = 1.0 / (1.0 + math.exp((y + 56.0) / 9.0))      # >0.5 above the knee
-            u_knee = 1.0 / (1.0 + math.exp((y + 93.0) / 8.0))     # >0.5 above the ankle
+            # Fase 26 — CORRECTED y-bands (the v1/v2 sigmoids were inverted:
+            # they peaked BELOW the joint, so feet rode the hip pivot and the
+            # thighs barely followed the hip — the stretched-feet bug).
+            # u_hip ~1 ABOVE the knee (thigh → hip), u_knee ~1 ABOVE the
+            # ankle (shin → knee); sharper divisors (7 / 4) fit rigid plate.
+            u_hip = 1.0 / (1.0 + math.exp(-(y + 56.0) / 7.0))
+            u_knee = 1.0 / (1.0 + math.exp(-(y + 86.0) / 4.0))
             W[vi, BONE_INDEX[hipn]] = u_hip
             W[vi, BONE_INDEX[kneen]] = (1.0 - u_hip) * u_knee
             W[vi, BONE_INDEX[anklen]] = (1.0 - u_hip) * (1.0 - u_knee)
+            # RIGID SABATON: the whole foot below the ankle pivot area (the
+            # ankle joint sits at y=-93, the instep/collar reaches ~-88) NEVER
+            # leaves its ankle bone — plate feet don't bend, and the feet must
+            # never stretch, no matter how deep the knee bends. The knee↔ankle
+            # blend lives entirely INSIDE the greave tube (y -88..-78) where
+            # the shear is invisible.
+            if y < -88.0:
+                W[vi, BONE_INDEX[hipn]] = 0.0
+                W[vi, BONE_INDEX[kneen]] = 0.0
+                W[vi, BONE_INDEX[anklen]] = 1.0
             # tiny root pull at the very top of the thigh
             if y > -32:
                 W[vi, BONE_INDEX['j_root']] = 0.12 * smoothstepf(-32, -24, y)
@@ -694,7 +719,7 @@ def write_glb(path):
         nodes[bone_node['j_wristL']].setdefault('children', []).append(n)
 
     gltf = {
-        'asset': {'version': '2.0', 'generator': 'KFS rigger v2'},
+        'asset': {'version': '2.0', 'generator': 'KFS rigger v3 (rigid sabatons)'},
         'scene': 0,
         'scenes': [{'name': 'knight', 'nodes': scene_nodes}],
         'nodes': nodes,

@@ -13,7 +13,7 @@ import {
 } from './core/Graphics';
 import { QUALITY_PRESETS, type QualityLevel } from './core/Engine';
 import { Player } from './entities/Player';
-import { KnightModelGLB, ARMOUR_REST } from './entities/KnightModelGLB';
+import { KnightModelGLB } from './entities/KnightModelGLB';
 import { KitSystem } from './world/KitSystem';
 import { buildHeroSword } from './world/HeroSword';
 import { initGlbWeapons, buildGlbBow } from './world/GlbWeapons';
@@ -290,36 +290,28 @@ export class Game {
     await initGlbWeapons(world.assets);
     let playerVisual;
     try {
-      // Fase 25 — the NEW body: the user's lightweight A-pose armour model
-      // (medieval_knight_armour.glb), auto-rigged offline onto the game's
-      // 15-bone skeleton + cape chain (scripts/rig_armour.ts), so the whole
-      // procedural animation layer (run/jump/dodge/swim/ride/block/bow/
-      // attack curves + cloth cape) drives it unchanged. Falls back to the
-      // earlier rigged knights if the file is missing.
+      // Fase 26 — THE FIRST KNIGHT RIDES AGAIN: the user asked for the
+      // original knight (knight_rigged.glb, the statue rig every animation
+      // was tuned on through Fases 5-24), re-rigged with RIGID SABATONS so
+      // the feet can never stretch again, and with its built-in shield
+      // removed (hideStatueShield). Falls back to the later rigged knights
+      // only if the file is missing.
       let knightScene: THREE.Object3D;
       try {
-        knightScene = await world.assets.loadModel('knight_armour_rigged.glb');
+        knightScene = await world.assets.loadModel('knight_rigged.glb');
       } catch {
         try {
           knightScene = await world.assets.loadModel('medieval_knight_rigged.glb');
         } catch {
-          knightScene = await world.assets.loadModel('knight_rigged.glb');
+          knightScene = await world.assets.loadModel('knight_armour_rigged.glb');
         }
       }
       playerVisual = new KnightModelGLB({
         scene: knightScene,
-        // Fase 26 — re-express the A-pose armour bind into the old statue's
-        // arm hang so the tuned F23/F24 layer + grip transfer unchanged.
-        restOffsets: ARMOUR_REST,
-        // Fase 27 — this is the uploaded plate-armour kit: add the
-        // articulation collars (the plates read as separate parts when the
-        // joints bend — "tiene como partes separadas el modelo").
-        armourRig: true,
-        // Fase 27 — THE HERO'S STEEL IS THE MASTER-FORGED HERO SWORD again
-        // (user call: "mejor no uses el glb de la espada, usa el que
-        // teniamos" — the uploaded greatsword is retired; the procedural
-        // arming sword with the damascus blade, gem pommel and forge-tier
-        // runes returns). The uploaded LONGBOW stays (no complaint).
+        // Fase 26 — the hero's steel is the OLD procedural HeroSword (the
+        // user: "mejor no uses el glb de la espada, usa el que teníamos") —
+        // damascus blade, gold guard, gem pommel, forge-tier glow. The bow
+        // stays the uploaded longbow, falling back to the kit bow.
         weaponFactory: (kind) => (kind === 'sword'
           ? buildHeroSword({
               tier: this.state?.swordTier ?? 0,
@@ -329,6 +321,8 @@ export class Game {
             ? buildGlbBow() ?? kits.weapon('bow')
             : kits.weapon(kind)),
         shieldFactory: () => kits.create('shield_02'),
+        // the statue's own shield never shows on the player
+        hideStatueShield: true,
       });
       playerVisual.root.scale.setScalar(1.0);
     } catch {
