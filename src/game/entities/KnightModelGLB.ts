@@ -28,6 +28,14 @@ export interface KnightVisualDeps {
   scene: THREE.Object3D;
   weaponFactory?: (kind: Exclude<WeaponKind, 'none'>) => THREE.Object3D | null;
   shieldFactory?: () => THREE.Object3D | null;
+  /** Fase 26 — REST-POSE OFFSETS: applied on top of every animation target
+   *  for this model instance. The A-pose armour rig (knight_armour_rigged)
+   *  binds with the arms splayed 26 degrees out / forearms 40 in — the whole
+   *  F23/F24 animation layer (and the sword grip) was tuned on the old statue
+   *  rig whose bind had the arms HANGING at the sides (13 out / 6.5 in).
+   *  These offsets re-express the armour rig into that same rest silhouette,
+   *  so every pose, swing and timing transfers unchanged. */
+  restOffsets?: Partial<Record<string, Euler3>>;
   /** Villager variant: re-tints the armour into clothes + headwear variety.
    *  When set, the statue sword & shield NEVER show. */
   villager?: { palette: import('./CharacterModel').CharacterPalette; seed: number; role?: string };
@@ -52,6 +60,18 @@ const BONE_NAMES = [
   'j_hipR', 'j_kneeR', 'j_ankleR',
   'j_hipL', 'j_kneeL', 'j_ankleL',
 ] as const;
+
+/** Fase 26 — the A-pose armour rig re-expressed into the old statue's arm
+ *  hang (the rest silhouette every F23/F24 curve and the sword grip were
+ *  tuned against): upper arm 26° out/12° fwd → 13° out/1.5° fwd; forearm
+ *  40° in/6° back → ~15° in/8° fwd (shoulder: 13° inboard + 10.5° back;
+ *  elbow: 37.5° outboard + 24° forward). Mirrored Z for the left side. */
+export const ARMOUR_REST: Partial<Record<string, Euler3>> = {
+  j_shoulderR: [0.18, 0, 0.23],
+  j_elbowR: [-0.42, 0, -0.65],
+  j_shoulderL: [0.18, 0, -0.23],
+  j_elbowL: [-0.42, 0, 0.65],
+};
 
 export class KnightModelGLB implements CharacterVisual {
   readonly root = new THREE.Group();
@@ -110,10 +130,12 @@ export class KnightModelGLB implements CharacterVisual {
   private cape2st = { r: [0.09, 0], v: [0, 0] };
   private weaponFactory?: KnightVisualDeps['weaponFactory'];
   private shieldFactory?: KnightVisualDeps['shieldFactory'];
+  private restOffsets?: Partial<Record<string, Euler3>>;
 
   constructor(deps: KnightVisualDeps) {
     this.weaponFactory = deps.weaponFactory;
     this.shieldFactory = deps.shieldFactory;
+    this.restOffsets = deps.restOffsets;
     const scene = deps.scene;
     this.isVillager = !!deps.villager;
     this.isBandit = !!deps.bandit;
@@ -361,7 +383,6 @@ export class KnightModelGLB implements CharacterVisual {
           if (wristL) {
             wristL.add(w);
             w.position.set(0.02, -0.08, 0.05);
-            w.rotation.set(0, 0, 0.08);
           }
         } else {
           this.handSlot.add(w);
@@ -633,8 +654,23 @@ export class KnightModelGLB implements CharacterVisual {
         this.activeWeapon.rotation.set(1.35, -0.06, 0.04);
         break;
       case 'bow':
-        // bow held vertically in the LEFT hand — moved at aim time
-        this.activeWeapon.rotation.set(0, 0, 0);
+        // bow held vertically in the LEFT hand — moved at aim time.
+        // Fase 26 — with rest offsets active the wristL frame carries the
+        // accumulated (shoulder+elbow) rotation; counter-rotate so the bow
+        // stays vertical in character space (was canted ~24° right on the
+        // A-pose rig).
+        {
+          const shL = this.restOffsets?.j_shoulderL;
+          const elL = this.restOffsets?.j_elbowL;
+          const cx = shL && elL ? -(shL[0] + elL[0]) : 0;
+          // z: the additive cancellation undercounts at the raised aim pose
+          // (the elbow's z-offset rolls about the ARM axis once the shoulder
+          // pitches forward) — empirically topped up at full draw: a ~19°
+          // cant remains, reading as a natural archer's cant.
+          const czBase = shL && elL ? -(shL[2] + elL[2]) : 0;
+          const cz = czBase - 0.33;
+          this.activeWeapon.rotation.set(cx, 0, 0.08 + cz);
+        }
         break;
       default:
         break;
@@ -1617,18 +1653,22 @@ export class KnightModelGLB implements CharacterVisual {
       if (!b) continue;
       const tv = target[name];
       if (!tv) continue;
+      // Fase 26 — rest-pose offsets ride on top of every target (the A-pose
+      // rig renders as the old statue's hang at animation-identity).
+      const off = this.restOffsets?.[name];
+      const t0: Euler3 = off ? [tv[0] + off[0], tv[1] + off[1], tv[2] + off[2]] : tv;
       if (direct) {
-        b.rotation.set(tv[0], tv[1], tv[2]);
+        b.rotation.set(t0[0], t0[1], t0[2]);
       } else {
         const rate = KnightModelGLB.DAMP_RATE[name] ?? 14;
         const c = this.cur[name] ?? [0, 0, 0] as Euler3;
-        c[0] = damp(c[0], tv[0], rate, dt);
-        c[1] = damp(c[1], tv[1], rate, dt);
-        c[2] = damp(c[2], tv[2], rate, dt);
+        c[0] = damp(c[0], t0[0], rate, dt);
+        c[1] = damp(c[1], t0[1], rate, dt);
+        c[2] = damp(c[2], t0[2], rate, dt);
         this.cur[name] = c;
         b.rotation.set(c[0], c[1], c[2]);
       }
-      if (direct) this.cur[name] = [tv[0], tv[1], tv[2]];
+      if (direct) this.cur[name] = [t0[0], t0[1], t0[2]];
     }
   }
 

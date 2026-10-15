@@ -1,0 +1,453 @@
+{
+ "phase": "playing",
+ "f25logs": [
+  "[F25] uploaded sword model: ready",
+  "[F25] uploaded bow model: ready"
+ ],
+ "sword": {
+  "equippedWeapon": "espada_acero",
+  "hasItem": true,
+  "wristChildren": [
+   "Group"
+  ],
+  "present": true,
+  "parent": "",
+  "visible": true,
+  "worldPos": [
+   20.6,
+   2.202,
+   244.311
+  ],
+  "scale": [
+   0.62,
+   0.62,
+   0.62
+  ],
+  "meshCount": 1,
+  "matVisible": [
+   true
+  ],
+  "statueSword": null
+ },
+ "arms": {
+  "shoulderR": [
+   23.73785012461314,
+   8.91276761836666,
+   161.9671439001702
+  ],
+  "elbowR": [
+   23.550650108112528,
+   8.43694895942549,
+   162.00312969772418
+  ],
+  "wristR": [
+   23.595644507516543,
+   8.03677628281061,
+   162.24548458814968
+  ],
+  "upperArmOutDeg": 21.5,
+  "forearmInDeg": 6.4,
+  "upperArmOutDegL": 15.4,
+  "forearmInDegL": 11.5,
+  "wristR_world": [
+   23.595644507516543,
+   8.03677628281061,
+   162.24548458814968
+  ]
+ },
+ "foot": {
+  "mesh": "knight_body",
+  "footVerts": 435,
+  "series": [
+   {
+    "t": 0,
+    "speed": 0,
+    "pos": [
+     24,
+     7.28,
+     158
+    ],
+    "toeToAnkleR": 0.207,
+    "toeToAnkleL": null,
+    "footSpanZ": 0.305,
+    "footSpanX": 0.382,
+    "toeWorldZ": 162.181
+   },
+   {
+    "t": 1,
+    "speed": 0,
+    "pos": [
+     24,
+     7.28,
+     158
+    ],
+    "toeToAnkleR": 0.207,
+    "toeToAnkleL": null,
+    "footSpanZ": 0.305,
+    "footSpanX": 0.382,
+    "toeWorldZ": 162.181
+   },
+   {
+    "t": 2,
+    "speed": 0,
+    "pos": [
+     24,
+     7.28,
+     158
+    ],
+    "toeToAnkleR": 0.207,
+    "toeToAnkleL": null,
+    "footSpanZ": 0.305,
+    "footSpanX": 0.382,
+    "toeWorldZ": 162.181
+   },
+   {
+    "t": 3,
+    "speed": 0,
+    "pos": [
+     24,
+     7.28,
+     158
+    ],
+    "toeToAnkleR": 0.207,
+    "toeToAnkleL": null,
+    "footSpanZ": 0.305,
+    "footSpanX": 0.382,
+    "toeWorldZ": 162.181
+   },
+   {
+    "t": 4,
+    "speed": 0,
+    "pos": [
+     24,
+     7.28,
+     158
+    ],
+    "toeToAnkleR": 0.207,
+    "toeToAnkleL": null,
+    "footSpanZ": 0.305,
+    "footSpanX": 0.382,
+    "toeWorldZ": 162.181
+   },
+   {
+    "t": 5,
+    "speed": 0,
+    "pos": [
+     24,
+     7.28,
+     158
+    ],
+    "toeToAnkleR": 0.207,
+    "toeToAnkleL": null,
+    "footSpanZ": 0.305,
+    "footSpanX": 0.382,
+    "toeWorldZ": 162.181
+   },
+   {
+    "t": 6,
+    "speed": 0,
+    "pos": [
+     24,
+     7.28,
+     158
+    ],
+    "toeToAnkleR": 0.207,
+    "toeToAnkleL": null,
+    "footSpanZ": 0.305,
+    "footSpanX": 0.382,
+    "toeWorldZ": 162.181
+   },
+   {
+    "t": 7,
+    "speed": 0,
+    "pos": [
+     24,
+     7.28,
+     158
+    ],
+    "toeToAnkleR": 0.207,
+    "toeToAnkleL": null,
+    "footSpanZ": 0.305,
+    "footSpanX": 0.382,
+    "toeWorldZ": 162.181
+   },
+   {
+    "t": 8,
+    "speed": 0,
+    "pos": [
+     24,
+     7.28,
+     158
+    ],
+    "toeToAnkleR": 0.207,
+    "toeToAnkleL": null,
+    "footSpanZ": 0.305,
+    "footSpanX": 0.382,
+    "toeWorldZ": 162.181
+   },
+   {
+    "t": 9,
+    "speed": 0,
+    "pos": [
+     24,
+     7.28,
+     158
+    ],
+    "toeToAnkleR": 0.207,
+    "toeToAnkleL": null,
+    "footSpanZ": 0.305,
+    "footSpanX": 0.382,
+    "toeWorldZ": 162.181
+   },
+   {
+    "t": 10,
+    "speed": 0,
+    "pos": [
+     24,
+     7.28,
+     158
+    ],
+    "toeToAnkleR": 0.207,
+    "toeToAnkleL": null,
+    "footSpanZ": 0.305,
+    "footSpanX": 0.382,
+    "toeWorldZ": 162.181
+   },
+   {
+    "t": 11,
+    "speed": 0,
+    "pos": [
+     24,
+     7.28,
+     158
+    ],
+    "toeToAnkleR": 0.207,
+    "toeToAnkleL": null,
+    "footSpanZ": 0.305,
+    "footSpanX": 0.382,
+    "toeWorldZ": 162.181
+   },
+   {
+    "t": 12,
+    "speed": 0,
+    "pos": [
+     24,
+     7.28,
+     158
+    ],
+    "toeToAnkleR": 0.207,
+    "toeToAnkleL": null,
+    "footSpanZ": 0.305,
+    "footSpanX": 0.382,
+    "toeWorldZ": 162.181
+   },
+   {
+    "t": 13,
+    "speed": 0,
+    "pos": [
+     24,
+     7.28,
+     158
+    ],
+    "toeToAnkleR": 0.207,
+    "toeToAnkleL": null,
+    "footSpanZ": 0.305,
+    "footSpanX": 0.382,
+    "toeWorldZ": 162.181
+   },
+   {
+    "t": 14,
+    "speed": 0,
+    "pos": [
+     24,
+     7.28,
+     158
+    ],
+    "toeToAnkleR": 0.207,
+    "toeToAnkleL": null,
+    "footSpanZ": 0.305,
+    "footSpanX": 0.382,
+    "toeWorldZ": 162.181
+   },
+   {
+    "t": 15,
+    "speed": 0,
+    "pos": [
+     24,
+     7.28,
+     158
+    ],
+    "toeToAnkleR": 0.207,
+    "toeToAnkleL": null,
+    "footSpanZ": 0.305,
+    "footSpanX": 0.382,
+    "toeWorldZ": 162.181
+   },
+   {
+    "t": 16,
+    "speed": 0,
+    "pos": [
+     24,
+     7.28,
+     158
+    ],
+    "toeToAnkleR": 0.207,
+    "toeToAnkleL": null,
+    "footSpanZ": 0.305,
+    "footSpanX": 0.382,
+    "toeWorldZ": 162.181
+   },
+   {
+    "t": 17,
+    "speed": 0,
+    "pos": [
+     24,
+     7.28,
+     158
+    ],
+    "toeToAnkleR": 0.207,
+    "toeToAnkleL": null,
+    "footSpanZ": 0.305,
+    "footSpanX": 0.382,
+    "toeWorldZ": 162.181
+   },
+   {
+    "t": 18,
+    "speed": 0,
+    "pos": [
+     24,
+     7.28,
+     158
+    ],
+    "toeToAnkleR": 0.207,
+    "toeToAnkleL": null,
+    "footSpanZ": 0.305,
+    "footSpanX": 0.382,
+    "toeWorldZ": 162.181
+   },
+   {
+    "t": 19,
+    "speed": 0,
+    "pos": [
+     24,
+     7.28,
+     158
+    ],
+    "toeToAnkleR": 0.207,
+    "toeToAnkleL": null,
+    "footSpanZ": 0.305,
+    "footSpanX": 0.382,
+    "toeWorldZ": 162.181
+   },
+   {
+    "t": 20,
+    "speed": 0,
+    "pos": [
+     24,
+     7.28,
+     158
+    ],
+    "toeToAnkleR": 0.207,
+    "toeToAnkleL": null,
+    "footSpanZ": 0.305,
+    "footSpanX": 0.382,
+    "toeWorldZ": 162.181
+   },
+   {
+    "t": 21,
+    "speed": 0,
+    "pos": [
+     24,
+     7.28,
+     158
+    ],
+    "toeToAnkleR": 0.207,
+    "toeToAnkleL": null,
+    "footSpanZ": 0.305,
+    "footSpanX": 0.382,
+    "toeWorldZ": 162.181
+   },
+   {
+    "t": 22,
+    "speed": 0,
+    "pos": [
+     24,
+     7.28,
+     158
+    ],
+    "toeToAnkleR": 0.207,
+    "toeToAnkleL": null,
+    "footSpanZ": 0.305,
+    "footSpanX": 0.382,
+    "toeWorldZ": 162.181
+   },
+   {
+    "t": 23,
+    "speed": 0,
+    "pos": [
+     24,
+     7.28,
+     158
+    ],
+    "toeToAnkleR": 0.207,
+    "toeToAnkleL": null,
+    "footSpanZ": 0.305,
+    "footSpanX": 0.382,
+    "toeWorldZ": 162.181
+   },
+   {
+    "t": 24,
+    "speed": 0,
+    "pos": [
+     24,
+     7.28,
+     158
+    ],
+    "toeToAnkleR": 0.207,
+    "toeToAnkleL": null,
+    "footSpanZ": 0.305,
+    "footSpanX": 0.382,
+    "toeWorldZ": 162.181
+   },
+   {
+    "t": 25,
+    "speed": 0,
+    "pos": [
+     24,
+     7.28,
+     158
+    ],
+    "toeToAnkleR": 0.207,
+    "toeToAnkleL": null,
+    "footSpanZ": 0.305,
+    "footSpanX": 0.382,
+    "toeWorldZ": 162.181
+   }
+  ],
+  "spanZmin": 0.305,
+  "spanZmax": 0.305,
+  "toeAnkleRmin": 0.207,
+  "toeAnkleRmax": 0.207
+ },
+ "bow": {
+  "localRot": [
+   0.24,
+   0,
+   -0.67
+  ],
+  "limbAxisChar": {
+   "x": -0.375,
+   "y": 0.864,
+   "z": -0.337
+  },
+  "stringSide": [
+   -0.02783322207632227,
+   -0.0035813162439874164,
+   0.021742491182260577
+  ],
+  "stringSideChar": {
+   "x": -24.028,
+   "z": -161.978
+  }
+ }
+}

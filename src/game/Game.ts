@@ -13,7 +13,7 @@ import {
 } from './core/Graphics';
 import { QUALITY_PRESETS, type QualityLevel } from './core/Engine';
 import { Player } from './entities/Player';
-import { KnightModelGLB } from './entities/KnightModelGLB';
+import { KnightModelGLB, ARMOUR_REST } from './entities/KnightModelGLB';
 import { KitSystem } from './world/KitSystem';
 import { buildHeroSword } from './world/HeroSword';
 import { initGlbWeapons, buildGlbSword, buildGlbBow } from './world/GlbWeapons';
@@ -308,6 +308,9 @@ export class Game {
       }
       playerVisual = new KnightModelGLB({
         scene: knightScene,
+        // Fase 26 — re-express the A-pose armour bind into the old statue's
+        // arm hang so the tuned F23/F24 layer + grip transfer unchanged.
+        restOffsets: ARMOUR_REST,
         // Fase 25 — the hero's steel is the user's uploaded greatsword
         // (medieval_sword.glb, grip-normalized + forge-tier glow); the bow is
         // the uploaded longbow. Everything else keeps its kit model, and a
