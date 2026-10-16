@@ -103,6 +103,32 @@ export const DRAGON_DEFS: DragonDef[] = [
     lootGold: 400,
   },
   {
+    // Fase 27 — DEVASTACIÓN CELESTIAL: the Elder Dragon world boss. Never
+    // spawns on its own: the LegendaryEvents system wakes it at the summits
+    // (or the ancient altar answers a sacrifice) and announces it.
+    id: 'elderdragon', name: 'Elder Dragon', title: 'The Awakened Ancestor',
+    boss: true, wyvern: false, canFly: true,
+    useGlbModel: true,
+    spawnFlag: 'elderdragon_awake',
+    colors: { body: 0x4a2d20, belly: 0xc9973f, membrane: 0x8a4a2a, eye: 0xffd050, horn: 0xe8d9b0 },
+    scale: 2.1, maxHp: 2600,
+    home: { x: 20, z: -300 }, territory: 260, aggroRange: 120,
+    attacks: ['bite', 'claw', 'tail', 'fire'],
+    meleeRange: 11.5, fireRange: 48, fireDps: 40, meleeDamage: 34,
+    speedGround: 4.6, speedFly: 12,
+    xp: 1500, deathFlag: 'elderdragon_dead', introFlag: 'elderdragon_seen',
+    phase2At: 0.66, phase3At: 0.33,
+    drops: [
+      { id: 'escama_ancestral', count: 4 },
+      { id: 'placa_sangre', count: 2, chance: 0.5 },
+      { id: 'espada_garra', count: 1, chance: 0.05 },
+      { id: 'corazon_dragon_anciano', count: 1, chance: 0.05 },
+      { id: 'corona_astas', count: 1, chance: 0.01 },
+      { id: 'esencia_solar', count: 1, chance: 0.05 },
+    ],
+    lootGold: 800,
+  },
+  {
     id: 'drake_stones', name: 'Drakeling of the Vigils', boss: false,
     wyvern: false, canFly: false,
     useGlbModel: true,
@@ -372,6 +398,35 @@ export class DragonManager {
     if (!def) return;
     this.hooks.setFlag('kraivenn_awake');
     this.spawnDeferred(def, false);
+  }
+
+  /**
+   * Fase 27 — DEVASTACIÓN CELESTIAL: the LegendaryEvents system wakes the
+   * ELDER DRAGON at the player's summits. Three phases (earth / sky /
+   * apocalypse), full CC immunity (boss poise), and — per the studio — she
+   * DESCENDS to fight so a sword hero can reach her (elderBoss ground
+   * commitment on the Dragon). Returns her, or null if she is already up.
+   */
+  awakenElderDragon(x: number, z: number): Dragon | null {
+    if (this.dragons.some((d) => d.def.id === 'elderdragon' && d.alive)) return null;
+    const def = DRAGON_DEFS.find((d) => d.id === 'elderdragon');
+    if (!def) return null;
+    this.hooks.setFlag('elderdragon_awake');
+    const summoned: DragonDef = {
+      ...def,
+      home: { x, z },
+      territory: 320,
+    };
+    const dragon = this.spawnDeferred(summoned, false);
+    if (dragon) {
+      dragon.elderBoss = true;
+      dragon.aggro = false;
+      // She arrives in the sky, announces, then dives at the hero
+      dragon.flying = true;
+      dragon.pos.y = Math.max(this.terrain.height(x, z), 0) + 34;
+      setTimeout(() => { if (dragon.alive) dragon.aggro = true; }, 2600);
+    }
+    return dragon;
   }
 
   /**

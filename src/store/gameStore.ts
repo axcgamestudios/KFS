@@ -122,6 +122,9 @@ interface GameStore {
   dialogue: DialogueState | null;
   sailing: SailingHud | null;
   boss: BossHud | null;
+  /** Fase 27 - LEGENDARY EVENTS: the world-wide announcement banner
+   *  ("El Dragon Legendario ha despertado") - big center-screen text. */
+  worldBanner: { title: string; sub?: string; id: number } | null;
   weaponSlots: WeaponSlotHud[];
   bowDraw: number;
   /** Fase 18 — archery state (null while no bow is the active weapon). */
@@ -190,6 +193,8 @@ interface GameStore {
   closeOverlay: () => void;
   setHud: (h: Partial<Pick<GameStore, 'health' | 'maxHealth' | 'stamina' | 'maxStamina' | 'clock' | 'dayCount' | 'prompt' | 'questTracker' | 'fps' | 'sailing' | 'atHelm' | 'submerged' | 'negotiation'>>) => void;
   setBoss: (b: BossHud | null) => void;
+  setWorldBanner: (title: string, sub?: string) => void;
+  clearWorldBanner: () => void;
   setWeaponSlots: (s: WeaponSlotHud[]) => void;
   setBowDraw: (v: number) => void;
   setBowHud: (s: BowHud | null) => void;
@@ -241,6 +246,7 @@ export const useGameStore = create<GameStore>((set) => ({
   dialogue: null,
   sailing: null,
   boss: null,
+  worldBanner: null,
   mount: null,
   submerged: false,
   shop: null,
@@ -281,6 +287,9 @@ export const useGameStore = create<GameStore>((set) => ({
   closeOverlay: () => set((s) => ({ overlay: null, previousOverlay: s.overlay })),
   setHud: (h) => set(h as Partial<GameStore>),
   setBoss: (b) => set({ boss: b }),
+  setWorldBanner: (title: string, sub?: string) =>
+    set({ worldBanner: { title, sub, id: Date.now() } }),
+  clearWorldBanner: () => set({ worldBanner: null }),
   setMount: (m) => set({ mount: m }),
   setEndingActive: (v) => set({ endingActive: v }),
   setEndingCard: (c) => set({ endingCard: c }),

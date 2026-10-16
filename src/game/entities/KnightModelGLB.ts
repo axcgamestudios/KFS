@@ -825,6 +825,11 @@ export class KnightModelGLB implements CharacterVisual {
       for (const m of this.flashMats) m.emissive.setRGB(e, e * 0.12, e * 0.08);
     }
     if (this.hitT > 0) this.hitT = Math.max(0, this.hitT - p.dt * 2.6);
+    // Fase 27 - the attack lunge relaxes back to neutral once the
+    // swing is over (the step INTO the cut lives only inside swings)
+    if ((p.attackT ?? 0) <= 0 && Math.abs(this.inner.position.z) > 1e-4) {
+      this.inner.position.z = damp(this.inner.position.z, 0, 13, Math.max(1e-4, p.dt));
+    }
     // the statue shield (fallback only) tucks away while aiming a bow —
     // Fase 26: on the player it never shows at all (the user removed it)
     if (this.shieldProp && !this.isVillager) {
@@ -883,21 +888,35 @@ export class KnightModelGLB implements CharacterVisual {
         : THREE.MathUtils.smoothstep(runK, 0.68, 0.92);
       const armed = this.weaponKind !== 'none' && this.weaponKind !== 'bow';
 
-      const amp = 0.52 + runK * 0.5 + charge * 0.12;
+      const amp = 0.46 + runK * 0.56 + charge * 0.12;
       const legPhL = Math.sin(ph);
       const legPhR = Math.sin(ph + Math.PI);
       // Fase 12 — pelvis rocks over the stance leg (secondary motion: the
       // walk stops reading as two stiff pistons and starts swinging from
       // the hips like a real gait).
       const hipRoll = Math.sin(ph) * (0.035 + runK * 0.05);
+      // Fase 27 — PELVIC YAW: the swing leg's hip rotates forward with the
+      // stride. The pelvis twisting on its vertical axis is the third gait
+      // rotation the rig was still missing — the last "plank" tell.
+      const hipYawK = 0.05 + runK * 0.09;
       // right leg (x<0) — j_hipR: -X = forward
-      t.j_hipR = [-legPhR * amp, 0, -hipRoll];
-      t.j_kneeR = [Math.max(0, -Math.sin(ph + Math.PI - 0.7)) * (0.55 + runK * 0.75 + charge * 0.22), 0, 0];
-      t.j_ankleR = [-0.1 + legPhR * 0.18, 0, Math.max(0, legPhR) * 0.08];
+      t.j_hipR = [-legPhR * amp, legPhR * hipYawK, -hipRoll];
+      // Fase 27 — KNEE DOUBLE-FLEXION: base swing plus a second, smaller
+      // flexion at weight acceptance. Real knees bend twice per stride; the
+      // single sine read as a piston.
+      const kneeSwingR = Math.max(0, -Math.sin(ph + Math.PI - 0.7)) * (0.5 + runK * 0.8 + charge * 0.22);
+      const kneeLoadR = Math.max(0, Math.sin(2 * (ph + Math.PI) + 1.15)) * (0.1 + runK * 0.24);
+      t.j_kneeR = [kneeSwingR + kneeLoadR, 0, 0];
+      // Fase 27 — ANKLE ROLL-THROUGH: heel-strike dorsiflexion flows into
+      // toe-off plantarflexion — the foot ROLLS over the ground instead of
+      // sliding flat.
+      t.j_ankleR = [-0.14 + Math.sin(ph + Math.PI - 0.5) * 0.2, 0, Math.max(0, legPhR) * 0.08];
       // left leg
-      t.j_hipL = [-legPhL * amp, 0, hipRoll];
-      t.j_kneeL = [Math.max(0, -Math.sin(ph - 0.7)) * (0.55 + runK * 0.75 + charge * 0.22), 0, 0];
-      t.j_ankleL = [-0.1 + legPhL * 0.18, 0, Math.max(0, legPhL) * 0.08];
+      t.j_hipL = [-legPhL * amp, legPhL * hipYawK, hipRoll];
+      const kneeSwingL = Math.max(0, -Math.sin(ph - 0.7)) * (0.5 + runK * 0.8 + charge * 0.22);
+      const kneeLoadL = Math.max(0, Math.sin(2 * ph + 1.15)) * (0.1 + runK * 0.24);
+      t.j_kneeL = [kneeSwingL + kneeLoadL, 0, 0];
+      t.j_ankleL = [-0.14 + Math.sin(ph - 0.5) * 0.2, 0, Math.max(0, legPhL) * 0.08];
 
       // ---- ARMS ----
       // Fase 24 — the armed arm swings LIKE AN ARM: ±0.2-0.34 rad with the
@@ -1242,7 +1261,10 @@ export class KnightModelGLB implements CharacterVisual {
         t.j_wristR = [0.55 * u, 0, 0.05 * u];
         t.j_torso = [0.1, L(0, -0.5, u), 0];
         t.j_head = [L(0, -0.3, u), 0, 0];
+        t.j_shoulderL = [L(-0.35, -0.18, u), 0, L(0.25, 0.62, u)];
+        t.j_elbowL = [L(-0.9, -0.55, u), 0, 0];
         this.inner.position.y = -0.09 * u;
+        this.inner.position.z = -0.05 * u;
       } else if (k < 0.68) {
         const u = strikeEase((k - 0.42) / 0.26);
         t.j_shoulderR = [L(-2.35, 1.08, u), 0, L(-0.55, -0.45, u)];
@@ -1255,6 +1277,9 @@ export class KnightModelGLB implements CharacterVisual {
         t.j_head = [L(-0.3, 0.34, u), 0, 0];
         t.j_kneeR = [0.5 * u, 0, 0];
         t.j_kneeL = [0.55 * u, 0, 0];
+        t.j_shoulderL = [L(-0.18, -0.5, u), 0, L(0.62, -0.15, u)];
+        t.j_elbowL = [L(-0.55, -1.0, u), 0, 0];
+        this.inner.position.z = 0.18 * Math.sin(Math.min(1, u) * Math.PI * 0.9);
         this.inner.position.y = -0.07 * (1 - u) - 0.05 * u;
       } else {
         const u = (k - 0.68) / 0.32;
@@ -1265,10 +1290,11 @@ export class KnightModelGLB implements CharacterVisual {
         t.j_head = [L(0.3, 0, u), 0, 0];
         t.j_kneeR = [0.5 * (1 - u), 0, 0];
         t.j_kneeL = [0.55 * (1 - u), 0, 0];
+        t.j_shoulderL = [L(-0.5, -0.35, u), 0, L(-0.15, 0.25, u)];
+        t.j_elbowL = [L(-1.0, -0.9, u), 0, 0];
+        this.inner.position.z = 0.07 * (1 - u);
         this.inner.position.y = -0.05 * (1 - u);
       }
-      t.j_shoulderL = [-0.35, 0, 0.25];
-      t.j_elbowL = [-0.9, 0, 0];
     } else if (kind === 'thrust') {
       if (k < 0.35) {
         const u = wuEase(k / 0.35);
@@ -1279,6 +1305,7 @@ export class KnightModelGLB implements CharacterVisual {
         t.j_torso = [0.08, L(0, 0.5, u), 0];
         t.j_hipR = [L(0, 0.15, u), 0, 0];
         this.inner.position.y = -0.03 * u;
+        this.inner.position.z = -0.04 * u;
       } else if (k < 0.62) {
         const u = strikeEase((k - 0.35) / 0.27);
         t.j_shoulderR = [L(-0.58, -1.75, u), 0, L(-0.18, -0.05, u)];
@@ -1293,6 +1320,9 @@ export class KnightModelGLB implements CharacterVisual {
         t.j_torso = [0.16, L(0.4, -0.32, u), 0];
         t.j_hipR = [L(0.15, -0.4, u), 0, 0];
         t.j_kneeR = [0.25, 0, 0];
+        t.j_shoulderL = [L(-0.3, -0.62, u), 0, L(0.2, 0.45, u)];
+        t.j_elbowL = [L(-0.85, -0.4, u), 0, 0];
+        this.inner.position.z = 0.26 * Math.sin(Math.min(1, u) * Math.PI * 0.85);
       } else {
         const u = (k - 0.62) / 0.38;
         t.j_shoulderR = [L(-1.55, 0, u), 0, -0.05 * (1 - u)];
@@ -1301,9 +1331,10 @@ export class KnightModelGLB implements CharacterVisual {
         this.attackWeaponPitch = 0;
         t.j_torso = [L(0.16, 0.04, u), L(-0.32, 0, u), 0];
         t.j_hipR = [L(-0.4, 0, u), 0, 0];
+        t.j_shoulderL = [L(-0.62, -0.3, u), 0, L(0.45, 0.2, u)];
+        t.j_elbowL = [L(-0.4, -0.85, u), 0, 0];
+        this.inner.position.z = 0.08 * (1 - u);
       }
-      t.j_shoulderL = [-0.3, 0, 0.2];
-      t.j_elbowL = [-0.85, 0, 0];
     } else if (kind === 'light2') {
       // backhand: windup right, sweep across left
       if (k < 0.35) {
@@ -1312,6 +1343,7 @@ export class KnightModelGLB implements CharacterVisual {
         t.j_torso = [0.08, L(0, 0.5, u), 0];
         t.j_elbowR = [-0.3, 0, 0];
         t.j_wristR = [0.15 * u, 0, 0];
+        this.inner.position.z = -0.03 * u;
       } else if (k < 0.75) {
         const u = strikeEase((k - 0.35) / 0.4);
         t.j_shoulderR = [L(-2.05, 0.62, u), 0, L(0.68, -1.05, u)];
@@ -1320,16 +1352,18 @@ export class KnightModelGLB implements CharacterVisual {
         t.j_hipR = [-0.2 * u, 0, 0];
         // Fase 24 — the backhand whip: the blade snaps across the body
         t.j_wristR = [L(0.15, -0.3, u), 0, 0];
+        t.j_shoulderL = [L(-0.35, -0.55, u), 0, L(0.22, -0.05, u)];
+        t.j_elbowL = [L(-0.9, -0.7, u), 0, 0];
+        this.inner.position.z = 0.12 * Math.sin(Math.min(1, u) * Math.PI * 0.9);
       } else {
         const u = (k - 0.75) / 0.25;
         t.j_shoulderR = [L(0.5, 0, u), 0, L(-0.9, -0.06, u)];
         t.j_torso = [L(0.12, 0.03, u), L(-0.5, 0, u), 0];
         t.j_head = [0, L(-0.2, 0, u), 0];
         t.j_wristR = [L(-0.2, -0.08, u), 0, 0];
+        this.inner.position.z = 0.05 * (1 - u);
       }
       t.j_elbowR = [-0.25, 0, 0];
-      t.j_shoulderL = [-0.35, 0, 0.22];
-      t.j_elbowL = [-0.9, 0, 0];
     } else if (kind === 'bowRelease') {
       // string snap: draw hand flies forward off the cheek
       const u = Math.min(1, k * 2.2);
@@ -1349,7 +1383,10 @@ export class KnightModelGLB implements CharacterVisual {
         t.j_wristR = [0.5 * u, 0, 0.06 * u];
         t.j_torso = [0.08, L(0, -0.5, u), 0];
         t.j_elbowR = [-0.5, 0, 0];
+        t.j_shoulderL = [L(-0.3, -0.15, u), 0, L(0.2, 0.55, u)];
+        t.j_elbowL = [L(-0.85, -0.6, u), 0, 0];
         this.inner.position.y = -0.05 * u;
+        this.inner.position.z = -0.04 * u;
       } else if (k < 0.74) {
         const u = strikeEase((k - 0.34) / 0.4);
         t.j_shoulderR = [L(-2.45, 0.68, u), 0, L(-0.95, 0.62, u)];
@@ -1361,6 +1398,9 @@ export class KnightModelGLB implements CharacterVisual {
         t.j_head = [0, L(0, 0.18, u), 0];
         t.j_hipR = [-0.22 * u, 0, 0];
         t.j_kneeR = [0.3 * u, 0, 0];
+        t.j_shoulderL = [L(-0.15, -0.48, u), 0, L(0.55, -0.12, u)];
+        t.j_elbowL = [L(-0.6, -1.0, u), 0, 0];
+        this.inner.position.z = 0.15 * Math.sin(Math.min(1, u) * Math.PI * 0.9);
         this.inner.position.y = -0.03 * (1 - u);
       } else {
         const u = (k - 0.74) / 0.26;
@@ -1370,10 +1410,11 @@ export class KnightModelGLB implements CharacterVisual {
         t.j_head = [0, L(0.15, 0, u), 0];
         t.j_hipR = [-0.22 * (1 - u), 0, 0];
         t.j_kneeR = [0.3 * (1 - u), 0, 0];
+        t.j_shoulderL = [L(-0.48, -0.3, u), 0, L(-0.12, 0.2, u)];
+        t.j_elbowL = [L(-1.0, -0.85, u), 0, 0];
+        this.inner.position.z = 0.06 * (1 - u);
       }
       t.j_elbowR = [-0.25, 0, 0];
-      t.j_shoulderL = [-0.3, 0, 0.2];
-      t.j_elbowL = [-0.85, 0, 0];
     }
     // free leg counter for balance on most attacks
     if (kind === 'light1' || kind === 'light2') {

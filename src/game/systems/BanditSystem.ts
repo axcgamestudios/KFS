@@ -95,6 +95,19 @@ const ROLE_DEFS: Record<BanditRole, RoleDef> = {
 
 export interface LegendDrop { id: string; count: number; chance?: number }
 
+/** Fase 27 - LEGENDARY EVENTS: public read handle on a duelling legend
+ *  (the LegendaryEvents system polls hp/pos/speed without touching the
+   private Bandit internals). */
+export interface DuelHandle {
+  hp: number;
+  maxHp: number;
+  dead: boolean;
+  pos: THREE.Vector3;
+  chaseSpeed: number;
+  damage: number;
+  aggro: boolean;
+}
+
 export interface LegendDef {
   id: string;
   name: string;
@@ -1097,6 +1110,31 @@ export class BanditSystem {
   aliveCount(): number {
     return this.bandits.filter((b) => !b.dead).length;
   }
+
+  /**
+   * Fase 27 - DUELO LEGENDARIO: the LegendaryEvents system spawns a named
+   * duellist at a DYNAMIC spot (the passes, the storm plains). Same
+   * machinery as the static legends: boss bar, poise, no respawn, loot.
+   */
+  spawnLegendDuel(def: LegendDef, x: number, z: number): DuelHandle | null {
+    const camp: CampDef = { id: `duel_${def.id}_${this.duelSeq}`, name: def.name, x, z, radius: 10 };
+    const b = new Bandit(9700 + this.duelSeq++, camp, true, 4242 + x * 3 + z, def.role);
+    b.legend = def;
+    b.maxHp = def.hp;
+    b.hp = def.hp;
+    b.aggroRadius = def.aggroRadius;
+    b.damage = def.damage;
+    b.chaseSpeed = def.chaseSpeed;
+    b.poise = true;
+    b.pos.set(x, this.terrain.height(x, z), z);
+    b.group.position.copy(b.pos);
+    this.scene.add(b.group);
+    this.bandits.push(b);
+    this.attachVisual(b, true, def);
+    b.forceAggro();
+    return b as unknown as DuelHandle;
+  }
+  private duelSeq = 0;
 
   /**
    * Fase 12 — AMBUSH: a surprise squad of red knights materialises around a

@@ -367,7 +367,7 @@ export default function MainMenu() {
       {subMenu === null && (
         <div className="absolute bottom-6 right-8 z-10 flex items-center gap-4">
           <span className="text-[0.6rem] font-semibold tracking-[0.28em] text-[#a9b4c2] opacity-60">
-            v0.26.0 — THE FIRST KNIGHT RETURNS
+            v0.27.0 — THE THREE LEGENDS
           </span>
           <button
             className="flex items-center gap-2 text-[0.68rem] font-semibold tracking-[0.34em] text-[#a9b4c2] opacity-80 transition hover:text-[#e2b95c] hover:opacity-100"

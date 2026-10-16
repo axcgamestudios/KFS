@@ -347,6 +347,31 @@ export class NavalSystem {
     return brain;
   }
 
+  /** Fase 27 - LEGENDARY EVENTS: the Pirate King's war galleon (and his
+   *  elite escorts) join the hunt with real stats: huge hull, fast guns. */
+  spawnLegendaryGalleon(x: number, z: number, name: string, hullHp: number, cannonCd: number): EnemyBrain {
+    const ship = new Ship({
+      id: `legend_${Date.now() % 100000}_${Math.floor(Math.random() * 999)}`, name, kind: 'pirate', isPlayer: false,
+      x, z, heading: Math.PI, hullHp, cannonCd,
+    });
+    this.scene.add(ship.group);
+    if (this.colliders) ship.bindColliderRegistry(this.colliders);
+    this.dressShip(ship);
+    const brain: EnemyBrain = {
+      ship,
+      mode: 'chase',
+      waypoints: [],
+      wpIndex: 0,
+      fireCd: 2,
+      aggroNotified: true,
+      quest: false,
+      respawnAt: null,
+      respawnTimer: 0,
+    };
+    this.enemies.push(brain);
+    return brain;
+  }
+
   /** Fase 15 — the ambush ends without loot: the Siren slips away quietly. */
   fleeAmbushPirate(brain: EnemyBrain): void {
     const i = this.enemies.indexOf(brain);

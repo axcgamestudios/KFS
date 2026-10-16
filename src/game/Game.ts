@@ -26,6 +26,7 @@ import type { Ship } from './naval/Ship';
 import { VfxSystem } from './systems/VfxSystem';
 import { SeaBeastSystem } from './systems/SeaBeastSystem';
 import { PirateAmbushSystem } from './systems/PirateAmbushSystem';
+import { LegendaryEvents } from './systems/LegendaryEvents';
 import { CombatSystem, WEAPONS, SWORD_TIER_NAMES, SWORD_PRIORITY, swordElementOf } from './systems/CombatSystem';
 import { DragonManager } from './systems/DragonManager';
 import { BanditSystem } from './systems/BanditSystem';
@@ -134,6 +135,8 @@ export class Game {
   private seaBeasts?: SeaBeastSystem;
   /** Fase 15 — random pirate ambushes on the high seas + toll negotiation. */
   private pirateAmbush?: PirateAmbushSystem;
+  /** Fase 27 — THE THREE LEGENDARY EVENTS (Pirate King / Storm Ronin / Elder Dragon). */
+  private legendary?: LegendaryEvents;
   /** Fase 9 — in-game narrative cinematics (dragon victories, chapters). */
   private cinematics = new CinematicSystem();
   /** Fase 9 — chapter cinematic waiting for the closing dialogue to end. */
@@ -549,6 +552,30 @@ export class Game {
         sound: (kind) => this.audio.playEvent(kind),
         music: (intensity) => { this.musicIntensityTarget = intensity; },
         negotiation: (n) => useGameStore.getState().setHud({ negotiation: n }),
+      },
+    );
+    // --- Fase 27 — THE THREE LEGENDARY EVENTS: the Pirate King's naval
+    //     ambush, the Storm Ronin's duel and the Elder Dragon's awakening ---
+    this.legendary = new LegendaryEvents(
+      this.engine.scene, world.terrainHeight, this.naval, this.dragons!, this.bandits!,
+      this.state, this.vfx!,
+      {
+        notify: (kind, title, body) => useGameStore.getState().notify(kind, title, body),
+        sound: (kind) => this.audio.playEvent(kind),
+        music: (intensity, boss) => {
+          this.musicIntensityTarget = intensity;
+          this.audio.bossIntensity = boss ? 1 : 0;
+        },
+        bossHud: (s) => useGameStore.getState().setBoss(s),
+        worldBanner: (title, sub) => useGameStore.getState().setWorldBanner(title, sub),
+        addItem: (id, count) => this.state.addItem(id, count),
+        giveXp: (xp) => this.state.giveXp(xp),
+        playerDamage: (dmg, fromX, fromZ, reason) => this.applyPlayerDamage(dmg, fromX, fromZ, reason),
+        shipDamage: (dmg) => {
+          const hull = this.naval?.activeShip ?? this.naval?.playerShip;
+          hull?.applyDamage(dmg);
+        },
+        cameraShake: (i) => { this.shakeT = Math.max(this.shakeT, i); },
       },
     );
     this.player.onBlockSparks = (pos) => {
@@ -2165,6 +2192,17 @@ export class Game {
     }
     if (this.pirateAmbush && !cine) {
       this.pirateAmbush.update(dt, sailing && !naval.boardingActive, naval.activeShip ?? naval.playerShip);
+    }
+    // --- Fase 27 — the legendary events tick (zones, rolls, boss bars) ---
+    if (this.legendary && !cine) {
+      this.legendary.update(dt, {
+        playerPos: p.position,
+        playerAlive: !this.dead,
+        sailing: sailing && !naval.boardingActive,
+        ship: naval.activeShip ?? naval.playerShip,
+        storm: (this.world?.weather.kind ?? 'clear') === 'storm',
+        duelStreak: this.streakN,
+      });
     }
 
     // --- Fase 3: dragons + combat VFX (both on foot and at sea) ---

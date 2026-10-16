@@ -381,6 +381,37 @@ function MountPanel({ m }: { m: { horseName: string; gait: string; speedKmh: num
 }
 
 /** Ornate boss bar: filigree flanks, name plate, phase gems, ghost damage. */
+/** Fase 27 - the world-wide big-text announcement (self-dismissing). */
+function WorldBanner({ title, sub }: { title: string; sub?: string }) {
+  const [show, setShow] = useState(true);
+  useEffect(() => {
+    const t = setTimeout(() => setShow(false), 6000);
+    return () => clearTimeout(t);
+  }, []);
+  if (!show) return null;
+  return (
+    <div
+      className="pointer-events-none absolute inset-x-0 top-[22%] z-40 text-center"
+      style={{ animation: 'kfs-banner-in 0.7s cubic-bezier(0.16,1,0.3,1) both' }}
+    >
+      <p
+        className="kotfs-title text-4xl sm:text-5xl tracking-[0.18em] text-[color:#f4d47c]"
+        style={{ textShadow: '0 0 26px rgba(255,120,30,0.55), 0 2px 16px rgba(0,0,0,0.9)' }}
+      >
+        {title}
+      </p>
+      {sub && (
+        <p
+          className="kotfs-title mt-3 text-sm tracking-[0.34em] uppercase text-[color:var(--kotfs-parchment-dim)]"
+          style={{ textShadow: '0 1px 10px rgba(0,0,0,0.85)' }}
+        >
+          {sub}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function BossBar({ b }: { b: BossHud }) {
   const [ghost, setGhost] = useState(b.hp);
   useEffect(() => {
@@ -610,6 +641,7 @@ export default function HUD() {
   const dialogue = useGameStore((s) => s.dialogue);
   const sailing = useGameStore((s) => s.sailing);
   const boss = useGameStore((s) => s.boss);
+  const worldBanner = useGameStore((s) => s.worldBanner);
   const weaponSlots = useGameStore((s) => s.weaponSlots);
   const bowDraw = useGameStore((s) => s.bowDraw);
   const bowHud = useGameStore((s) => s.bowHud);
@@ -721,6 +753,12 @@ export default function HUD() {
 
       {/* --- Boss health bar --- */}
       {boss && <BossBar b={boss} />}
+
+      {/* --- Fase 27 - LEGENDARY EVENTS: the world announcement banner
+           (Elder Dragon wake-ups and legendary encounters) --- */}
+      {worldBanner && (
+        <WorldBanner key={worldBanner.id} title={worldBanner.title} sub={worldBanner.sub} />
+      )}
 
       {/* --- Fase 9 — combo chain indicator (cinematic combat) --- */}
       {combo && !atHelm && (

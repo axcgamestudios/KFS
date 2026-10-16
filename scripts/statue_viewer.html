@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Statue viewer</title>
+<style>html,body{margin:0;background:#20242b;overflow:hidden}canvas{display:block}</style>
+<script type="importmap">
+{ "imports": {
+  "three": "/node_modules/three/build/three.module.js",
+  "three/addons/": "/node_modules/three/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+const qs = new URLSearchParams(location.search);
+const model = qs.get('m') || 'knight_statue.glb';
+const pose = qs.get('pose') || 'bind';   // bind | walk
+const which = qs.get('hide') || 'none';  // none | shield | sword
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(1);
+document.body.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x39404c);
+scene.add(new THREE.HemisphereLight(0xdfe8ff, 0x50565e, 1.1));
+const dl = new THREE.DirectionalLight(0xffffff, 1.6); dl.position.set(2, 4, 3); scene.add(dl);
+const dl2 = new THREE.DirectionalLight(0xffe0c0, 0.7); dl2.position.set(-3, 2, -2); scene.add(dl2);
+
+// ground grid for scale reference (1m cells)
+const grid = new THREE.GridHelper(6, 6, 0x888888, 0x555555); scene.add(grid);
+
+const loader = new GLTFLoader();
+loader.load('/public/game/models/' + model, (gltf) => {
+  const m = gltf.scene;
+  m.traverse(o => { if (o.isMesh) { o.castShadow = false; o.frustumCulled = false; } });
+  // F28 fix: source GLBs (Sketchfab) are in raw units (~210 tall) and the camera
+  // (r=3.4, ty=0.9) ends up INSIDE the mesh -> black frames. Auto-normalize any
+  // model taller than 5 units to 1.95m with feet on y=0 (rigged model unaffected).
+  m.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(m);
+  const h = box.max.y - box.min.y;
+  if (h > 5) {
+    const sc = 1.95 / h;
+    m.scale.setScalar(sc);
+    m.position.y = -box.min.y * sc;
+    m.updateMatrixWorld(true);
+  }
+  if (which === 'shield') { const s = m.getObjectByName('j_shield_held'); if (s) s.visible = false; }
+  if (which === 'sword') { const s = m.getObjectByName('j_sword_held'); if (s) s.visible = false; }
+  scene.add(m);
+
+  // pose: walk cycle extremes on the legs (rotate bones like the game does)
+  if (pose === 'walk') {
+    const B = (n) => m.getObjectByName(n);
+    const set = (n, x) => { const b = B(n); if (b) b.rotation.x = x; };
+    set('j_hipR', 0.55); set('j_kneeR', -0.75); set('j_ankleR', 0.10);
+    set('j_hipL', -0.35); set('j_kneeL', -0.35); set('j_ankleL', -0.15);
+    set('j_shoulderR', -0.4); set('j_elbowR', -0.5);
+    set('j_shoulderL', 0.3); set('j_elbowL', -0.3);
+  }
+  window.__ready = true;
+});
+
+// camera orbit by query angle: a=azimuth deg, e=elevation deg, r=radius
+function shoot() {
+  if (!window.__ready) return requestAnimationFrame(shoot);
+  const a = THREE.MathUtils.degToRad(parseFloat(qs.get('a') || 30));
+  const e = THREE.MathUtils.degToRad(parseFloat(qs.get('e') || 12));
+  const r = parseFloat(qs.get('r') || 3.2);
+  const tgtY = parseFloat(qs.get('ty') || 0.9);
+  const cam = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.05, 60);
+  cam.position.set(Math.sin(a) * Math.cos(e) * r, tgtY + Math.sin(e) * r, Math.cos(a) * Math.cos(e) * r);
+  cam.lookAt(0, tgtY, 0);
+  renderer.render(scene, cam);
+  window.__shot = true;
+}
+shoot();
+window.addEventListener('resize', () => {});
+</script>
+</body>
+</html>
