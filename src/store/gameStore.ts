@@ -145,14 +145,17 @@ interface GameStore {
   /** Fase 16 — open merchant panel (null = closed). */
   shop: { vendor: string } | null;
   /** Fase 22 — open forge panel (null = closed). */
-  forge: { station: 'anvil' | 'altar' | 'titans' } | null;
+  forge: { station: 'anvil' | 'altar' | 'titans' | 'still' } | null;
+  /** Fase 28 — EL VIAJERO: the trade panel (null = closed). */
+  traveler: { tab: string } | null;
   /** Fase 22 — seconds of summoned eclipse left (0 = clear sky). Drives the
    *  HUD ring-of-fire countdown badge. */
   eclipseLeft: number;
   /** Fase 15 — pirate toll negotiation (null = none deployed). Set while
    *  the ambush corsairs have the player at their mercy. */
   negotiation: { reason: 'death' | 'ship'; coins: number; canAfford: boolean; hasItems: boolean } | null;
-  /** Fase 17 — SEA FURY (Valor): 0..300, one segment = 100. Spent on the
+  /** Fase 17 — SEA FURY (Valor): 0..300,
+   *  one segment = 100. Spent on the
    *  Sea Tonic (R) and cinematic finishers (V / Shift+Space). */
   valor: number;
   /** Fase 17 — transient danger cue over the combat reticle: which defense
@@ -211,7 +214,9 @@ interface GameStore {
   /** Fase 16 — merchant panel state (null closes it). */
   setShop: (s: { vendor: string } | null) => void;
   /** Fase 22 — forge panel open/close. */
-  setForge: (s: { station: 'anvil' | 'altar' | 'titans' } | null) => void;
+  setForge: (s: { station: 'anvil' | 'altar' | 'titans' | 'still' } | null) => void;
+  /** Fase 28 — EL VIAJERO: the trade panel (null = closed). */
+  setTraveler: (s: { tab: string } | null) => void;
   /** Fase 22 — eclipse countdown for the HUD badge. */
   setEclipseLeft: (n: number) => void;
   /** Fase 17 — Sea Fury bar (0..300) + combat cue state. */
@@ -251,6 +256,7 @@ export const useGameStore = create<GameStore>((set) => ({
   submerged: false,
   shop: null,
   forge: null,
+  traveler: null,
   eclipseLeft: 0,
   negotiation: null,
   valor: 0,
@@ -305,6 +311,8 @@ export const useGameStore = create<GameStore>((set) => ({
   setDiscovery: (d) => set({ discovery: d }),
   setShop: (s) => set({ shop: s }),
   setForge: (s) => set({ forge: s }),
+  setTraveler: (s) => set({ traveler: s }),
+
   setEclipseLeft: (n) => set((s) => (Math.abs(s.eclipseLeft - n) < 0.5 ? s : { eclipseLeft: Math.max(0, n) })),
   setValor: (v) => set((s) => (s.valor === v ? s : { valor: Math.max(0, Math.min(300, v)) })),
   setDangerCue: (c) => set((s) => (s.dangerCue === c ? s : { dangerCue: c })),

@@ -52,6 +52,9 @@ const KING_DROPS: Array<{ id: string; count: number; chance?: number; label: str
   { id: 'espada_rey_pirata', count: 1, chance: 0.05, label: "Pirate King's Sword" },
   { id: 'sombrero_rey', count: 1, chance: 0.05, label: "Pirate King's Hat" },
   { id: 'tesoro_siete_mares', count: 1, chance: 0.05, label: 'Treasure of the Seven Seas' },
+  // Fase 28 — the still's tithe from the Pirate King's magazine
+  { id: 'polvora_maldita', count: 1, label: 'Cursed Powder' },
+  { id: 'polvo_fina', count: 2, label: 'Fine Black Powder' },
 ];
 
 /** The drops the duel Ronin pays on defeat. */
@@ -61,6 +64,9 @@ const RONIN_DROPS: Array<{ id: string; count: number; chance?: number; label: st
   { id: 'nucleo_tormenta', count: 1, chance: 0.05, label: 'Captive Storm Core' },
   { id: 'sombrero_kasa', count: 1, chance: 0.05, label: 'Kasa of the Calm Wind' },
   { id: 'corazon_tormenta', count: 1, chance: 0.03, label: 'Heart of the Storm' },
+  // Fase 28 — the Daimyo's wind, and storm jelly from his school
+  { id: 'esencia_viento_oscuro', count: 1, label: 'Dark Wind Essence' },
+  { id: 'gelatina_rayo', count: 1, chance: 0.5, label: 'Elemental Storm Jelly' },
 ];
 
 /** The RONIN duel legend (the dynamic event variant of the Mist Temple one). */

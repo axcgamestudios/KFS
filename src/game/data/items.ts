@@ -315,3 +315,7 @@ Object.assign(ITEMS, ITEMS_F15);
 // ---- Fase 22 items (THE FORGE OF LEGENDS) ----
 import { ITEMS_F22 } from './itemsF22';
 Object.assign(ITEMS, ITEMS_F22);
+
+// ---- Fase 28 items (THE ALCHEMIST'S STILL) ----
+import { ITEMS_F28 } from './itemsF28';
+Object.assign(ITEMS, ITEMS_F28);

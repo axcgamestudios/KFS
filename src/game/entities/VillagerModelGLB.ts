@@ -292,7 +292,10 @@ export class VillagerModelGLB implements CharacterVisual {
 
     this.speedSm = damp(this.speedSm, p.speed, 8, dt);
     const moving = p.moving && this.speedSm > 0.25;
-    if (moving) this.phase += dt * (this.speedSm > 3.4 ? 8.8 : 6.2);
+    // Fase 28 — cadence scales with the REAL speed (a 1.4 m/s stroll used to
+    // goose-step at the same 6.2 rad/s as a brisk walk — stride length and
+    // step frequency never matched, half of the "muy fea").
+    if (moving) this.phase += dt * THREE.MathUtils.clamp(1.6 + this.speedSm * 1.55, 3.2, 9.0);
     const ph = this.phase;
 
     const target = this.basePose();
@@ -338,39 +341,76 @@ export class VillagerModelGLB implements CharacterVisual {
     }
   }
 
-  /** Walk cycle on the mixamo rig (legs + counter-arms + bob). */
+  /** Fase 28 — WALK REWORK. The old cycle had four structural defects:
+   *   (1) the vertical bob was PHASE-INVERTED — |sin(ph)| peaks at maximum
+   *       leg split (double support, where the body is LOWEST) and vanishes
+   *       at leg-pass (where the body is HIGHEST) → the villager bounced UP
+   *       every time the legs spread, a waddling seesaw. Correct shape:
+   *       |cos(ph)| — peak at passing, trough at double support.
+   *   (2) the feet were DEAD (foot bones never driven) — flat-footed
+   *       shuffling with no heel-strike or toe-off.
+   *   (3) knee flexion was gated to a narrow passing window — a stiff toy
+   *       soldier the rest of the cycle. Real knees follow the swing leg
+   *       continuously and flex a second time at weight acceptance.
+   *   (4) no pelvic motion at all (the hips bone was only touched by the
+   *       idle weight shift) — the pelvis must yaw with the swing leg.
+   * Plus: stride amplitude matched to a stroll (0.5-0.85 rad was a
+   * goose-step for 1.4 m/s) and counter-arms scaled to the same energy. */
   private poseWalk(t: PoseTarget, ph: number): void {
     const runK = Math.min(1, this.speedSm / 4.2);
-    const amp = 0.5 + runK * 0.35;
     const legL = Math.sin(ph);
     const legR = Math.sin(ph + Math.PI);
+    // stride amplitude: a stroll swings ~0.34 rad, a brisk walk up to ~0.56
+    const amp = 0.34 + runK * 0.22;
     // legs — Fase 9 ROOT FIX: the X channel used to be fed the REST-Z value
     // (±π on Mixamo UpLeg bones — the "legs upside down" bug). The swing
     // lives on the X channel (rest.x ≈ 0); the π flip must stay on Z.
-    const hipRoll = legL * (0.03 + runK * 0.035);
+    const hipRoll = legL * (0.025 + runK * 0.03);
     t.upLegR = [this.rx('upLegR', -legR * amp), this.ry('upLegR', 0), this.rz('upLegR', -hipRoll)];
     t.upLegL = [this.rx('upLegL', -legL * amp), this.ry('upLegL', 0), this.rz('upLegL', hipRoll)];
-    // knees bend on the passing phase (flexion only — never hyperextends)
-    t.legR = [this.rx('legR', Math.max(0, -Math.sin(ph + Math.PI - 0.65)) * (0.6 + runK * 0.4)), 0, this.rz('legR', 0)];
-    t.legL = [this.rx('legL', Math.max(0, -Math.sin(ph - 0.65)) * (0.6 + runK * 0.4)), 0, this.rz('legL', 0)];
-    // counter arm swing around the arms-down rest pose.
-    // Fase 12 — elbows fold on the back swing (follow-through), the gait
-    // swings from the hips and the forearms lead the swing — reads natural.
-    const armAmp = 0.3 + runK * 0.3;
+    // (4) PELVIC YAW — the hip of the swinging leg advances (the pelvis
+    // rotates INTO the step, the same third rotation the F27 knight gait
+    // gained). Small: 0.05-0.1 rad, enough to kill the plank.
+    const hips = t.hips ?? [0, 0, 0];
+    t.hips = [hips[0], hips[1] - legL * (0.05 + runK * 0.05), hips[2]];
+    // (3) knees: continuous flexion following the swing leg (flexion only —
+    // never hyperextends) + a second flexion at weight acceptance, exactly
+    // like the F27 knight's double-flexion. The leg behind the hip bends;
+    // the leg planting in front keeps a soft 0.12-0.2 so the knee never
+    // locks dead straight.
+    const kneeSwingR = Math.max(0, -legR) * (0.55 + runK * 0.35);
+    const kneeSwingL = Math.max(0, -legL) * (0.55 + runK * 0.35);
+    const kneeLoadR = Math.max(0, Math.sin(2 * (ph + Math.PI) + 1.15)) * (0.08 + runK * 0.22);
+    const kneeLoadL = Math.max(0, Math.sin(2 * ph + 1.15)) * (0.08 + runK * 0.22);
+    t.legR = [this.rx('legR', 0.14 + kneeSwingR + kneeLoadR), 0, this.rz('legR', 0)];
+    t.legL = [this.rx('legL', 0.14 + kneeSwingL + kneeLoadL), 0, this.rz('legL', 0)];
+    // (2) FEET ROLL-THROUGH: heel-strike dorsiflexion when the leg lands in
+    // front (foot X NEGATIVE — positive X is plantarflexion on this rig, the
+    // same local fold-sense as the knee), flowing into toe-off pointing as
+    // the leg trails behind. Flat at mid-stance. No more dead shuffling.
+    t.footR = [this.rx('footR', -(legR * 0.16 + Math.max(0, -legR) * 0.12)), 0, this.rz('footR', 0)];
+    t.footL = [this.rx('footL', -(legL * 0.16 + Math.max(0, -legL) * 0.12)), 0, this.rz('footL', 0)];
+    // counter arm swing around the arms-down rest pose, scaled to the same
+    // energy as the legs (the old 0.3-0.6 pumped hard on a slow stroll).
+    const armAmp = 0.22 + runK * 0.2;
     t.armR = [this.rx('armR', legR * armAmp), this.ry('armR', 0), this.rz('armR', 0)];
     t.armL = [this.rx('armL', legL * armAmp), this.ry('armL', 0), this.rz('armL', 0)];
-    t.foreR = [this.rx('foreR', -(0.25 + runK * 0.3) - Math.max(0, -legR) * (0.3 + runK * 0.25)), 0, 0];
-    t.foreL = [this.rx('foreL', -(0.25 + runK * 0.3) - Math.max(0, -legL) * (0.3 + runK * 0.25)), 0, 0];
-    // torso: bob + counter-rotation
+    // elbows fold on the back swing (follow-through) — forearms lead the swing
+    t.foreR = [this.rx('foreR', -(0.18 + runK * 0.22) - Math.max(0, -legR) * (0.22 + runK * 0.2)), 0, 0];
+    t.foreL = [this.rx('foreL', -(0.18 + runK * 0.22) - Math.max(0, -legL) * (0.22 + runK * 0.2)), 0, 0];
+    // torso: gentle forward lean, spine counter-rotates against the pelvic
+    // yaw, chest settles back level — the counter-rotation reads as one body
+    // turning through the step instead of two blocks twisting.
     const spine = t.spine ?? [0, 0, 0];
-    t.spine = [spine[0] + 0.04 + runK * 0.1, spine[1] + Math.sin(ph) * 0.06, spine[2]];
+    t.spine = [spine[0] + 0.03 + runK * 0.08, spine[1] + Math.sin(ph) * 0.05, spine[2]];
     const chest = t.chest ?? [0, 0, 0];
-    t.chest = [chest[0] + runK * 0.08, chest[1] - Math.sin(ph) * 0.05, chest[2]];
+    t.chest = [chest[0] + runK * 0.06, chest[1] - Math.sin(ph) * 0.045, chest[2]];
     const head = t.head ?? [0, 0, 0];
     t.head = [head[0] - 0.03 - runK * 0.05, head[1], head[2]];
-    // vertical bob through the inner wrapper (root-space metres, on top of
-    // the feet offset so walking never sinks the soles)
-    this.inner.position.y = this.baseY + Math.abs(Math.sin(ph)) * 0.028 * (0.5 + runK);
+    // (1) vertical bob, CORRECT PHASE: the body is highest at leg-pass
+    // (ph = 0, π) and lowest at double support (π/2, 3π/2). |cos(ph)| is
+    // exactly that shape, twice per cycle, riding on the feet offset.
+    this.inner.position.y = this.baseY + Math.abs(Math.cos(ph)) * (0.018 + runK * 0.016);
   }
 
   /** rest-pose accessors (fall back to 0 when a bone is missing) */

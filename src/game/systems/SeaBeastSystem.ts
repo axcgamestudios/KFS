@@ -254,6 +254,13 @@ export class SeaBeastSystem {
       this.state.addItem('escama_abismo', 3);
       this.state.addItem('perla_negra', 1);
       this.state.addItem('coin', 600);
+      // Fase 28 — the alchemist's tithe: the King of the Sea is this
+      // world's King Slime (primal core + crystallized crown), and a
+      // cursed navigator's worth of deep essence.
+      this.state.addItem('nucleo_primordial', 1);
+      this.state.addItem('corona_slime', 1);
+      this.state.addItem('esencia_profundidades', 1);
+      this.state.addItem('lodo_viscoso', 2);
       // Fase 22 — THE FORGE: the King's hide + living tide for the forge
       this.state.addItem('cuero_bestia', 3);
       this.state.addItem('esencia_agua', 2);
@@ -292,6 +299,12 @@ export class SeaBeastSystem {
       if (Math.random() < 0.75) { this.state.addItem('cuero_bestia', 1); drops.push('beast leather'); }
       if (Math.random() < 0.30) { this.state.addItem('esencia_agua', 1); drops.push('water essence'); }
       if (Math.random() < 0.35) { this.state.addItem('escama_abismo', 1); drops.push('abyssal scale'); }
+      // Fase 28 — alchemy drops (the sea is this world's slime family)
+      if (Math.random() < 0.35) { this.state.addItem('lodo_viscoso', 1); drops.push('viscous silt'); }
+      if (Math.random() < 0.18) { this.state.addItem('nucleo_viscoso', 1); drops.push('stable viscous core'); }
+      if (Math.random() < 0.15) { this.state.addItem('esencia_profundidades', 1); drops.push('essence of the deep'); }
+      if (Math.random() < 0.15) { this.state.addItem('acido_concentrado', 1); drops.push('concentrated acid'); }
+      if (Math.random() < 0.10) { this.state.addItem('gelatina_corrosiva', 1); drops.push('master corrosive jelly'); }
       if (Math.random() < 0.18) {
         this.state.addItem('perla_negra', 1);
         drops.push('BLACK PEARL');

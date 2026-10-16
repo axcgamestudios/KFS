@@ -880,6 +880,8 @@ export class NavalSystem {
             const coins = 25 + Math.floor(Math.random() * 30);
             this.state.addItem('coin', coins);
             if (Math.random() < 0.5) this.state.addItem('madera', 1);
+            // Fase 28 — corsair cargo: artillery-grade powder for the still
+            if (Math.random() < 0.35) this.state.addItem('polvo_fina', 1);
             this.state.giveXp(20);
             this.cb.sound('hit_hull');
             this.cb.notify('item', 'Loot recovered', `${coins} gold coins from the sunken hull.`);

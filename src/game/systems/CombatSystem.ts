@@ -961,7 +961,7 @@ export class CombatSystem {
     // --- Swing progression ---
     if (p.attackT > 0) {
       const wasAir = !p.grounded;
-      p.attackT += dt / p.attackDur;
+      p.attackT += (dt / p.attackDur) * this.alchemyAttackSpeed; // Fase 28 — Fury: the swing plays faster
       const impactAt = p.attackKind === 'heavy' ? 0.55
         : p.attackKind === 'spin' ? 0.5
         : p.attackKind === 'uppercut' ? 0.62
@@ -1691,6 +1691,12 @@ export class CombatSystem {
     p.onAttackSwing?.();
   }
 
+  // ---- Fase 28 — THE ALCHEMIST'S STILL: Game keeps these fresh each frame.
+  /** Abyss-Fury: added to every critical multiplier (0.35 while active). */
+  alchemyCritAdd = 0;
+  /** Abyss-Fury: attack cadence × (1.15 while active). */
+  alchemyAttackSpeed = 1;
+
   private lightAlt = false;
   private altLight(): 'light1' | 'light2' {
     this.lightAlt = !this.lightAlt;
@@ -1734,7 +1740,7 @@ export class CombatSystem {
     const hit = this.hooks.dragonMelee(p.position, p.yaw, weapon.reach, multiArc);
     if (hit) {
       // ESPADA GARRA — carved from the Ancestor's own claw: +25% vs dragons
-      let final = hit.head ? dmg * 1.5 : dmg;
+      let final = hit.head ? dmg * (1.5 + this.alchemyCritAdd) : dmg; // Fase 28 — Fury sharpens every crit
       if (wid === 'espada_garra') final *= 1.25;
       this.hooks.damageDragon(hit.dragon, final, heavy);
       this.vfx.weaponImpact(hit.point);
@@ -1799,9 +1805,15 @@ export class CombatSystem {
           // guaranteed critical on any enemy that has not noticed you
           const unaware = !(bHit.bandit as { aggroed?: boolean }).aggroed;
           if (wid === 'wakizashi' && this.quickDrawT > 0 && unaware) {
-            strikeDmg *= 2.2;
+            strikeDmg *= 2.2 + this.alchemyCritAdd; // Fase 28 — Fury sharpens every crit
             this.quickDrawT = 0;
             this.flashEvent('QUICK DRAW!');
+          }
+          // Fase 28 — ABYSS-FURY: while the elixir holds, one strike in five
+          // lands as a true critical at ×1.6 (+35% harder with the elixir).
+          if (this.alchemyCritAdd > 0 && Math.random() < 0.2) {
+            strikeDmg *= 1.6 + this.alchemyCritAdd;
+            this.flashEvent('CRITICAL');
           }
           this.hooks.damageBandit?.(bHit.bandit, strikeDmg, heavy, this.banditOpts(wid, isBokken, heavy));
           if (launchNow) this.hooks.launchBandit?.(bHit.bandit, 6.2);
@@ -2100,7 +2112,7 @@ export class CombatSystem {
       if (dragonPart) {
         let dmg = a.dmg;
         if (dragonPart.head) {
-          dmg *= a.pierce ? 2.0 : 2.25; // weak points: 200-250%
+          dmg *= (a.pierce ? 2.0 : 2.25) + this.alchemyCritAdd; // weak points: 200-250% (+Fury)
           this.flashEvent('WEAK POINT!');
           this.onCameraPunch?.(0.4);
           this.hooks.sound('hit_scale');
@@ -2126,7 +2138,7 @@ export class CombatSystem {
         let dmg = a.dmg;
         const headY = (this.banditHeadYRef?.(bandit)) ?? Infinity;
         if (a.mesh.position.y >= headY) {
-          dmg *= a.pierce ? 1.9 : 2.2;
+          dmg *= (a.pierce ? 1.9 : 2.2) + this.alchemyCritAdd; // Fase 28 — Fury sharpens headshots
           this.flashEvent('HEADSHOT');
           this.onCameraPunch?.(0.35);
           this.hooks.sound('hit_scale');

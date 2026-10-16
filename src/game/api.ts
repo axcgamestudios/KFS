@@ -47,13 +47,39 @@ export interface GameApi {
   } | null;
   /** Buy one unit. Returns 'ok' | 'gold' | 'level'. */
   buyShopItem(vendor: string, itemId: string): 'ok' | 'gold' | 'level';
+
+  /** Fase 28 — EL VIAJERO. */
+  travelerCatalog(): {
+    present: boolean;
+    name: string;
+    camp: string;
+    biome: string;
+    coins: number;
+    budget: number;
+    reputation: number;
+    discount: number;
+    demand: Array<{ id: string; name: string; bonus: number }>;
+    stock: Array<{ id: string; qty: number; price: number; stock: number; note: string; offer?: boolean }>;
+    buyback: Array<{ id: string; count: number; price: number }>;
+    sells: Array<{ id: string; name: string; count: number; have: number; priceEach: number; rate: string; locked: boolean; demand: boolean }>;
+    relicCost: number;
+    ambush: { active: boolean; posture: number; postureFrac: number; count: number } | null;
+  } | null;
+  travelerBuy(id: string): 'ok' | 'stock' | 'gold';
+  travelerSell(id: string, count: number): { ok: boolean; paid: number; credit: number };
+  travelerBuyback(index: number): 'ok' | 'gold' | 'range';
+  travelerRelic(): { ok: boolean; got: string; tier: string };
+  toggleFavorite(id: string): void;
+  isFavorite(id: string): boolean;
+  /** Fase 28 — live potion effects for the HUD chips. */
+  activeEffects(): Array<{ id: string; left: number; icon: string; name: string }>;
   // Fase 15 — pirate toll negotiation
   /** Resolve the standing pirate negotiation ('item' | 'coins' | 'mercy'). */
   negotiateChoice(option: 'item' | 'coins' | 'mercy'): void;
   // Fase 22 — THE FORGE OF LEGENDS
   /** Live catalog for a forge station (recipes + eclipse state at the altar). */
-  forgeCatalog(station: 'anvil' | 'altar' | 'titans'): {
-    station: 'anvil' | 'altar' | 'titans';
+  forgeCatalog(station: 'anvil' | 'altar' | 'titans' | 'still'): {
+    station: 'anvil' | 'altar' | 'titans' | 'still';
     name: string;
     title: string;
     greeting: string;
@@ -69,7 +95,7 @@ export interface GameApi {
     }>;
   } | null;
   /** Run a recipe (ALL validation on the game side). */
-  forgeCraft(station: 'anvil' | 'altar' | 'titans', recipeId: string): 'ok' | 'materials' | 'gold' | 'gate' | 'level';
+  forgeCraft(station: 'anvil' | 'altar' | 'titans' | 'still', recipeId: string): 'ok' | 'materials' | 'gold' | 'gate' | 'level';
   /** Present the Primal Sun Essence at the Altar of the Gods. */
   summonEclipse(): boolean;
   // Progression
@@ -154,6 +180,14 @@ export const gameApi: GameApi = {
   unequipWings: () => undefined,
   shopCatalog: () => null,
   buyShopItem: () => 'gold',
+  travelerCatalog: () => null,
+  travelerBuy: () => 'stock',
+  travelerSell: () => ({ ok: false, paid: 0, credit: 0 }),
+  travelerBuyback: () => 'range',
+  travelerRelic: () => ({ ok: false, got: '', tier: '' }),
+  toggleFavorite: () => undefined,
+  isFavorite: () => false,
+  activeEffects: () => [],
   negotiateChoice: () => undefined,
   forgeCatalog: () => null,
   forgeCraft: () => 'gate',

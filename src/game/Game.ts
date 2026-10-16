@@ -28,9 +28,17 @@ import { SeaBeastSystem } from './systems/SeaBeastSystem';
 import { PirateAmbushSystem } from './systems/PirateAmbushSystem';
 import { LegendaryEvents } from './systems/LegendaryEvents';
 import { CombatSystem, WEAPONS, SWORD_TIER_NAMES, SWORD_PRIORITY, swordElementOf } from './systems/CombatSystem';
+
+/** Fase 28 — potions routed through the AlchemySystem from useItem. */
+const STILL_POTIONS = new Set([
+  'pocion_curacion_menor', 'pocion_escamas', 'elixir_termico', 'pocion_roble',
+  'tonico_celeridad', 'brebaje_acido', 'elixir_furia', 'elixir_masa', 'lagrima_bosque',
+]);
 import { DragonManager } from './systems/DragonManager';
 import { BanditSystem } from './systems/BanditSystem';
 import { ForgeSystem } from './systems/ForgeSystem';
+import { AlchemySystem, type AlchemyTarget } from './systems/AlchemySystem';
+import { TravelerSystem } from './systems/TravelerSystem';
 import type { Dragon } from './entities/Dragon';
 import { CinematicSystem, type CineShot } from './systems/CinematicSystem';
 import { walkActor, heroSalute, idleActor, faceTarget } from './systems/CineActors';
@@ -144,6 +152,12 @@ export class Game {
   /** Fase 9 — quest ids already seen completed (chapter detection). */
   private lastCompletedIds = new Set<string>();
   private postfx?: PostFX;
+  /** Fase 28 — the alchemist's engine (Maren's still potions). */
+  private alchemy?: AlchemySystem;
+  /** Fase 28 — EL VIAJERO, the wandering guild merchant. */
+  private traveler?: TravelerSystem;
+  /** Monotonic game-day clock driving the Traveler's no-rigid-clock cycle. */
+  private travelerDayFloat = 0;
   /** Fase 21 — scratch vector for the sun-shafts screen projection (no per-frame alloc). */
   private SHAFT_SCRATCH = new THREE.Vector3();
   /** Fase 4 — ambient music bed from the asset repository (MP3). */
@@ -410,6 +424,7 @@ export class Game {
         this.dragons ? this.dragons.meleeHitCheck(origin, yaw, reach, arc) : null,
       damageDragon: (dragon, amount, heavy) => {
         this.dragons?.damage(dragon, amount, heavy);
+        this.alchemy?.noteCombat(true);
         this.musicIntensityTarget = Math.max(this.musicIntensityTarget, 0.7);
       },
       crewHit: (origin, yaw, dmg, reach, arc) => {
@@ -441,6 +456,7 @@ export class Game {
         this.bandits ? this.bandits.meleeHitCheck(origin, yaw, reach, arc) : null,
       damageBandit: (bandit, amount, heavy) => {
         this.bandits?.damage(bandit, amount, heavy);
+        this.alchemy?.noteCombat(false);
         this.musicIntensityTarget = Math.max(this.musicIntensityTarget, 0.55);
       },
       // Fase 11 — multi-target sweeps (spin finishers) + radial AoE (plunge)
@@ -469,6 +485,103 @@ export class Game {
     });
     this.combat.dragonHitRef = (pos, radius) =>
       this.dragons ? this.dragons.projectileHitTest(pos, radius) : null;
+    // Fase 28 — THE ALCHEMIST'S STILL: one engine for every live potion
+    // effect (buffs, the acid flask, the Tear's per-combat limit).
+    this.alchemy = new AlchemySystem(this.state, {
+      notify: (kind, title, body) => useGameStore.getState().notify(kind, title, body),
+      sound: (id) => this.audio.playEvent(id),
+      shockwave: (pos) => this.vfx?.elementalBurst(pos, 'storm'),
+      acidCloud: (pos) => this.vfx?.elementalBurst(pos, 'storm'),
+      nearbyTargets: (pos, radius): AlchemyTarget[] => {
+        const out: AlchemyTarget[] = [];
+        for (const h of this.bandits ? this.bandits.meleeHitCheckRadius(pos, radius, 8) : []) {
+          out.push({
+            kind: 'bandit', ref: h.bandit, isBoss: false, pos: h.bandit.center(),
+            isAlive: () => !(h.bandit as { dead?: boolean }).dead,
+            damage: (n) => {
+              this.bandits?.damage(h.bandit, n, false);
+              return true;
+            },
+          });
+        }
+        for (const d of this.dragons ? this.dragons.list() : []) {
+          const dp = (d as unknown as { pos?: THREE.Vector3 }).pos;
+          if (!dp || Math.hypot(dp.x - pos.x, dp.z - pos.z) > radius) continue;
+          out.push({
+            kind: 'dragon', ref: d, isBoss: true, pos: dp.clone(),
+            isAlive: () => (d as unknown as { alive?: boolean }).alive !== false,
+            damage: (n) => {
+              this.dragons?.damage(d, n, false);
+              return true;
+            },
+          });
+        }
+        return out;
+      },
+      playerAttackDamage: () => {
+        const wid = this.state.equippedWeapon ?? '';
+        const w = WEAPONS[wid];
+        return w?.lightDmg ?? 14;
+      },
+      player: () => this.player ?? null,
+    });
+
+    // Fase 28 — EL VIAJERO: the wandering merchant of the Guild of Traders
+    this.traveler = new TravelerSystem(this.state, {
+      notify: (kind, title, body) => useGameStore.getState().notify(kind, title, body),
+      sound: (id) => this.audio.playEvent(id),
+      terrain: this.world!.terrainHeight,
+      addBlueFlame: (pos) => {
+        const fx = getFlameFX(this.engine.scene);
+        // heat cranked to the blue end of the shader's ramp: the blue-flame
+        // campfire that marks his camp from far away
+        return fx?.addFlame(pos, { scale: 0.62, height: 1.05, heat: 0.96, embers: 0 }) ?? null;
+      },
+      makeMerchant: (x, z) => {
+        try {
+          const pal = villagerPalette(6);
+          const visual = new VillagerModelGLB({
+            palette: pal,
+            seed: 77.7,
+            role: 'merchant',
+            assets: this.world!.assets,
+            fallback: () => new VillagerModel(pal, 77.7, 'merchant'),
+          });
+          const wrap = new THREE.Group();
+          wrap.position.set(x, this.world!.terrainHeight.height(x, z), z);
+          this.engine.scene.add(wrap);
+          wrap.add(visual.root);
+          return {
+            root: wrap,
+            update: (dt) => {
+              const panelOpen = useGameStore.getState().traveler !== null;
+              visual.update({
+                dt, speed: 0, moving: false, grounded: true, swimming: false,
+                attackT: 0, talking: panelOpen,
+              });
+            },
+            dispose: () => {
+              visual.dispose();
+              this.engine.scene.remove(wrap);
+            },
+          };
+        } catch {
+          return null;
+        }
+      },
+      spawnAmbushAt: (x, z, count) =>
+        this.bandits ? this.bandits.spawnTravelerAmbush(x, z, count) : [],
+      bannerCue: (x, z, active) => {
+        // the tall emissive Guild banner + the blue flame carry the cue;
+        // the notice goes out when he lights the fire. This hook keeps the
+        // compass/map layer reachable for future phases.
+        void x; void z; void active;
+      },
+    }, this.engine.scene);
+    this.traveler.onOpenTrade = () => {
+      this.input.releaseLock();
+      useGameStore.getState().setTraveler({ tab: 'supplies' });
+    };
     // Fase 10 — arrows also clip the bandits
     this.combat.banditHitRef = (pos, radius, prev) =>
       this.bandits ? this.bandits.projectileHitTest(pos, radius) : null;
@@ -633,6 +746,10 @@ export class Game {
     this.mounts.spawnHorse('gris', 'Grey of the West', 'grey', -250, -190, false, 260);
     // The stable cart
     this.mounts.spawnCart('carreta', -8, 192, 0.4);
+    // Fase 28 — the acid cloud's armor shred flows through the two damage
+    // entries. Wired HERE: the bandits are built just below, the dragons
+    // have existed since the world rose.
+    if (this.dragons) this.dragons.acidShredOf = (d) => this.alchemy?.shredMult(d) ?? 1;
     this.endings = new EndingSystem(this.state);
 
     // --- Fase 10: RED KNIGHT bandits camped on the roads ---
@@ -657,6 +774,7 @@ export class Game {
         bossHud: (s) => useGameStore.getState().setBoss(s),
       },
     );
+    if (this.bandits) this.bandits.acidShredOf = (b) => this.alchemy?.shredMult(b) ?? 1;
 
     // --- Fase 22 — THE FORGE OF LEGENDS: the crafting engine ---
     this.forge = new ForgeSystem(this.state, {
@@ -982,6 +1100,46 @@ export class Game {
       });
     }
 
+    // --- Fase 28 — FORAGE: wild apples + the rare herbs of the blind garden ---
+    // Apple bushes respawn after 90 s (a basic ingredient, needed in volume);
+    // the rare herbs respawn after 240 s (mythic-tier, guarded by distance).
+    {
+      const forageRespawn = new Map<string, number>();
+      const FORAGE_NODES: Array<{ id: string; kind: 'apple' | 'herb'; x: number; z: number; item: string; count: number; cd: number }> = [
+        { id: 'bush_orchard_a', kind: 'apple', x: 12, z: 149, item: 'manzana_silvestre', count: 1, cd: 90 },
+        { id: 'bush_orchard_b', kind: 'apple', x: 19, z: 156, item: 'manzana_silvestre', count: 2, cd: 90 },
+        { id: 'bush_green_c', kind: 'apple', x: -17, z: 146, item: 'manzana_silvestre', count: 1, cd: 90 },
+        { id: 'bush_maple_d', kind: 'apple', x: -95, z: -18, item: 'manzana_silvestre', count: 2, cd: 90 },
+        { id: 'bush_vigils_e', kind: 'apple', x: -120, z: -235, item: 'manzana_silvestre', count: 1, cd: 120 },
+        // the Mystic Garden of the blind fortress (Aethel Gard in the spec):
+        // the herb beds between the Vigils' stones
+        { id: 'herbs_vigils_a', kind: 'herb', x: -128, z: -252, item: 'hierbas_raras', count: 1, cd: 240 },
+        { id: 'herbs_vigils_b', kind: 'herb', x: -145, z: -262, item: 'hierbas_raras', count: 1, cd: 240 },
+      ];
+      for (const node of FORAGE_NODES) {
+        w.interactables.push({
+          id: node.id,
+          pos: new THREE.Vector3(node.x, terrainH(node.x, node.z), node.z),
+          radius: 2.0,
+          prompt: node.kind === 'apple' ? 'Gather wild apples' : 'Cut rare herbs',
+          available: () => (forageRespawn.get(node.id) ?? 0) <= 0,
+          run: () => {
+            forageRespawn.set(node.id, node.cd);
+            state.addItem(node.item, node.count);
+            audio.playEvent('pickup');
+            state.giveXp(6);
+            store.getState().notify(
+              'item',
+              node.kind === 'apple' ? 'Wild apples' : 'Rare herbs of the Mystic Garden',
+              node.kind === 'apple'
+                ? 'Tart and honest. The still loves them, the drakes would kill for them.'
+                : 'Cut in the buried garden. Nothing has touched them since the world forgot how.',
+            );
+          },
+        });
+      }
+    }
+
     // --- Rosa's crate (wreck) ---
     w.interactables.push({
       id: 'crate_rosa',
@@ -1087,6 +1245,7 @@ export class Game {
       anvil: 'Work the Great Anvil',
       altar: 'Kneel at the Altar of the Gods',
       titans: 'Approach the Anvil of the Titans',
+      still: 'Brew at Maren\'s still',
     };
     for (const [station, pos] of Object.entries(w.forgeStations)) {
       if (station === 'firstLight') continue;
@@ -1101,7 +1260,7 @@ export class Game {
           // release the pointer so the panel's buttons are clickable (the
           // panel's ESC/close path re-locks through clickResumeHint)
           this.input.releaseLock();
-          useGameStore.getState().setForge({ station: station as 'anvil' | 'altar' | 'titans' });
+          useGameStore.getState().setForge({ station: station as 'anvil' | 'altar' | 'titans' | 'still' });
         },
       });
     }
@@ -2041,6 +2200,19 @@ export class Game {
   /** Central player-damage router (dragons, fire, …) with block support. */
   private applyPlayerDamage(dmg: number, fromX?: number, fromZ?: number, reason?: string, opts?: { unblockable?: boolean }): number {
     const p = this.player!;
+    // ---- Fase 28 — THE ALCHEMIST'S STILL: the live modifiers ----
+    // · Thermal Isolation: fire × 0.75 · the Tear: while it holds, burning
+    //   is ALTERED outright (× 0) · Light Scales / Fury: all damage ×
+    // Every intake also feeds the Tear's per-combat bookkeeping.
+    if (this.alchemy) {
+      const m = this.alchemy.mods;
+      const isFire = !!reason && /fire|burn|flame|dragon/i.test(reason);
+      if (isFire && m.statusImmune) dmg = 0;
+      else if (isFire) dmg *= m.fireMult;
+      dmg *= m.defenseMult;
+      const isBoss = !!reason && /dragon|elder|boss|king|ronin|serpent|beast/i.test(reason);
+      this.alchemy.noteCombat(isBoss);
+    }
     // ---- Fase 22 — elemental armor passives (the desc contract) ----
     // · STORMPLATE: drinks a tenth of any lightning and pays you in breath
     // · DRAKE-SCALE: the cold cannot bite, burns lose half their fury
@@ -2217,6 +2389,27 @@ export class Game {
     // --- Fase 10: red knight bandits (AI frozen during cinematics/dialogue) ---
     if (!cine && !this.endings?.isPlaying) {
       this.bandits?.update(dt, p.position, !this.dead && !dialogueActive && !sailing && !rig.freeCam);
+    }
+
+    // --- Fase 28 — THE ALCHEMIST'S STILL: modifiers fresh every frame ---
+    if (this.alchemy && this.player) {
+      const m = this.alchemy.mods;
+      const p = this.player;
+      p.alchemyStability = m.stability;
+      p.alchemySpeedMult = m.speedMult;
+      p.alchemyDodgeMult = m.dodgeCostMult;
+      p.alchemyAbsorb = m.absorbImpact;
+      p.onImpactAbsorbed = (absorbed) =>
+        this.alchemy?.onImpactAbsorbed(absorbed, new THREE.Vector3(p.position.x, p.position.y + 0.8, p.position.z));
+      this.combat!.alchemyCritAdd = m.critDamageAdd;
+      this.combat!.alchemyAttackSpeed = m.attackSpeedMult;
+      this.alchemy.update(dt);
+    }
+
+    // --- Fase 28 — EL VIAJERO: visit cycle + ambush posture ---
+    if (this.traveler) {
+      this.travelerDayFloat += dt / 600; // DAY_LENGTH_SECONDS = 600
+      this.traveler.update(dt, p.position, this.travelerDayFloat);
     }
 
     // --- Fase 22 — THE FORGE: eclipse tick + armor passive sync ---
@@ -2980,6 +3173,12 @@ export class Game {
         // Fase 17 — bandit finishers moved to V / Shift+Space and the Valor
         //  bar (see CombatSystem.doFinisher); E stays for the world.
         {
+          // Fase 28 — EL VIAJERO: his campfire first (before mounts & world)
+          const travelerPrompt = this.traveler?.interactableNear(p.position) ?? null;
+          if (travelerPrompt) {
+            best = { prompt: travelerPrompt.prompt, run: travelerPrompt.run };
+            bestDist = 0;
+          }
           // Fase 15 — a tame dragon (admin spawn) offers its saddle first
           const dNear = this.dragons?.nearestRideableDragon(p.position) ?? null;
           if (dNear && !this.dead) {
@@ -3483,6 +3682,16 @@ export class Game {
         this.audio.playEvent('pickup');
         useGameStore.getState().notify('item', 'Healing potion', 'Health restored.');
       }
+      // Fase 28 — the still's potions (all validation inside the engine)
+      if (STILL_POTIONS.has(id)) {
+        const r = this.alchemy?.use(id) ?? 'unknown';
+        if (r === 'combat-limit') {
+          useGameStore.getState().notify(
+            'item', 'The Tear refuses',
+            'It only answers once per fight against monsters — twice against bosses. Outlast this one, or save it.',
+          );
+        }
+      }
     };
     gameApi.readItem = (id) => {
       const item = ITEMS[id];
@@ -3582,6 +3791,16 @@ export class Game {
         }),
       };
     };
+    // ---- Fase 28 — EL VIAJERO: the trade panel's validated surface ----
+    gameApi.travelerCatalog = () => this.traveler?.catalog() ?? null;
+    gameApi.travelerBuy = (id) => this.traveler?.buy(id) ?? 'stock';
+    gameApi.travelerSell = (id, count) => this.traveler?.sell(id, count) ?? { ok: false, paid: 0, credit: 0 };
+    gameApi.travelerBuyback = (index) => this.traveler?.buyback(index) ?? 'range';
+    gameApi.travelerRelic = () => this.traveler?.rollRelic() ?? { ok: false, got: '', tier: '' };
+    gameApi.toggleFavorite = (id) => this.state.toggleFavorite(id);
+    gameApi.isFavorite = (id) => this.state.isFavorite(id);
+    gameApi.activeEffects = () => this.alchemy?.activeEffects() ?? [];
+
     gameApi.buyShopItem = (vendor, itemId) => {
       const def = VENDORS[vendor];
       const entry = def?.entries.find((e) => e.item === itemId);

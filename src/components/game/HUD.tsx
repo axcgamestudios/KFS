@@ -29,6 +29,37 @@ function FpsCounter() {
   );
 }
 
+/**
+ * Fase 28 — THE ALCHEMIST'S STILL: live potion effect chips. Polls the
+ * AlchemySystem every 500 ms (the FpsCounter pattern); each chip shows the
+ * effect's icon and the seconds it has left.
+ */
+function AlchemyChips() {
+  const [fx, setFx] = useState<Array<{ id: string; left: number; icon: string; name: string }>>([]);
+  useEffect(() => {
+    const id = setInterval(() => setFx(gameApi.activeEffects()), 500);
+    return () => clearInterval(id);
+  }, []);
+  if (fx.length === 0) return null;
+  return (
+    <div className="pointer-events-none absolute left-1/2 top-12 flex -translate-x-1/2 gap-1.5">
+      {fx.map((e) => (
+        <span
+          key={e.id}
+          className="kfs-frame flex items-center gap-1 px-2 py-0.5"
+          style={{ background: 'rgba(12,10,8,0.66)' }}
+          title={e.name}
+        >
+          <span className="kotfs-title text-[0.6rem] tracking-[0.12em] text-[#e8cc6a]">{e.name}</span>
+          <span className="kotfs-title text-[0.62rem] text-[color:var(--kotfs-parchment)]">
+            {Math.ceil(e.left)}s
+          </span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
 /* ================================================================
    Fase 7 — HUD AAA "Brass & Iron": beveled frames, rivets, ghost
    bars, medallion, gauges. Presentational upgrade only — same store.
@@ -694,6 +725,7 @@ export default function HUD() {
   return (
     <div className="pointer-events-none absolute inset-0 z-20 select-none">
       {showFps && <FpsCounter />}
+      <AlchemyChips />
       {/* --- Fase 15 — underwater overlay: the sea from below --- */}
       {submerged && (
         <div

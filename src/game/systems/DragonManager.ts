@@ -44,7 +44,13 @@ export const DRAGON_DEFS: DragonDef[] = [
     speedGround: 3.4, speedFly: 10,
     xp: 220, deathFlag: 'vaelthara_dead', introFlag: 'vaelthara_seen',
     phase2At: 0.5,
-    drops: [{ id: 'corazon_marea', count: 1 }, { id: 'escama', count: 2 }],
+    drops: [
+      { id: 'corazon_marea', count: 1 }, { id: 'escama', count: 2 },
+      // Fase 28 — the Warden kept these through all her long watch: the
+      // Tear of the Ancestral Forest is brewed from them.
+      { id: 'semilla_bosque', count: 1 },
+      { id: 'esencia_roble', count: 1 },
+    ],
     lootGold: 80,
   },
   {
@@ -99,7 +105,11 @@ export const DRAGON_DEFS: DragonDef[] = [
     speedGround: 4.2, speedFly: 12.5,
     xp: 800, deathFlag: 'kraivenn_dead', introFlag: 'kraivenn_intro',
     phase2At: 0.62, phase3At: 0.3,
-    drops: [{ id: 'corazon_cuervo', count: 1 }, { id: 'espada_fuego', count: 1 }, { id: 'reliquia_cuervo', count: 3 }],
+    drops: [
+      { id: 'corazon_cuervo', count: 1 }, { id: 'espada_fuego', count: 1 }, { id: 'reliquia_cuervo', count: 3 },
+      // Fase 28 — the alchemist's tithe: the Scale-Guardian's heartstones
+      { id: 'gema_fuego', count: 2, chance: 0.4 },
+    ],
     lootGold: 400,
   },
   {
@@ -139,7 +149,13 @@ export const DRAGON_DEFS: DragonDef[] = [
     meleeRange: 3.4, fireRange: 16, fireDps: 14, meleeDamage: 11,
     speedGround: 3.6, speedFly: 0,
     xp: 60, deathFlag: 'drake_stones_dead',
-    drops: [{ id: 'escama', count: 1 }, { id: 'flecha', count: 3 }, { id: 'colmillo_cria', count: 1, chance: 0.65 }, { id: 'escama_quemada', count: 1, chance: 0.45 }],
+    drops: [
+      { id: 'escama', count: 1 }, { id: 'flecha', count: 3 },
+      { id: 'colmillo_cria', count: 1, chance: 0.65 }, { id: 'escama_quemada', count: 1, chance: 0.45 },
+      // Fase 28 — the alchemist's tithe (the Vigils' winged drakelings)
+      { id: 'escama_opaca', count: 1, chance: 0.55 }, { id: 'diente_reptil', count: 1, chance: 0.4 },
+      { id: 'pluma_reforzada', count: 1, chance: 0.25 }, { id: 'garra_afilada', count: 1, chance: 0.3 },
+    ],
     lootGold: 15,
   },
   {
@@ -153,7 +169,14 @@ export const DRAGON_DEFS: DragonDef[] = [
     meleeRange: 3.2, fireRange: 17, fireDps: 12, meleeDamage: 10,
     speedGround: 3.2, speedFly: 9,
     xp: 60, deathFlag: 'drake_grotto_dead',
-    drops: [{ id: 'escama', count: 1 }, { id: 'flecha', count: 3 }, { id: 'colmillo_cria', count: 1, chance: 0.65 }, { id: 'escama_quemada', count: 1, chance: 0.45 }],
+    drops: [
+      { id: 'escama', count: 1 }, { id: 'flecha', count: 3 },
+      { id: 'colmillo_cria', count: 1, chance: 0.65 }, { id: 'escama_quemada', count: 1, chance: 0.45 },
+      // Fase 28 — the alchemist's tithe (the Vigils' winged drakelings)
+      { id: 'escama_opaca', count: 1, chance: 0.55 }, { id: 'diente_reptil', count: 1, chance: 0.4 },
+      // the grotto brood burns: fire-gland + elemental fire jelly
+      { id: 'glandula_fuego', count: 1, chance: 0.22 }, { id: 'gelatina_fuego', count: 1, chance: 0.3 },
+    ],
     lootGold: 15,
   },
 ];
@@ -584,7 +607,13 @@ export class DragonManager {
   }
 
   /** Direct damage helper (debug / scripted). */
+  /** Fase 28 — set by Game: the acid cloud's armor shred lookup. */
+  acidShredOf: ((dragon: Dragon) => number) | null = null;
+
   damage(dragon: Dragon, amount: number, heavy: boolean): void {
+    // Fase 28 — CORROSIVE ACID BREW: −30% armor = +30% damage taken while
+    // the cloud holds (every source: steel, arrows, DoT, reflect).
+    if (this.acidShredOf) amount *= this.acidShredOf(dragon);
     dragon.takeDamage(amount, heavy, this.dragonHooksFor(dragon));
   }
 

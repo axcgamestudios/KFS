@@ -336,8 +336,7 @@ export class Player {
   /** Fase 22 — the dodge's cost: HARPOS are weightless (−30%); the
    *  ANCESTRAL plate drags a little (the price of a legend, −5% speed). */
   get dodgeCostMult(): number {
-    if (this.armorPassive === 'harapos') return 0.7;
-    return 1;
+    return this.alchemyDodgeMult * (this.armorPassive === 'harapos' ? 0.7 : 1);
   }
 
   get dodgeSpeedMult(): number {
@@ -436,7 +435,7 @@ export class Player {
       const len = Math.hypot(dx, dz);
       if (len > 0.01) {
         const anchor = this.armorPassive === 'peto_vigia' ? 0.7 : 1;
-        const power = this.superArmor ? 0 : 3.1 * anchor;
+        const power = this.superArmor ? 0 : 3.1 * anchor * this.alchemyStability;
         this.knockX = (dx / len) * power;
         this.knockZ = (dz / len) * power;
         this.knockT = power > 0 ? 0.22 : 0;
@@ -455,6 +454,17 @@ export class Player {
   knockX = 0;
   knockZ = 0;
   knockT = 0;
+
+  // ---- Fase 28 — THE ALCHEMIST'S STILL: live potion modifiers ----------
+  // Written by Game each frame from AlchemySystem.mods; defaults are the
+  // unbuffed state so every consumer reads them without null checks.
+  alchemyStability = 1;      // knockback × (Oak-Skin 0.6)
+  alchemySpeedMult = 1;      // walk/run × (Celerity 1.2)
+  alchemyDodgeMult = 1;      // dodge stamina × (Celerity 0.85)
+  alchemyAttackSpeed = 1;    // attack cadence × (Fury 1.15) — consumed by CombatSystem
+  alchemyAbsorb = 0;         // fraction of impact/fall damage absorbed (Inert Mass 0.5)
+  /** Fired when Inert Mass absorbs impact/fall damage (the reflect pulse). */
+  onImpactAbsorbed?: (absorbed: number) => void;
 
   update(dt: number, input: Input, cameraYaw: number, terrain: TerrainHeight, colliders: ColliderRegistry, dialogueActive: boolean): void {
     // --- Input direction (camera relative) ---
@@ -530,6 +540,7 @@ export class Player {
     const wantRun = input.isDown('sprint') && inputLen > 0 && this.stamina > 1 && !this.swimming && !this.wading;
     let speed = this.swimming ? this.stats.swimSpeed : wantRun ? this.stats.runSpeed : this.stats.walkSpeed;
     if (this.wading) speed = this.stats.walkSpeed * 0.62; // pushing through chest-deep water
+    speed *= this.alchemySpeedMult; // Fase 28 — Celerity (keep after wading: less speed in water)
     // Combat movement modifiers (Fase 3)
     if (this.dashing) speed = 0;                       // the rope owns the body
     else if (this.rollT > 0) speed = 7.6;              // dodge roll burst
@@ -798,9 +809,18 @@ export class Player {
         if (!this.wasGrounded && this.airTime > 0.35) {
           const fallSpeed = -this.verticalVel;
           if (fallSpeed > 13) {
-            const dmg = Math.round((fallSpeed - 13) * 7);
-            this.health = Math.max(0, this.health - dmg);
-            this.onDamaged?.(dmg, 'caida');
+            let dmg = Math.round((fallSpeed - 13) * 7);
+            // Fase 28 — INERT MASS: half of the impact never arrives, and a
+            // tenth of what it ate comes back out of you as a shockwave.
+            if (this.alchemyAbsorb > 0 && dmg > 0) {
+              const absorbed = Math.round(dmg * this.alchemyAbsorb);
+              dmg = Math.max(0, dmg - absorbed);
+              if (absorbed > 0) this.onImpactAbsorbed?.(absorbed);
+            }
+            if (dmg > 0) {
+              this.health = Math.max(0, this.health - dmg);
+              this.onDamaged?.(dmg, 'caida');
+            }
           }
         }
         this.position.y = groundY;

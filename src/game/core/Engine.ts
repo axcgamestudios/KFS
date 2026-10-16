@@ -52,6 +52,12 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualitySettings> = {
   ultra:  { pixelRatioCap: 1.5,  shadowMapSize: 4096, shadowsEnabled: true,  viewChunkRadius: 7, grassDensity: 1.0,  anisotropy: 8, postfx: true,  fogMul: 0.92, waterSegments: 280, waveMotionRadius: 160, waterRefl: 1, npcAnimDistance: 130, streamDistance: 1.0 },
 };
 
+/** Fase 28 — ADAPTIVE RESOLUTION LADDER. Never touches the user's tier:
+ *  it modulates only the INTERNAL render resolution (a multiplier on the
+ *  effective pixel ratio). The eye forgives soft pixels; it never forgives
+ *  a slideshow. */
+const ADAPTIVE_SCALES = [1.0, 0.92, 0.84, 0.76, 0.7];
+
 /**
  * Core render engine: renderer, scene, cameras, resize handling and the
  * fixed-ish update loop that drives every game system.
@@ -74,6 +80,20 @@ export class Engine {
   onWebGLContextLost?: () => void;
   /** Fase 4 — cinematic post-processing chain (Ultra). */
   postfx: PostFX | null = null;
+
+  // ---- Fase 28 — adaptive resolution governor ------------------------------
+  /** Current internal-resolution multiplier (1.0 = as configured). */
+  adaptiveScale = 1.0;
+  /** Rolling frame-interval EMA in ms (drives the governor; >18 sustained
+   *  = the device can't hold the current tier at native res). */
+  frameMsEma = 16.7;
+  /** Diagnostics: last decided action ("down 0.84" / "up 1.0" / "-"). */
+  adaptiveNote = '-';
+  private adaptiveIdx = 0;
+  private overloadT = 0;
+  private headroomT = 0;
+  private adaptiveCooldown = 0;
+  private basePixelRatio = 1;
 
   constructor(canvas: HTMLCanvasElement, opts?: { antialias?: boolean }) {
     this.renderer = new THREE.WebGLRenderer({
@@ -115,8 +135,14 @@ export class Engine {
     const prevShadows = this.quality.shadowsEnabled;
     const prevShadowSize = this.quality.shadowMapSize;
     this.quality = { ...QUALITY_PRESETS[level] };
-    const pr = pixelRatioFor(this.quality.pixelRatioCap);
-    this.renderer.setPixelRatio(pr);
+    this.basePixelRatio = pixelRatioFor(this.quality.pixelRatioCap);
+    // Fase 28 — a preset change is an explicit user decision: re-arm the
+    // adaptive governor at 1.0 and follow the new tier from native.
+    this.adaptiveIdx = 0;
+    this.adaptiveScale = ADAPTIVE_SCALES[0];
+    this.overloadT = 0; this.headroomT = 0; this.adaptiveCooldown = 0;
+    this.adaptiveNote = 'rearm';
+    this.applyPixelRatio();
     this.renderer.shadowMap.enabled = this.quality.shadowsEnabled;
     const shadowsToggled = prevShadows !== this.quality.shadowsEnabled;
     const shadowSizeChanged = prevShadowSize !== this.quality.shadowMapSize;
@@ -142,7 +168,18 @@ export class Engine {
         const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
         mats.forEach((m) => {
           const std = m as THREE.MeshStandardMaterial;
-          if (std.map) std.map.anisotropy = this.quality.anisotropy;
+          // Fase 28 — anisotropy only takes effect on an uploaded texture if
+          // the texture is re-uploaded; mark it ONLY when the value actually
+          // changed (a blanket needsUpdate re-uploads every mip of every
+          // texture in the world — a visible hitch right at the tier switch).
+          if (std.map) {
+            const lastAniso = (std.map.userData.lastAniso as number | undefined) ?? -1;
+            if (lastAniso !== this.quality.anisotropy) {
+              std.map.userData.lastAniso = this.quality.anisotropy;
+              std.map.anisotropy = this.quality.anisotropy;
+              std.map.needsUpdate = true;
+            }
+          }
           // Shadow on/off & shadow map size require shader recompilation
           if ((shadowsToggled || shadowSizeChanged) && m.type !== 'ShaderMaterial') {
             std.needsUpdate = true;
@@ -182,8 +219,8 @@ export class Engine {
     this.renderer.shadowMap.type = wantSoft ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
     this.renderer.shadowMap.autoUpdate = this.shadowEvery <= 1;
     if (!this.renderer.shadowMap.autoUpdate) this.renderer.shadowMap.needsUpdate = true;
-    const pr = pixelRatioFor(this.quality.pixelRatioCap);
-    this.renderer.setPixelRatio(pr);
+    this.basePixelRatio = pixelRatioFor(this.quality.pixelRatioCap);
+    this.applyPixelRatio();
     this.renderer.shadowMap.enabled = this.quality.shadowsEnabled;
     const shadowsToggled = prevShadows !== this.quality.shadowsEnabled;
     const shadowSizeChanged = prevShadowSize !== this.quality.shadowMapSize;
@@ -223,11 +260,17 @@ export class Engine {
   private handleResize = (): void => {
     const w = window.innerWidth;
     const h = window.innerHeight;
+    this.renderer.setPixelRatio(this.basePixelRatio * this.adaptiveScale);
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / Math.max(1, h);
     this.camera.updateProjectionMatrix();
     this.postfx?.resize();
   };
+
+  /** Fase 28 — re-apply the effective pixel ratio (base tier × adaptive). */
+  private applyPixelRatio(): void {
+    this.renderer.setPixelRatio(this.basePixelRatio * this.adaptiveScale);
+  }
 
   addUpdater(fn: (dt: number, elapsed: number) => void): void {
     this.updaters.push(fn);
@@ -240,8 +283,10 @@ export class Engine {
     const loop = () => {
       if (!this.running) return;
       this.frameHandle = requestAnimationFrame(loop);
-      const dt = Math.min(this.clock.getDelta(), 0.1); // clamp huge pauses
+      const rawDt = this.clock.getDelta();
+      const dt = Math.min(rawDt, 0.1); // clamp huge pauses
       const elapsed = this.clock.elapsedTime;
+      this.stepAdaptive(rawDt);
       // FPS counter
       this.fpsAccum += dt;
       this.fpsFrames++;
@@ -264,6 +309,57 @@ export class Engine {
       }
     };
     this.frameHandle = requestAnimationFrame(loop);
+  }
+
+  /**
+   * Fase 28 — one governor step per frame. A rolling frame-INTERVAL EMA is
+   * the signal (rAF pacing: on a synced display the interval IS the frame
+   * cost when the device is overloaded, and the vsync floor when it is
+   * not). Sustained > 1.28x the 16.7 ms budget (~<47 fps) for 0.8 s steps
+   * the internal resolution DOWN the ADAPTIVE_SCALES ladder (cooldown 1.2 s
+   * so a single GC/tier-switch hitch can never trigger it); sustained
+   * < 0.8x budget (~>75 fps) for 2.6 s steps it back UP. Hysteresis by
+   * construction: the down-window (0.8 s) is 3x shorter than the up-window
+   * (2.6 s), and every step re-arms both — it can never oscillate.
+   * Tab switches and >400 ms stalls are ignored entirely.
+   */
+  private stepAdaptive(rawDt: number): void {
+    if (!this.running) return;
+    const ms = rawDt * 1000;
+    if (ms > 400 || ms < 1) return; // backgrounding / timer stalls
+    this.frameMsEma = this.frameMsEma * 0.9 + Math.min(ms, 250) * 0.1;
+    if (this.adaptiveCooldown > 0) this.adaptiveCooldown = Math.max(0, this.adaptiveCooldown - rawDt);
+    const budget = 16.7;
+    if (this.frameMsEma > budget * 1.28) {
+      this.headroomT = 0;
+      if (this.adaptiveCooldown <= 0) {
+        this.overloadT += rawDt;
+        if (this.overloadT > 0.8 && this.adaptiveIdx < ADAPTIVE_SCALES.length - 1) {
+          this.adaptiveIdx += 1;
+          this.adaptiveScale = ADAPTIVE_SCALES[this.adaptiveIdx];
+          this.adaptiveNote = `down ${this.adaptiveScale.toFixed(2)}`;
+          this.applyPixelRatio();
+          this.overloadT = 0;
+          this.adaptiveCooldown = 1.2;
+        }
+      }
+    } else if (this.frameMsEma < budget * 0.8) {
+      this.overloadT = 0;
+      if (this.adaptiveIdx > 0) {
+        this.headroomT += rawDt;
+        if (this.headroomT > 2.6) {
+          this.adaptiveIdx -= 1;
+          this.adaptiveScale = ADAPTIVE_SCALES[this.adaptiveIdx];
+          this.adaptiveNote = `up ${this.adaptiveScale.toFixed(2)}`;
+          this.applyPixelRatio();
+          this.headroomT = 0;
+          this.adaptiveCooldown = 1.2;
+        }
+      }
+    } else {
+      this.overloadT = 0;
+      this.headroomT = 0;
+    }
   }
 
   stop(): void {
