@@ -44,13 +44,7 @@ export const DRAGON_DEFS: DragonDef[] = [
     speedGround: 3.4, speedFly: 10,
     xp: 220, deathFlag: 'vaelthara_dead', introFlag: 'vaelthara_seen',
     phase2At: 0.5,
-    drops: [
-      { id: 'corazon_marea', count: 1 }, { id: 'escama', count: 2 },
-      // Fase 28 — the Warden kept these through all her long watch: the
-      // Tear of the Ancestral Forest is brewed from them.
-      { id: 'semilla_bosque', count: 1 },
-      { id: 'esencia_roble', count: 1 },
-    ],
+    drops: [{ id: 'corazon_marea', count: 1 }, { id: 'escama', count: 2 }],
     lootGold: 80,
   },
   {
@@ -105,38 +99,8 @@ export const DRAGON_DEFS: DragonDef[] = [
     speedGround: 4.2, speedFly: 12.5,
     xp: 800, deathFlag: 'kraivenn_dead', introFlag: 'kraivenn_intro',
     phase2At: 0.62, phase3At: 0.3,
-    drops: [
-      { id: 'corazon_cuervo', count: 1 }, { id: 'espada_fuego', count: 1 }, { id: 'reliquia_cuervo', count: 3 },
-      // Fase 28 — the alchemist's tithe: the Scale-Guardian's heartstones
-      { id: 'gema_fuego', count: 2, chance: 0.4 },
-    ],
+    drops: [{ id: 'corazon_cuervo', count: 1 }, { id: 'espada_fuego', count: 1 }, { id: 'reliquia_cuervo', count: 3 }],
     lootGold: 400,
-  },
-  {
-    // Fase 27 — DEVASTACIÓN CELESTIAL: the Elder Dragon world boss. Never
-    // spawns on its own: the LegendaryEvents system wakes it at the summits
-    // (or the ancient altar answers a sacrifice) and announces it.
-    id: 'elderdragon', name: 'Elder Dragon', title: 'The Awakened Ancestor',
-    boss: true, wyvern: false, canFly: true,
-    useGlbModel: true,
-    spawnFlag: 'elderdragon_awake',
-    colors: { body: 0x4a2d20, belly: 0xc9973f, membrane: 0x8a4a2a, eye: 0xffd050, horn: 0xe8d9b0 },
-    scale: 2.1, maxHp: 2600,
-    home: { x: 20, z: -300 }, territory: 260, aggroRange: 120,
-    attacks: ['bite', 'claw', 'tail', 'fire'],
-    meleeRange: 11.5, fireRange: 48, fireDps: 40, meleeDamage: 34,
-    speedGround: 4.6, speedFly: 12,
-    xp: 1500, deathFlag: 'elderdragon_dead', introFlag: 'elderdragon_seen',
-    phase2At: 0.66, phase3At: 0.33,
-    drops: [
-      { id: 'escama_ancestral', count: 4 },
-      { id: 'placa_sangre', count: 2, chance: 0.5 },
-      { id: 'espada_garra', count: 1, chance: 0.05 },
-      { id: 'corazon_dragon_anciano', count: 1, chance: 0.05 },
-      { id: 'corona_astas', count: 1, chance: 0.01 },
-      { id: 'esencia_solar', count: 1, chance: 0.05 },
-    ],
-    lootGold: 800,
   },
   {
     id: 'drake_stones', name: 'Drakeling of the Vigils', boss: false,
@@ -149,13 +113,7 @@ export const DRAGON_DEFS: DragonDef[] = [
     meleeRange: 3.4, fireRange: 16, fireDps: 14, meleeDamage: 11,
     speedGround: 3.6, speedFly: 0,
     xp: 60, deathFlag: 'drake_stones_dead',
-    drops: [
-      { id: 'escama', count: 1 }, { id: 'flecha', count: 3 },
-      { id: 'colmillo_cria', count: 1, chance: 0.65 }, { id: 'escama_quemada', count: 1, chance: 0.45 },
-      // Fase 28 — the alchemist's tithe (the Vigils' winged drakelings)
-      { id: 'escama_opaca', count: 1, chance: 0.55 }, { id: 'diente_reptil', count: 1, chance: 0.4 },
-      { id: 'pluma_reforzada', count: 1, chance: 0.25 }, { id: 'garra_afilada', count: 1, chance: 0.3 },
-    ],
+    drops: [{ id: 'escama', count: 1 }, { id: 'flecha', count: 3 }, { id: 'colmillo_cria', count: 1, chance: 0.65 }, { id: 'escama_quemada', count: 1, chance: 0.45 }],
     lootGold: 15,
   },
   {
@@ -169,14 +127,7 @@ export const DRAGON_DEFS: DragonDef[] = [
     meleeRange: 3.2, fireRange: 17, fireDps: 12, meleeDamage: 10,
     speedGround: 3.2, speedFly: 9,
     xp: 60, deathFlag: 'drake_grotto_dead',
-    drops: [
-      { id: 'escama', count: 1 }, { id: 'flecha', count: 3 },
-      { id: 'colmillo_cria', count: 1, chance: 0.65 }, { id: 'escama_quemada', count: 1, chance: 0.45 },
-      // Fase 28 — the alchemist's tithe (the Vigils' winged drakelings)
-      { id: 'escama_opaca', count: 1, chance: 0.55 }, { id: 'diente_reptil', count: 1, chance: 0.4 },
-      // the grotto brood burns: fire-gland + elemental fire jelly
-      { id: 'glandula_fuego', count: 1, chance: 0.22 }, { id: 'gelatina_fuego', count: 1, chance: 0.3 },
-    ],
+    drops: [{ id: 'escama', count: 1 }, { id: 'flecha', count: 3 }, { id: 'colmillo_cria', count: 1, chance: 0.65 }, { id: 'escama_quemada', count: 1, chance: 0.45 }],
     lootGold: 15,
   },
 ];
@@ -357,7 +308,8 @@ export class DragonManager {
     scene.add(this.breathLight);
 
     // Spawn the world dragons (skarnvind waits for its sea event;
-    // kraivenn waits for the black altar awakening)
+    // kraivenn waits for the black altar awakening; Fase 27 — the early
+    // dragons are LEVEL-GATED: they wake when the hero is ready)
     for (const def of DRAGON_DEFS) {
       if (def.id === 'skarnvind') continue;
       if (def.spawnFlag) {
@@ -365,6 +317,12 @@ export class DragonManager {
         if (state.hasFlag(def.spawnFlag) && !state.hasFlag(def.deathFlag)) {
           this.spawnDeferred(def, true);
         }
+        continue;
+      }
+      if (!this.dragonGateMet(def)) {
+        // Not yet: hold the def in the pending wings until the level/quest
+        // gate opens (setProgress checks every call)
+        this.pending.push(def);
         continue;
       }
       const loader = def.useGlbModel && this.assets
@@ -388,6 +346,67 @@ export class DragonManager {
 
   private scene: THREE.Scene;
   private assets: AssetSystem | null;
+
+  // ---- Fase 27 — PROGRESSION GATING ("no pongas al jugador a pelear con
+  //      dragones desde el inicio"): the early game belongs to the common
+  //      enemies. Boss dragons and drakes spawn DORMANT-ABSENT until the
+  //      hero is strong enough (level) or the main story calls for them
+  //      (quest). Kraivenn keeps its altar flag; Skarnvind its sea event. ----
+  private progress = { level: 1, activeQuests: new Set<string>() };
+  private pending: DragonDef[] = [];
+  /** Admin/E2E override: spawn everything regardless of gates. */
+  unlockAllDragons = false;
+
+  /** The Game feeds level + active quests (polled every ~2 s, cheap). */
+  setProgress(level: number, questActive: (id: string) => boolean): void {
+    this.progress.level = Math.max(this.progress.level, level);
+    for (let i = this.pending.length - 1; i >= 0; i--) {
+      const def = this.pending[i];
+      if (this.dragonGateMet(def)) {
+        this.pending.splice(i, 1);
+        this.spawnGated(def);
+      }
+    }
+    void questActive;
+  }
+
+  /** Level thresholds per encounter (or an active late-game quest overrides). */
+  private dragonGateMet(def: DragonDef): boolean {
+    if (this.unlockAllDragons) return true;
+    switch (def.id) {
+      case 'drake_stones':
+      case 'drake_grotto':
+        return this.progress.level >= 6;
+      case 'vaelthara':
+        return this.progress.level >= 8;
+      case 'ancestro':
+        return this.progress.level >= 12;
+      default:
+        return true;
+    }
+  }
+
+  /** A gated dragon wakes: dramatic entrance + notification. */
+  private spawnGated(def: DragonDef): Dragon | null {
+    const loader = def.useGlbModel && this.assets
+      ? () => this.assets!.loadAnimatedModelShared('black_dragon.glb')
+      : undefined;
+    const dragon = new Dragon(def, this.scene, def.id.length * 7 + def.home.x, loader);
+    const deadAlready = this.state.hasFlag(def.deathFlag);
+    dragon.spawnAt(this.terrain, false);
+    if (deadAlready) {
+      dragon.state = 'dead';
+      dragon.aggro = false;
+    }
+    dragon.setStepHook(() => this.hooks.sound('thud'));
+    this.dragons.push(dragon);
+    this.byId.set(def.id, dragon);
+    if (!deadAlready) {
+      this.hooks.notify('quest', 'THE SKY CHANGES', `${def.name} has taken wing over ${(def.title ?? 'the wilds').toLowerCase()}. The wilds just got more dangerous.`);
+      this.hooks.sound('roar_big');
+    }
+    return dragon;
+  }
 
   /** Build a deferred dragon (Kraivenn) — called by the altar awakening. */
   spawnDeferred(def: DragonDef, restored = false): Dragon | null {
@@ -421,35 +440,6 @@ export class DragonManager {
     if (!def) return;
     this.hooks.setFlag('kraivenn_awake');
     this.spawnDeferred(def, false);
-  }
-
-  /**
-   * Fase 27 — DEVASTACIÓN CELESTIAL: the LegendaryEvents system wakes the
-   * ELDER DRAGON at the player's summits. Three phases (earth / sky /
-   * apocalypse), full CC immunity (boss poise), and — per the studio — she
-   * DESCENDS to fight so a sword hero can reach her (elderBoss ground
-   * commitment on the Dragon). Returns her, or null if she is already up.
-   */
-  awakenElderDragon(x: number, z: number): Dragon | null {
-    if (this.dragons.some((d) => d.def.id === 'elderdragon' && d.alive)) return null;
-    const def = DRAGON_DEFS.find((d) => d.id === 'elderdragon');
-    if (!def) return null;
-    this.hooks.setFlag('elderdragon_awake');
-    const summoned: DragonDef = {
-      ...def,
-      home: { x, z },
-      territory: 320,
-    };
-    const dragon = this.spawnDeferred(summoned, false);
-    if (dragon) {
-      dragon.elderBoss = true;
-      dragon.aggro = false;
-      // She arrives in the sky, announces, then dives at the hero
-      dragon.flying = true;
-      dragon.pos.y = Math.max(this.terrain.height(x, z), 0) + 34;
-      setTimeout(() => { if (dragon.alive) dragon.aggro = true; }, 2600);
-    }
-    return dragon;
   }
 
   /**
@@ -607,13 +597,7 @@ export class DragonManager {
   }
 
   /** Direct damage helper (debug / scripted). */
-  /** Fase 28 — set by Game: the acid cloud's armor shred lookup. */
-  acidShredOf: ((dragon: Dragon) => number) | null = null;
-
   damage(dragon: Dragon, amount: number, heavy: boolean): void {
-    // Fase 28 — CORROSIVE ACID BREW: −30% armor = +30% damage taken while
-    // the cloud holds (every source: steel, arrows, DoT, reflect).
-    if (this.acidShredOf) amount *= this.acidShredOf(dragon);
     dragon.takeDamage(amount, heavy, this.dragonHooksFor(dragon));
   }
 

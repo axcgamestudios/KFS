@@ -26,19 +26,11 @@ import type { Ship } from './naval/Ship';
 import { VfxSystem } from './systems/VfxSystem';
 import { SeaBeastSystem } from './systems/SeaBeastSystem';
 import { PirateAmbushSystem } from './systems/PirateAmbushSystem';
-import { LegendaryEvents } from './systems/LegendaryEvents';
 import { CombatSystem, WEAPONS, SWORD_TIER_NAMES, SWORD_PRIORITY, swordElementOf } from './systems/CombatSystem';
-
-/** Fase 28 — potions routed through the AlchemySystem from useItem. */
-const STILL_POTIONS = new Set([
-  'pocion_curacion_menor', 'pocion_escamas', 'elixir_termico', 'pocion_roble',
-  'tonico_celeridad', 'brebaje_acido', 'elixir_furia', 'elixir_masa', 'lagrima_bosque',
-]);
 import { DragonManager } from './systems/DragonManager';
 import { BanditSystem } from './systems/BanditSystem';
+import { BestiarySystem } from './systems/BestiarySystem';
 import { ForgeSystem } from './systems/ForgeSystem';
-import { AlchemySystem, type AlchemyTarget } from './systems/AlchemySystem';
-import { TravelerSystem } from './systems/TravelerSystem';
 import type { Dragon } from './entities/Dragon';
 import { CinematicSystem, type CineShot } from './systems/CinematicSystem';
 import { walkActor, heroSalute, idleActor, faceTarget } from './systems/CineActors';
@@ -137,14 +129,14 @@ export class Game {
   private endings?: EndingSystem;
   /** Fase 10 — red knight bandits patrolling road camps. */
   private bandits?: BanditSystem;
+  /** Fase 27 — EL BESTIARIO: the common enemies (tiered by zone). */
+  private bestiary?: BestiarySystem;
   /** Fase 22 — THE FORGE OF LEGENDS: recipes, stations and the eclipse. */
   private forge?: ForgeSystem;
   /** Fase 15 — sea serpents + the King of the Sea (Navel of the Sea arena). */
   private seaBeasts?: SeaBeastSystem;
   /** Fase 15 — random pirate ambushes on the high seas + toll negotiation. */
   private pirateAmbush?: PirateAmbushSystem;
-  /** Fase 27 — THE THREE LEGENDARY EVENTS (Pirate King / Storm Ronin / Elder Dragon). */
-  private legendary?: LegendaryEvents;
   /** Fase 9 — in-game narrative cinematics (dragon victories, chapters). */
   private cinematics = new CinematicSystem();
   /** Fase 9 — chapter cinematic waiting for the closing dialogue to end. */
@@ -152,12 +144,6 @@ export class Game {
   /** Fase 9 — quest ids already seen completed (chapter detection). */
   private lastCompletedIds = new Set<string>();
   private postfx?: PostFX;
-  /** Fase 28 — the alchemist's engine (Maren's still potions). */
-  private alchemy?: AlchemySystem;
-  /** Fase 28 — EL VIAJERO, the wandering guild merchant. */
-  private traveler?: TravelerSystem;
-  /** Monotonic game-day clock driving the Traveler's no-rigid-clock cycle. */
-  private travelerDayFloat = 0;
   /** Fase 21 — scratch vector for the sun-shafts screen projection (no per-frame alloc). */
   private SHAFT_SCRATCH = new THREE.Vector3();
   /** Fase 4 — ambient music bed from the asset repository (MP3). */
@@ -424,7 +410,6 @@ export class Game {
         this.dragons ? this.dragons.meleeHitCheck(origin, yaw, reach, arc) : null,
       damageDragon: (dragon, amount, heavy) => {
         this.dragons?.damage(dragon, amount, heavy);
-        this.alchemy?.noteCombat(true);
         this.musicIntensityTarget = Math.max(this.musicIntensityTarget, 0.7);
       },
       crewHit: (origin, yaw, dmg, reach, arc) => {
@@ -453,17 +438,35 @@ export class Game {
       },
       // Fase 10 — red knight bandits: the player's steel finds them too
       banditMelee: (origin, yaw, reach, arc) =>
-        this.bandits ? this.bandits.meleeHitCheck(origin, yaw, reach, arc) : null,
+        this.bandits?.meleeHitCheck(origin, yaw, reach, arc)
+        ?? this.bestiary?.meleeHitCheck(origin, yaw, reach, arc)
+        ?? null,
       damageBandit: (bandit, amount, heavy) => {
-        this.bandits?.damage(bandit, amount, heavy);
-        this.alchemy?.noteCombat(false);
+        // Fase 27 — dispatch: creatures route to the bestiary (with the
+        // roar debuff + weapon bonuses), bandits to their system
+        const outMul = this.combat?.outDamageMul ?? 1;
+        if (this.bestiary?.owns(bandit)) {
+          let dmg = amount * outMul;
+          // Krog's club: +15% against lesser humanoid foes (the spec)
+          const spec = this.bestiary.speciesOf(bandit);
+          if (this.state.equippedWeapon === 'garrote_krog' && spec.tier === 1) dmg *= 1.15;
+          this.bestiary.damage(bandit, dmg, {
+            heavy, fromX: this.player?.position.x, fromZ: this.player?.position.z,
+          });
+        } else {
+          this.bandits?.damage(bandit, amount * outMul, heavy);
+        }
         this.musicIntensityTarget = Math.max(this.musicIntensityTarget, 0.55);
       },
       // Fase 11 — multi-target sweeps (spin finishers) + radial AoE (plunge)
-      banditMeleeMulti: (origin, yaw, reach, arc, max) =>
-        this.bandits ? this.bandits.meleeHitCheckMulti(origin, yaw, reach, arc, max) : [],
-      banditMeleeRadius: (center, radius, max) =>
-        this.bandits ? this.bandits.meleeHitCheckRadius(center, radius, max) : [],
+      banditMeleeMulti: (origin, yaw, reach, arc, max) => [
+        ...(this.bandits ? this.bandits.meleeHitCheckMulti(origin, yaw, reach, arc, max) : []),
+        ...(this.bestiary ? this.bestiary.meleeHitCheckMulti(origin, yaw, reach, arc, max) : []),
+      ].slice(0, max),
+      banditMeleeRadius: (center, radius, max) => [
+        ...(this.bandits ? this.bandits.meleeHitCheckRadius(center, radius, max) : []),
+        ...(this.bestiary ? this.bestiary.meleeHitCheckRadius(center, radius, max) : []),
+      ].slice(0, max),
       // Fase 11 — a whiff: nearby bandits snap into a weapon-up guard
       onWhiff: (pos) => this.bandits?.onPlayerWhiff(pos),
       // Fase 12 — elemental sword connected: element burst at the impact
@@ -481,120 +484,36 @@ export class Game {
       turnBanditBack: (bandit, dur) => this.bandits?.turnBanditBack(bandit, dur),
       pullBandit: (bandit, dx, dz) => this.bandits?.pullBandit(bandit, dx, dz),
       finisherTarget: (playerPos) =>
-        this.bandits ? this.bandits.finisherTarget(playerPos) : null,
+        this.bandits?.finisherTarget(playerPos)
+        ?? this.bestiary?.finisherTarget(playerPos)
+        ?? null,
     });
     this.combat.dragonHitRef = (pos, radius) =>
       this.dragons ? this.dragons.projectileHitTest(pos, radius) : null;
-    // Fase 28 — THE ALCHEMIST'S STILL: one engine for every live potion
-    // effect (buffs, the acid flask, the Tear's per-combat limit).
-    this.alchemy = new AlchemySystem(this.state, {
-      notify: (kind, title, body) => useGameStore.getState().notify(kind, title, body),
-      sound: (id) => this.audio.playEvent(id),
-      shockwave: (pos) => this.vfx?.elementalBurst(pos, 'storm'),
-      acidCloud: (pos) => this.vfx?.elementalBurst(pos, 'storm'),
-      nearbyTargets: (pos, radius): AlchemyTarget[] => {
-        const out: AlchemyTarget[] = [];
-        for (const h of this.bandits ? this.bandits.meleeHitCheckRadius(pos, radius, 8) : []) {
-          out.push({
-            kind: 'bandit', ref: h.bandit, isBoss: false, pos: h.bandit.center(),
-            isAlive: () => !(h.bandit as { dead?: boolean }).dead,
-            damage: (n) => {
-              this.bandits?.damage(h.bandit, n, false);
-              return true;
-            },
-          });
-        }
-        for (const d of this.dragons ? this.dragons.list() : []) {
-          const dp = (d as unknown as { pos?: THREE.Vector3 }).pos;
-          if (!dp || Math.hypot(dp.x - pos.x, dp.z - pos.z) > radius) continue;
-          out.push({
-            kind: 'dragon', ref: d, isBoss: true, pos: dp.clone(),
-            isAlive: () => (d as unknown as { alive?: boolean }).alive !== false,
-            damage: (n) => {
-              this.dragons?.damage(d, n, false);
-              return true;
-            },
-          });
-        }
-        return out;
-      },
-      playerAttackDamage: () => {
-        const wid = this.state.equippedWeapon ?? '';
-        const w = WEAPONS[wid];
-        return w?.lightDmg ?? 14;
-      },
-      player: () => this.player ?? null,
-    });
-
-    // Fase 28 — EL VIAJERO: the wandering merchant of the Guild of Traders
-    this.traveler = new TravelerSystem(this.state, {
-      notify: (kind, title, body) => useGameStore.getState().notify(kind, title, body),
-      sound: (id) => this.audio.playEvent(id),
-      terrain: this.world!.terrainHeight,
-      addBlueFlame: (pos) => {
-        const fx = getFlameFX(this.engine.scene);
-        // heat cranked to the blue end of the shader's ramp: the blue-flame
-        // campfire that marks his camp from far away
-        return fx?.addFlame(pos, { scale: 0.62, height: 1.05, heat: 0.96, embers: 0 }) ?? null;
-      },
-      makeMerchant: (x, z) => {
-        try {
-          const pal = villagerPalette(6);
-          const visual = new VillagerModelGLB({
-            palette: pal,
-            seed: 77.7,
-            role: 'merchant',
-            assets: this.world!.assets,
-            fallback: () => new VillagerModel(pal, 77.7, 'merchant'),
-          });
-          const wrap = new THREE.Group();
-          wrap.position.set(x, this.world!.terrainHeight.height(x, z), z);
-          this.engine.scene.add(wrap);
-          wrap.add(visual.root);
-          return {
-            root: wrap,
-            update: (dt) => {
-              const panelOpen = useGameStore.getState().traveler !== null;
-              visual.update({
-                dt, speed: 0, moving: false, grounded: true, swimming: false,
-                attackT: 0, talking: panelOpen,
-              });
-            },
-            dispose: () => {
-              visual.dispose();
-              this.engine.scene.remove(wrap);
-            },
-          };
-        } catch {
-          return null;
-        }
-      },
-      spawnAmbushAt: (x, z, count) =>
-        this.bandits ? this.bandits.spawnTravelerAmbush(x, z, count) : [],
-      bannerCue: (x, z, active) => {
-        // the tall emissive Guild banner + the blue flame carry the cue;
-        // the notice goes out when he lights the fire. This hook keeps the
-        // compass/map layer reachable for future phases.
-        void x; void z; void active;
-      },
-    }, this.engine.scene);
-    this.traveler.onOpenTrade = () => {
-      this.input.releaseLock();
-      useGameStore.getState().setTraveler({ tab: 'supplies' });
-    };
     // Fase 10 — arrows also clip the bandits
     this.combat.banditHitRef = (pos, radius, prev) =>
-      this.bandits ? this.bandits.projectileHitTest(pos, radius) : null;
+      this.bandits?.projectileHitTest(pos, radius)
+      ?? this.bestiary?.projectileHitTest(pos, radius)
+      ?? null;
     this.combat.damageBanditRef = (bandit, amount) => {
-      this.bandits?.damage(bandit, amount, false);
+      if (this.bestiary?.owns(bandit)) {
+        this.bestiary.arrowDamage(bandit, amount * (this.combat?.outDamageMul ?? 1), this.player?.position.x, this.player?.position.z);
+      } else {
+        this.bandits?.damage(bandit, amount * (this.combat?.outDamageMul ?? 1), false);
+      }
     };
     this.combat.terrainHeightRef = (x, z) => world.terrainHeight.height(x, z);
     // Fase 22 — THE FORGE wiring: bandit DoT statuses (burn/poison finally
     // bite), radial queries for ember patches + mythic actives, the daylight
     // factor for Apollo's blessing, and the rain the Tide-Steel drinks
-    this.combat.banditStatusRef = (bandit, kind, dur) => this.bandits?.applyStatus(bandit, kind, dur);
-    this.combat.banditsInRadiusRef = (pos, r) =>
-      this.bandits ? this.bandits.banditsInRadius(pos, r) : [];
+    this.combat.banditStatusRef = (bandit, kind, dur) => {
+      if (this.bestiary?.owns(bandit)) this.bestiary.applyStatus(bandit, kind, dur);
+      else this.bandits?.applyStatus(bandit, kind, dur);
+    };
+    this.combat.banditsInRadiusRef = (pos, r) => [
+      ...(this.bandits ? this.bandits.banditsInRadius(pos, r) : []),
+      ...(this.bestiary ? this.bestiary.creaturesInRadius(pos, r) : []),
+    ];
     this.combat.dayFactorRef = () => {
       const w = this.world;
       if (!w) return 0;
@@ -667,30 +586,6 @@ export class Game {
         negotiation: (n) => useGameStore.getState().setHud({ negotiation: n }),
       },
     );
-    // --- Fase 27 — THE THREE LEGENDARY EVENTS: the Pirate King's naval
-    //     ambush, the Storm Ronin's duel and the Elder Dragon's awakening ---
-    this.legendary = new LegendaryEvents(
-      this.engine.scene, world.terrainHeight, this.naval, this.dragons!, this.bandits!,
-      this.state, this.vfx!,
-      {
-        notify: (kind, title, body) => useGameStore.getState().notify(kind, title, body),
-        sound: (kind) => this.audio.playEvent(kind),
-        music: (intensity, boss) => {
-          this.musicIntensityTarget = intensity;
-          this.audio.bossIntensity = boss ? 1 : 0;
-        },
-        bossHud: (s) => useGameStore.getState().setBoss(s),
-        worldBanner: (title, sub) => useGameStore.getState().setWorldBanner(title, sub),
-        addItem: (id, count) => this.state.addItem(id, count),
-        giveXp: (xp) => this.state.giveXp(xp),
-        playerDamage: (dmg, fromX, fromZ, reason) => this.applyPlayerDamage(dmg, fromX, fromZ, reason),
-        shipDamage: (dmg) => {
-          const hull = this.naval?.activeShip ?? this.naval?.playerShip;
-          hull?.applyDamage(dmg);
-        },
-        cameraShake: (i) => { this.shakeT = Math.max(this.shakeT, i); },
-      },
-    );
     this.player.onBlockSparks = (pos) => {
       this.vfx!.blockSparks(pos);
       this.audio.playEvent('block');
@@ -746,10 +641,6 @@ export class Game {
     this.mounts.spawnHorse('gris', 'Grey of the West', 'grey', -250, -190, false, 260);
     // The stable cart
     this.mounts.spawnCart('carreta', -8, 192, 0.4);
-    // Fase 28 — the acid cloud's armor shred flows through the two damage
-    // entries. Wired HERE: the bandits are built just below, the dragons
-    // have existed since the world rose.
-    if (this.dragons) this.dragons.acidShredOf = (d) => this.alchemy?.shredMult(d) ?? 1;
     this.endings = new EndingSystem(this.state);
 
     // --- Fase 10: RED KNIGHT bandits camped on the roads ---
@@ -774,7 +665,58 @@ export class Game {
         bossHud: (s) => useGameStore.getState().setBoss(s),
       },
     );
-    if (this.bandits) this.bandits.acidShredOf = (b) => this.alchemy?.shredMult(b) ?? 1;
+
+    // --- Fase 27 — EL BESTIARIO COMÚN: the common enemies, tiered by zone ---
+    this.bestiary = new BestiarySystem(
+      this.engine.scene, world.terrainHeight,
+      {
+        playerDamage: (dmg, fromX, fromZ, reason, opts) =>
+          this.applyPlayerDamage(dmg, fromX, fromZ, reason ?? 'bestiary', opts),
+        playerStatus: (kind, dur, mul) => {
+          const p = this.player;
+          if (!p) return;
+          if (kind === 'root') {
+            p.applyExternStatus('root', dur);
+            this.rig?.punch(0.4);
+          } else if (kind === 'shock') {
+            p.applyExternStatus('slow', dur, mul ?? 0.15);
+            this.shakeT = Math.max(this.shakeT, 0.25);
+          } else {
+            p.applyExternStatus('slow', dur, mul ?? 0.9);
+          }
+        },
+        notify: (kind, title, body) => useGameStore.getState().notify(kind, title, body),
+        giveXp: (xp) => this.state.giveXp(xp),
+        addCoins: (n) => this.state.addItem('coin', n),
+        addItem: (id, count) => this.state.addItem(id, count),
+        registerKill: (kind) => {
+          this.state.registerKill(kind);
+          this.registerCombatKill('');
+          // Fase 27 — the smith's bounty board: the FIRST common kill points
+          // Bram's board out; the flag closes when the cull quotas are met
+          if (!this.state.hasFlag('bestiario_board')) {
+            this.state.setFlag('bestiario_board');
+            useGameStore.getState().notify('quest', 'BRAM\u2019S BOUNTY BOARD', 'The smith pays for the meadows\u2019 pests. Talk to Bram at the forge.');
+          }
+          const k = this.state.killCounters;
+          if (!this.state.hasFlag('bestiario_kills_done')
+            && (k['creature_duende'] ?? 0) >= 4 && (k['creature_kobold'] ?? 0) >= 3
+            && (k['creature_grimpote'] ?? 0) >= 3 && (k['creature_krog'] ?? 0) >= 1) {
+            this.state.setFlag('bestiario_kills_done');
+            useGameStore.getState().notify('quest', 'BOUNTY COMPLETE', 'The board\u2019s quotas are met. Bram has your payment at the forge.');
+          }
+        },
+        sound: (kind) => this.audio.playEvent(kind as Parameters<typeof this.audio.playEvent>[0]),
+        weaponImpact: (pos) => this.vfx?.weaponImpact(pos),
+        blockSparks: (pos) => this.vfx?.blockSparks(pos),
+        cameraShake: (i) => { this.shakeT = Math.max(this.shakeT, i); },
+        hitStop: (dur) => { this.hitStopT = Math.max(this.hitStopT, dur); },
+        bossHud: (s) => useGameStore.getState().setBoss(s),
+        hasFlag: (flag) => this.state.hasFlag(flag),
+        setFlag: (flag) => this.state.setFlag(flag),
+        level: () => this.state.level,
+      },
+    );
 
     // --- Fase 22 — THE FORGE OF LEGENDS: the crafting engine ---
     this.forge = new ForgeSystem(this.state, {
@@ -1100,46 +1042,6 @@ export class Game {
       });
     }
 
-    // --- Fase 28 — FORAGE: wild apples + the rare herbs of the blind garden ---
-    // Apple bushes respawn after 90 s (a basic ingredient, needed in volume);
-    // the rare herbs respawn after 240 s (mythic-tier, guarded by distance).
-    {
-      const forageRespawn = new Map<string, number>();
-      const FORAGE_NODES: Array<{ id: string; kind: 'apple' | 'herb'; x: number; z: number; item: string; count: number; cd: number }> = [
-        { id: 'bush_orchard_a', kind: 'apple', x: 12, z: 149, item: 'manzana_silvestre', count: 1, cd: 90 },
-        { id: 'bush_orchard_b', kind: 'apple', x: 19, z: 156, item: 'manzana_silvestre', count: 2, cd: 90 },
-        { id: 'bush_green_c', kind: 'apple', x: -17, z: 146, item: 'manzana_silvestre', count: 1, cd: 90 },
-        { id: 'bush_maple_d', kind: 'apple', x: -95, z: -18, item: 'manzana_silvestre', count: 2, cd: 90 },
-        { id: 'bush_vigils_e', kind: 'apple', x: -120, z: -235, item: 'manzana_silvestre', count: 1, cd: 120 },
-        // the Mystic Garden of the blind fortress (Aethel Gard in the spec):
-        // the herb beds between the Vigils' stones
-        { id: 'herbs_vigils_a', kind: 'herb', x: -128, z: -252, item: 'hierbas_raras', count: 1, cd: 240 },
-        { id: 'herbs_vigils_b', kind: 'herb', x: -145, z: -262, item: 'hierbas_raras', count: 1, cd: 240 },
-      ];
-      for (const node of FORAGE_NODES) {
-        w.interactables.push({
-          id: node.id,
-          pos: new THREE.Vector3(node.x, terrainH(node.x, node.z), node.z),
-          radius: 2.0,
-          prompt: node.kind === 'apple' ? 'Gather wild apples' : 'Cut rare herbs',
-          available: () => (forageRespawn.get(node.id) ?? 0) <= 0,
-          run: () => {
-            forageRespawn.set(node.id, node.cd);
-            state.addItem(node.item, node.count);
-            audio.playEvent('pickup');
-            state.giveXp(6);
-            store.getState().notify(
-              'item',
-              node.kind === 'apple' ? 'Wild apples' : 'Rare herbs of the Mystic Garden',
-              node.kind === 'apple'
-                ? 'Tart and honest. The still loves them, the drakes would kill for them.'
-                : 'Cut in the buried garden. Nothing has touched them since the world forgot how.',
-            );
-          },
-        });
-      }
-    }
-
     // --- Rosa's crate (wreck) ---
     w.interactables.push({
       id: 'crate_rosa',
@@ -1245,7 +1147,6 @@ export class Game {
       anvil: 'Work the Great Anvil',
       altar: 'Kneel at the Altar of the Gods',
       titans: 'Approach the Anvil of the Titans',
-      still: 'Brew at Maren\'s still',
     };
     for (const [station, pos] of Object.entries(w.forgeStations)) {
       if (station === 'firstLight') continue;
@@ -1260,7 +1161,7 @@ export class Game {
           // release the pointer so the panel's buttons are clickable (the
           // panel's ESC/close path re-locks through clickResumeHint)
           this.input.releaseLock();
-          useGameStore.getState().setForge({ station: station as 'anvil' | 'altar' | 'titans' | 'still' });
+          useGameStore.getState().setForge({ station: station as 'anvil' | 'altar' | 'titans' });
         },
       });
     }
@@ -2200,19 +2101,6 @@ export class Game {
   /** Central player-damage router (dragons, fire, …) with block support. */
   private applyPlayerDamage(dmg: number, fromX?: number, fromZ?: number, reason?: string, opts?: { unblockable?: boolean }): number {
     const p = this.player!;
-    // ---- Fase 28 — THE ALCHEMIST'S STILL: the live modifiers ----
-    // · Thermal Isolation: fire × 0.75 · the Tear: while it holds, burning
-    //   is ALTERED outright (× 0) · Light Scales / Fury: all damage ×
-    // Every intake also feeds the Tear's per-combat bookkeeping.
-    if (this.alchemy) {
-      const m = this.alchemy.mods;
-      const isFire = !!reason && /fire|burn|flame|dragon/i.test(reason);
-      if (isFire && m.statusImmune) dmg = 0;
-      else if (isFire) dmg *= m.fireMult;
-      dmg *= m.defenseMult;
-      const isBoss = !!reason && /dragon|elder|boss|king|ronin|serpent|beast/i.test(reason);
-      this.alchemy.noteCombat(isBoss);
-    }
     // ---- Fase 22 — elemental armor passives (the desc contract) ----
     // · STORMPLATE: drinks a tenth of any lightning and pays you in breath
     // · DRAKE-SCALE: the cold cannot bite, burns lose half their fury
@@ -2365,17 +2253,6 @@ export class Game {
     if (this.pirateAmbush && !cine) {
       this.pirateAmbush.update(dt, sailing && !naval.boardingActive, naval.activeShip ?? naval.playerShip);
     }
-    // --- Fase 27 — the legendary events tick (zones, rolls, boss bars) ---
-    if (this.legendary && !cine) {
-      this.legendary.update(dt, {
-        playerPos: p.position,
-        playerAlive: !this.dead,
-        sailing: sailing && !naval.boardingActive,
-        ship: naval.activeShip ?? naval.playerShip,
-        storm: (this.world?.weather.kind ?? 'clear') === 'storm',
-        duelStreak: this.streakN,
-      });
-    }
 
     // --- Fase 3: dragons + combat VFX (both on foot and at sea) ---
     this.dragons?.update(
@@ -2389,27 +2266,18 @@ export class Game {
     // --- Fase 10: red knight bandits (AI frozen during cinematics/dialogue) ---
     if (!cine && !this.endings?.isPlaying) {
       this.bandits?.update(dt, p.position, !this.dead && !dialogueActive && !sailing && !rig.freeCam);
-    }
-
-    // --- Fase 28 — THE ALCHEMIST'S STILL: modifiers fresh every frame ---
-    if (this.alchemy && this.player) {
-      const m = this.alchemy.mods;
-      const p = this.player;
-      p.alchemyStability = m.stability;
-      p.alchemySpeedMult = m.speedMult;
-      p.alchemyDodgeMult = m.dodgeCostMult;
-      p.alchemyAbsorb = m.absorbImpact;
-      p.onImpactAbsorbed = (absorbed) =>
-        this.alchemy?.onImpactAbsorbed(absorbed, new THREE.Vector3(p.position.x, p.position.y + 0.8, p.position.z));
-      this.combat!.alchemyCritAdd = m.critDamageAdd;
-      this.combat!.alchemyAttackSpeed = m.attackSpeedMult;
-      this.alchemy.update(dt);
-    }
-
-    // --- Fase 28 — EL VIAJERO: visit cycle + ambush posture ---
-    if (this.traveler) {
-      this.travelerDayFloat += dt / 600; // DAY_LENGTH_SECONDS = 600
-      this.traveler.update(dt, p.position, this.travelerDayFloat);
+      // Fase 27 — the common enemies live on the same rules (frozen during
+      // cinematics/dialogue/sailing), plus the roar debuff decay
+      this.bestiary?.setPlayerAnchor(p.position);
+      this.bestiary?.update(dt, p.position, !this.dead && !dialogueActive && !sailing && !rig.freeCam);
+      if (this.bestiary) {
+        if (this.bestiary.roarDebuffT > 0) {
+          this.bestiary.roarDebuffT -= dt;
+          this.combat!.outDamageMul = 0.8;
+        } else {
+          this.combat!.outDamageMul = 1;
+        }
+      }
     }
 
     // --- Fase 22 — THE FORGE: eclipse tick + armor passive sync ---
@@ -2436,6 +2304,20 @@ export class Game {
 
     // --- Death / respawn ---
     if (p.health <= 0 && !this.dead) {
+      // Fase 27 — SEMILLA DEL BOSQUE SAGRADO: the seed that refuses to die.
+      // One use: rise on the spot with half your strength — the forest keeps
+      // its promise and the seed is spent.
+      if (this.state.hasFlag('semilla_bendicion')) {
+        // consume: remove the flag AND the item if still carried
+        this.state.removeItem('semilla_bosque', 1);
+        this.state.flags.delete('semilla_bendicion');
+        p.health = Math.floor(p.stats.maxHealth * 0.5);
+        p.invulnT = 2.0;
+        this.bestiary?.setPlayerDead(false);
+        useGameStore.getState().notify('quest', 'LA SEMILLA DEL BOSQUE DESPIERTA', 'Roots burst from the ground and hold you up. The Sacred Forest lends you its strength — once.');
+        this.audio.playEvent('unlock');
+        this.vfx?.elementalBurst(new THREE.Vector3(p.position.x, p.position.y + 1, p.position.z), 'frost');
+      } else {
       this.dead = true;
       // Fase 15 — the pirates spare you: if the ambush corsairs dealt the
       // killing blow, the toll negotiation deploys ON TOP of the respawn
@@ -2460,6 +2342,8 @@ export class Game {
       // the respawn IS the recovery — wake up on the dock, briefly untouchable.
       p.invulnT = 2.5;
       this.dead = false;
+      this.bestiary?.setPlayerDead(false);
+      }
     }
 
     // --- Fase 15 — pirate toll: when the player's hull starts sinking under
@@ -2960,7 +2844,7 @@ export class Game {
       const cue = this.bandits ? this.bandits.dangerCue(p.position) : null;
       useGameStore.getState().setDangerCue(cue);
       const canFinish = this.combat!.valorValue >= 100
-        && !!(this.bandits?.finisherTarget(p.position));
+        && !!(this.bandits?.finisherTarget(p.position) ?? this.bestiary?.finisherTarget(p.position));
       useGameStore.getState().setFinisherReady(canFinish);
       this.pollQuestEvents();
     }
@@ -2973,6 +2857,9 @@ export class Game {
     if (this.mapTimer <= 0) {
       this.mapTimer = 2;
       this.markExplored(p.position.x, p.position.z, 3);
+      // Fase 27 — dragon progression gate poll: dragons wake when the hero
+      // is ready (level 6/8/12) — never from the start
+      this.dragons?.setProgress(this.state.level, (qid) => this.state.isQuestActive(qid));
     }
 
     // --- Playtime & autosave ---
@@ -3173,12 +3060,6 @@ export class Game {
         // Fase 17 — bandit finishers moved to V / Shift+Space and the Valor
         //  bar (see CombatSystem.doFinisher); E stays for the world.
         {
-          // Fase 28 — EL VIAJERO: his campfire first (before mounts & world)
-          const travelerPrompt = this.traveler?.interactableNear(p.position) ?? null;
-          if (travelerPrompt) {
-            best = { prompt: travelerPrompt.prompt, run: travelerPrompt.run };
-            bestDist = 0;
-          }
           // Fase 15 — a tame dragon (admin spawn) offers its saddle first
           const dNear = this.dragons?.nearestRideableDragon(p.position) ?? null;
           if (dNear && !this.dead) {
@@ -3681,16 +3562,31 @@ export class Game {
         p.health = Math.min(p.stats.maxHealth, p.health + 45);
         this.audio.playEvent('pickup');
         useGameStore.getState().notify('item', 'Healing potion', 'Health restored.');
-      }
-      // Fase 28 — the still's potions (all validation inside the engine)
-      if (STILL_POTIONS.has(id)) {
-        const r = this.alchemy?.use(id) ?? 'unknown';
-        if (r === 'combat-limit') {
-          useGameStore.getState().notify(
-            'item', 'The Tear refuses',
-            'It only answers once per fight against monsters — twice against bosses. Outlast this one, or save it.',
-          );
+      } else if (id === 'manzana_silvestre') {
+        // Fase 27 — the goblin sacks' wild apple: a small mend
+        if (!st().removeItem('manzana_silvestre', 1)) return;
+        const p = this.player!;
+        p.health = Math.min(p.stats.maxHealth, p.health + 12);
+        this.audio.playEvent('pickup');
+        useGameStore.getState().notify('item', 'Manzana Silvestre', 'Bitter skin, sweet heart. +12 health.');
+      } else if (id === 'elixir_agilidad') {
+        // Fase 27 — harpy hoard: 30 s of light feet + generous breath
+        if (!st().removeItem('elixir_agilidad', 1)) return;
+        const p = this.player!;
+        p.applyExternStatus('slow', 30, 1.12); // a BUFF: +12% stride
+        p.stamina = Math.min(p.stats.maxStamina, p.stamina + 40);
+        this.audio.playEvent('unlock');
+        useGameStore.getState().notify('item', 'Elíxir de Agilidad', 'The body feels weightless: quicker feet and generous breath (30 s).');
+      } else if (id === 'semilla_bosque') {
+        // Fase 27 — the Sacred Forest's seed: one death refuted
+        if (this.state.hasFlag('semilla_bendicion')) {
+          useGameStore.getState().notify('item', 'Already blessed', 'The forest\'s promise already lives in you. It will keep it once.');
+          return;
         }
+        if (!st().removeItem('semilla_bosque', 1)) return;
+        this.state.setFlag('semilla_bendicion');
+        this.audio.playEvent('unlock');
+        useGameStore.getState().notify('quest', 'SEMILLA DEL BOSQUE SAGRADO', 'The seed takes root in your shadow. Should you fall, the forest will raise you once — at half strength.');
       }
     };
     gameApi.readItem = (id) => {
@@ -3791,16 +3687,6 @@ export class Game {
         }),
       };
     };
-    // ---- Fase 28 — EL VIAJERO: the trade panel's validated surface ----
-    gameApi.travelerCatalog = () => this.traveler?.catalog() ?? null;
-    gameApi.travelerBuy = (id) => this.traveler?.buy(id) ?? 'stock';
-    gameApi.travelerSell = (id, count) => this.traveler?.sell(id, count) ?? { ok: false, paid: 0, credit: 0 };
-    gameApi.travelerBuyback = (index) => this.traveler?.buyback(index) ?? 'range';
-    gameApi.travelerRelic = () => this.traveler?.rollRelic() ?? { ok: false, got: '', tier: '' };
-    gameApi.toggleFavorite = (id) => this.state.toggleFavorite(id);
-    gameApi.isFavorite = (id) => this.state.isFavorite(id);
-    gameApi.activeEffects = () => this.alchemy?.activeEffects() ?? [];
-
     gameApi.buyShopItem = (vendor, itemId) => {
       const def = VENDORS[vendor];
       const entry = def?.entries.find((e) => e.item === itemId);
@@ -3972,6 +3858,7 @@ export class Game {
       this.audio.setVolumes({ master: s.masterVolume, music: s.musicVolume, sfx: s.sfxVolume });
     };
     gameApi.fps = () => this.engine.fps;
+    gameApi.resScale = () => this.engine.resolutionScale;
     gameApi.skipIntro = () => this.finishIntro();
     gameApi.skipEnding = () => this.endings?.skip();
     gameApi.mountInfo = () => {

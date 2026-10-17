@@ -827,10 +827,8 @@ const INSERTS: Record<string, DialogueTree[]> = {
       },
     },
     {
-      // sq_bounty: offer — Fase 27: Jorund only posts DRAGON bounties once
-      // the dragons have entered the story (Aldric's "winged shadows" talk,
-      // q6). No dragon missions from the very start of the game.
-      cond: 'aldric_dragons_talked',
+      // sq_bounty: offer
+      cond: 'talked_aldric',
       notCond: 'bounty_started',
       start: 'bo0',
       nodes: {

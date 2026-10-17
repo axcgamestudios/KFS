@@ -15,7 +15,6 @@ import InventoryUI from './InventoryUI';
 import ShopUI from './ShopUI';
 import NegotiationUI from './NegotiationUI';
 import ForgeUI from './ForgeUI';
-import TravelerUI from './TravelerUI';
 import MapUI from './MapUI';
 import JournalUI from './JournalUI';
 import SkillsUI from './SkillsUI';
@@ -110,7 +109,6 @@ export default function GameRoot() {
               <ShopUI />
               <NegotiationUI />
               <ForgeUI />
-              <TravelerUI />
               {overlay === 'inventory' && <InventoryUI />}
               {overlay === 'map' && <MapUI />}
               {overlay === 'journal' && <JournalUI />}

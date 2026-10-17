@@ -1,13 +1,13 @@
 // probe_f27_boot.cjs — Fase 27 integration probe:
-//  1. game boots, player = the FIRST knight, height ~1.95
-//  2. THE RIGHT HAND EXISTS: verts near the right wrist (post-surgery) —
-//     sample the skinned mesh world positions around the right wrist bone
-//  3. white_concrete textures load (asset 200s) — houses get the albedo
-//  4. the world banner store action exists (Elder announcement path)
-//  5. LegendaryEvents wired (g.legendary present, update callable)
-//  6. dragon elderboss landing logic present (fireStreak/groundCommit
-//     via a spawned admin elder)
-//  7. no page errors
+//  1. boot clean, knight model intact (F26 regression: knight_upper/lower)
+//  2. VILLAGER WALK: cadence scales with speed (the rewrite) — sample the
+//     UpLeg swing period at stroll vs hurry, expect faster at hurry
+//  3. BESTIARY: teleport to the goblin zone (95, 95) → 3 Duendes stream in,
+//     species correct; kill one → XP + kill counter + Bram's bounty flag
+//  4. DRAGON GATING: Vaelthara ABSENT at level 1; after level 8 + the 2 s
+//     poll → spawned (no dragons from the start)
+//  5. GOVERNOR: engine.resolutionScale exists (1.0 at rest)
+//  6. draw-call budget + 0 page errors
 const { chromium } = require('playwright');
 const BASE = process.argv[2] ?? 'http://localhost:3000/';
 
@@ -19,7 +19,7 @@ const BASE = process.argv[2] ?? 'http://localhost:3000/';
   ] });
   const page = await browser.newPage({ viewport: { width: 640, height: 400 } });
   const errors = [];
-  page.on('pageerror', e => { errors.push(String(e).slice(0, 300)); });
+  page.on('pageerror', e => { errors.push(String(e).slice(0, 200)); });
   page.on('crash', () => console.log('[CRASH] page crashed'));
   await page.addInitScript(() => {
     try {
@@ -47,118 +47,123 @@ const BASE = process.argv[2] ?? 'http://localhost:3000/';
     window.__kotfsApi.startNewGame();
     for (let i = 0; i < 150; i++) {
       const ph = window.__kotfsStoreGet().phase;
-      if (ph === 'intro') { try { window.__kotfsApi.introSkip?.(); } catch (e) {} }
+      if (ph === 'intro') {
+        window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', key: 'Space', bubbles: true }));
+        window.dispatchEvent(new KeyboardEvent('keyup', { code: 'Space', key: 'Space', bubbles: true }));
+      }
       if (ph === 'playing') break;
       await wait(400);
     }
-    await wait(2500);
+    const out = { phase: window.__kotfsStoreGet().phase };
 
-    const out = {};
-    // --- the player model ---
-    const player = g.player;
-    const model = player?.model;
-    out.playerH = model?.inner ? (model.inner.getWorldPosition ? null : null) : null;
-    let h = 0;
-    
-    try {
-      const b3 = new window.THREE.Box3().setFromObject(model.inner ?? model.root ?? model.group);
-      h = b3.max.y - b3.min.y;
-    } catch (e) { h = -1; }
-    out.playerHeight = Math.round(h * 100) / 100;
+    // --- 1. knight intact (F26 regression; wait for the GLB model swap) ---
+    let vis = null, meshNames = [];
+    for (let i = 0; i < 120; i++) {
+      vis = g.player?.model;
+      meshNames = [];
+      if (vis) vis.root.traverse((o) => { if (o.isMesh) meshNames.push(o.name); });
+      if (meshNames.includes('knight_upper')) break;
+      await wait(500);
+    }
+    out.knight = meshNames.includes('knight_upper') && meshNames.includes('knight_lower');
 
-    // --- the RIGHT HAND: sample skinned verts near the right wrist ---
-    let handRVerts = 0, handLVerts = 0;
+    // --- 2. villager walk cadence scales with speed (F27 rewrite) ---
+    out.villager = 'none-found';
     try {
-      const root = model.root ?? model.inner ?? model.group;
-      root.updateWorldMatrix(true, true);
-      let wr = null, wl = null;
-      root.traverse((o) => {
-        if (o.name === 'j_wristR' || o.name === 'j_wristL') {
-          o.updateWorldMatrix(true, false);
-          const m = o.matrixWorld.elements;
-          const p = { x: m[12], y: m[13], z: m[14] };
-          if (o.name === 'j_wristR' && !wr) wr = p;
-          if (o.name === 'j_wristL' && !wl) wl = p;
-        }
-      });
-      out.wristR = wr; out.wristL = wl;
-      if (wr && wl) {
-        root.traverse((o) => {
-          if (!o.isSkinnedMesh || !o.geometry) return;
-          const name = o.name || '';
-          if (name !== 'knight_upper' && name !== 'knight_lower') return;
-          const posAttr = o.geometry.getAttribute('position');
-          for (let i = 0; i < posAttr.count; i += 7) {
-            const vx = posAttr.getX(i), vy = posAttr.getY(i), vz = posAttr.getZ(i);
-            // rough local->world via o.matrixWorld (bind sample; enough to
-            // prove the hand GEOMETRY exists near the wrist)
-            const m = o.matrixWorld.elements;
-            const wx = m[0]*vx + m[4]*vy + m[8]*vz + m[12];
-            const wy = m[1]*vx + m[5]*vy + m[9]*vz + m[13];
-            const wz = m[2]*vx + m[6]*vy + m[10]*vz + m[14];
-            const dR = Math.hypot(wx - wr.x, wy - wr.y, wz - wr.z);
-            const dL = Math.hypot(wx - wl.x, wy - wl.y, wz - wl.z);
-            if (dR < 0.3) handRVerts++;
-            if (dL < 0.3) handLVerts++;
+      let villagerModel = null;
+      // the fuse_civilian GLB builds async — wait for the bones to bind
+      for (let i = 0; i < 60 && !villagerModel; i++) {
+        for (const npc of g.npcs ?? []) {
+          const m = npc.model ?? npc.visual;
+          if (m && m.constructor?.name === 'VillagerModelGLB'
+              && m.root && m.root.getObjectByName('mixamorigRightUpLeg_049')
+              && m.root.getObjectByName('mixamorigLeftUpLeg_045')) {
+            villagerModel = m; break;
           }
-        });
+        }
+        if (!villagerModel) await wait(500);
       }
-    } catch (e) { out.handErr = String(e).slice(0, 120); }
-    out.handRVerts = handRVerts;
-    out.handLVerts = handLVerts;
-
-    // --- white_concrete texture requests --- (network already done; check material)
-    try {
-      const w = g.world;
-      out.concreteLoaded = !!(w && w.assets && w.assets.pbr && w.assets.pbr.white_concrete && w.assets.pbr.white_concrete.map && w.assets.pbr.white_concrete.map.image);
-    } catch (e) { out.concreteLoaded = 'err'; }
-
-    // --- store world banner ---
-    try {
-      const s = window.__kotfsStoreGet();
-      s.setWorldBanner('test', 'sub');
-      out.worldBanner = window.__kotfsStoreGet().worldBanner?.title === 'test';
-      window.__kotfsStoreGet().clearWorldBanner();
-    } catch (e) { out.worldBanner = String(e).slice(0, 100); }
-
-    // --- legendary events wired ---
-    out.legendary = !!g.legendary;
-    try { g.legendary.update(0.016, {
-      playerPos: player.position, playerAlive: true, sailing: false, ship: null, storm: false, duelStreak: 0,
-    }); out.legendaryTick = true; } catch (e) { out.legendaryTick = String(e).slice(0, 140); }
-
-    // --- the Elder Dragon def + awaken ---
-    try {
-      const d = g.dragons.awakenElderDragon(player.position.x + 10, player.position.z + 30);
-      out.elderSpawned = !!d;
-      if (d) {
-        out.elderElderBoss = !!d.elderBoss;
-        out.elderHp = d.hp;
+      if (villagerModel) {
+        const legR = villagerModel.root.getObjectByName('mixamorigRightUpLeg_049');
+        const legL = villagerModel.root.getObjectByName('mixamorigLeftUpLeg_045');
+        if (legR && legL) {
+          // walk in place at two speeds; count X-rotation zero-crossings
+          const run = (speed, frames) => {
+            let prev = 0, crosses = 0;
+            for (let i = 0; i < frames; i++) {
+              villagerModel.update({ dt: 1 / 30, speed, moving: true, grounded: true, attackT: 0, blockT: 0, rollT: 0, bowDraw: -1, vy: 0, yawRate: 0 });
+              const v = legR.rotation.x;
+              if (i > 0 && ((prev < 0 && v >= 0) || (prev > 0 && v <= 0))) crosses++;
+              prev = v;
+            }
+            return crosses;
+          };
+          // warm up (speedSm damp)
+          run(1.15, 60);
+          const cStroll = run(1.15, 240);
+          run(3.0, 60);
+          const cHurry = run(3.0, 240);
+          out.villager = { cStroll, cHurry, faster: cHurry > cStroll };
+        } else {
+          out.villager = 'bones-missing';
+        }
       }
-    } catch (e) { out.elderSpawned = String(e).slice(0, 140); }
+    } catch (e) { out.villager = 'err:' + String(e).slice(0, 60); }
 
-    // --- naval legendary galleon ---
+    // --- 3. bestiary: stream in + kill ---
+    out.bestiary = 'none';
     try {
-      const b = g.naval.spawnLegendaryGalleon(player.position.x + 200, player.position.z + 200, 'probe', 100, 3);
-      out.galleon = !!b && b.ship.hullHp === 100;
-      g.naval.fleeAmbushPirate(b);
-    } catch (e) { out.galleon = String(e).slice(0, 140); }
+      g.player.teleport(95, 2, 95);
+      await wait(1400);
+      const list = g.bestiary ? g.bestiary.list() : [];
+      out.bestiary = { streamed: list.length };
+      if (list.length > 0) {
+        out.bestiary.species = g.bestiary.speciesOf(list[0]).id;
+        out.bestiary.alive = list.filter((c) => c.alive !== false && c.state !== 'dead').length;
+        const xpBefore = g.state.xp;
+        const c0 = list[0];
+        g.bestiary.damage(c0, 9999, { heavy: true, fromX: 90, fromZ: 90 });
+        await wait(300);
+        out.bestiary.killed = c0.state === 'dead';
+        out.bestiary.xpGain = g.state.xp - xpBefore;
+        out.bestiary.killCounter = g.state.killCounters?.['creature_duende'] ?? 0;
+        out.bestiary.bountyFlag = g.state.hasFlag('bestiario_board');
+        out.bestiary.loot = {
+          garrote: g.state.countItem('garrote_mellado'),
+          chatarra: g.state.countItem('chatarra_hierro'),
+        };
+      }
+    } catch (e) { out.bestiary = 'err:' + String(e).slice(0, 80); }
 
-    // --- ronin duel spawn ---
+    // --- 4. dragon gating ---
     try {
-      const h2 = g.bandits.spawnLegendDuel(
-        { id: 'probe_ronin', name: 'Probe Ronin', title: 't', role: 'heavy', hp: 10, damage: 5,
-          x: 0, z: 0, aggroRadius: 20, chaseSpeed: 4, scale: 1, tint: { h: 0.5, s: 0.4, l: 0.2 },
-          eyes: 0x48c8e8, hat: 'kasa', drops: [], lootGold: 10, xp: 10, deathFlag: 'probe_ronin_dead',
-          boss: true, intro: ['a', 'b'] },
-        player.position.x + 8, player.position.z + 8);
-      out.roninDuel = !!h2 && h2.hp === 10;
-    } catch (e) { out.roninDuel = String(e).slice(0, 140); }
+      out.dragonGate = {
+        level: g.state.level,
+        vaeltharaAtL1: !!g.dragons.dragonById('vaelthara'),
+        drakeAtL1: !!g.dragons.dragonById('drake_stones'),
+      };
+      g.state.level = 9;
+      g.state.xp = 2000;
+      // the Game poll fires every 2 s of GAME time (SwiftShader: ~20 s real);
+      // drive the same public API the poll calls — this is the poll's body
+      g.dragons.setProgress(9, () => false);
+      await wait(800);
+      out.dragonGate.vaeltharaAtL9 = !!g.dragons.dragonById('vaelthara');
+      out.dragonGate.drakeAtL9 = !!g.dragons.dragonById('drake_stones');
+    } catch (e) { out.dragonGate = 'err:' + String(e).slice(0, 80); }
+
+    // --- 5. governor ---
+    out.governor = typeof g.engine.resolutionScale === 'number' ? g.engine.resolutionScale : 'missing';
+
+    // --- 6. draw calls ---
+    out.drawCalls = g.engine.renderer.info.render.calls;
 
     return out;
-  });
+  }).catch((e) => ({ fail: String(e).slice(0, 300) }));
+
   console.log(JSON.stringify(r, null, 1));
-  console.log('page errors:', errors.length ? errors : 'none');
+  console.log('pageErrors:', errors.length, errors.slice(0, 4));
   await browser.close();
-  process.exit(errors.length ? 2 : 0);
+  const bad = errors.length > 0 || r.fail || (r.bestiary && typeof r.bestiary === 'object' && r.bestiary.streamed === 0);
+  process.exit(bad ? 1 : 0);
 })();

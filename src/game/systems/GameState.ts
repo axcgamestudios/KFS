@@ -57,8 +57,6 @@ export class GameState {
   discoveredPOIs = new Set<string>();
   openedChests = new Set<string>();
   pickedHerbs = new Set<string>();
-  /** Fase 28 — EL VIAJERO: session favorites — locked from accidental sales. */
-  favorites = new Set<string>();
   exploredMap: boolean[] = [];
   playtimeSeconds = 0;
   /** Fase 10 — Bram's forge upgrades for the equipped sword (0–3).
@@ -103,18 +101,6 @@ export class GameState {
     return true;
   }
 
-
-  /** Fase 28 — EL VIAJERO: item kind lookup for the sell rates. */
-  itemKindOf(id: string): string {
-    return (ITEMS as Record<string, { kind?: string }>)[id]?.kind ?? 'material';
-  }
-  isFavorite(id: string): boolean {
-    return this.favorites.has(id);
-  }
-  toggleFavorite(id: string): void {
-    if (this.favorites.has(id)) this.favorites.delete(id);
-    else this.favorites.add(id);
-  }
   countItem(id: string): number {
     return this.inventory.get(id) ?? 0;
   }

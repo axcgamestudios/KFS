@@ -99,17 +99,6 @@ export class Dragon {
   stateT = 0;
   staggerMeter = 0;
   visibleToPlayer = true;
-  /** Fase 27 — fire breaths delivered this flying stint (forced landings). */
-  private fireStreak = 0;
-  /** Fase 27 — seconds the dragon STAYS GROUNDED fighting melee (the
-   * window where a sword hero can actually reach her: "que baje a pegarte
-   * para que le pegues con una espada"). */
-  private groundCommitT = 0;
-  /** Fase 27 — after this breath lands, descend and commit to melee. */
-  private pendingLanding = false;
-  /** Fase 27 — the dragon is the ELDER world boss (never disengages,
-   * longer ground phases, shorter flight stints). */
-  elderBoss = false;
 
   yaw = 0; // Fase 15 — public: the rider's yaw follows it
   /** Fase 15 — dragon riding (admin spawns): the hero rides this dragon. */
@@ -334,8 +323,6 @@ export class Dragon {
     hooks: DragonHooks,
   ): void {
     this.stateT += dt;
-    // Fase 27 — the grounded-melee commitment clock (dragons land to fight)
-    if (this.groundCommitT > 0) this.groundCommitT -= dt;
     this.terrainRef = terrain;
     const def = this.def;
     const distHome = Math.hypot(this.pos.x - def.home.x, this.pos.z - def.home.z);
@@ -429,13 +416,7 @@ export class Dragon {
           this.target.copy(targetPos);
           this.moveGround(dt, terrain, def.speedGround);
           // Ground dragon: hop over to the player when too far for too long
-          // Fase 27 — the grounded-melee commitment: after landing, the
-          // dragon FIGHTS on the ground for a set window (bite/claw/tail all
-          // reachable by sword) and only takes off when it expires or the
-          // prey flees far.
-          const commit = this.elderBoss ? 9 : 6.5;
-          if (def.canFly && distTarget > def.meleeRange * 2.6 && this.stateT > 4.5
-            && this.groundCommitT <= 0) {
+          if (def.canFly && distTarget > def.meleeRange * 2.6 && this.stateT > 4.5) {
             this.enterState('takeoff');
             break;
           }
@@ -475,10 +456,6 @@ export class Dragon {
           this.pos.y = targetY;
           this.flying = false;
           this.vel.set(0, 0, 0);
-          // Fase 27 — the melee window opens: the dragon stays grounded
-          // (bite/claw/tail all in sword reach) before taking off again.
-          this.groundCommitT = (this.elderBoss ? 9 : 6.5) + this.rng() * 2.5;
-          this.pendingLanding = false;
           this.enterState('chase');
           hooks.thud(true);
           tmpA.set(this.pos.x, terrain.height(this.pos.x, this.pos.z) + 0.3, this.pos.z);
@@ -524,14 +501,6 @@ export class Dragon {
         }
         if (this.attackCd > 0) this.attackCd -= dt;
         if (this.stateT > (this.action === 'fire' ? 2.6 : 1.3)) {
-          // Fase 27 — a breath-streak fighter descends right after the
-          // fire to open the melee window.
-          if (this.flying && this.pendingLanding) {
-            this.pendingLanding = false;
-            this.action = 'none';
-            this.enterState('landing');
-            break;
-          }
           this.action = 'none';
           this.enterState('chase');
         }
@@ -724,30 +693,18 @@ export class Dragon {
       const fwd = tmpB.set(Math.sin(this.yaw), 0, Math.cos(this.yaw));
       if (facing.dot(fwd) > 0.8 && Math.abs(targetPos.y - this.pos.y) < 16) {
         this.action = 'fire';
-        // Fase 27 — count the breath: after a short streak the dragon
-        // COMMITS to the ground so melee heroes get their window
-        // ("que baje a pegarte para que le pegues con una espada").
-        this.fireStreak++;
-        const streakMax = this.elderBoss ? 2 : this.phase === 2 ? 2 : 1;
-        if (this.fireStreak >= streakMax) {
-          this.fireStreak = 0;
-          this.enterState('windup');
-          this.pendingLanding = true;
-        } else {
-          this.enterState('windup');
-        }
+        this.enterState('windup');
         return;
       }
     }
     // Give melee players a fighting chance: land periodically when the
     // ground below is dry land (never over open water / the sea wyvern).
     const groundBelow = terrain.height(this.pos.x, this.pos.z);
-    const landChance = this.elderBoss ? 0.5 : this.phase === 2 ? 0.65 : enraged ? 0.28 : 0.4;
+    const landChance = this.phase === 2 ? 0.5 : enraged ? 0.1 : 0.22;
     if (
       def.id !== 'skarnvind' && groundBelow > 0.5 &&
-      distTarget < def.meleeRange * 4 && this.rng() < dt * landChance
+      distTarget < def.meleeRange * 3 && this.rng() < dt * landChance
     ) {
-      this.fireStreak = 0;
       this.enterState('landing');
       return;
     }

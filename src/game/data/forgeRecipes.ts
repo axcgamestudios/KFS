@@ -15,7 +15,7 @@
  * not check your birth certificate — the strap does).
  */
 
-export type ForgeStationId = 'anvil' | 'altar' | 'titans' | 'still';
+export type ForgeStationId = 'anvil' | 'altar' | 'titans';
 
 export interface ForgeStationDef {
   id: ForgeStationId;
@@ -26,13 +26,6 @@ export interface ForgeStationDef {
 }
 
 export const FORGE_STATIONS: Record<ForgeStationId, ForgeStationDef> = {
-  still: {
-    id: 'still',
-    name: "Maren's Still",
-    title: "The Herbalist's Cottage · Puerto Cuervo",
-    greeting:
-      'Copper kettle, wild apples, monster leavings. Lay the materials on the bench and try not to ask what the last one was.',
-  },
   anvil: {
     id: 'anvil',
     name: 'The Great Anvil',
@@ -169,69 +162,6 @@ export const FORGE_RECIPES: ForgeRecipe[] = [
     ],
     gold: 5000,
     note: 'Four legendary blades — the cutlass, the twins, the claw — folded into one black colossus, catalyzed by hat and antlers.',
-  },
-
-  // ------------------------------------------------------------- Maren's Still
-  // Fase 28 — the alchemist's recipes. Materials only (no gold: the still
-  // is a service, the ingredients ARE the price). Ordered by band.
-  {
-    id: 'brew_curacion', out: 'pocion_curacion_menor', station: 'still' as ForgeStationId,
-    mats: [{ id: 'gelatina_basica', count: 2 }, { id: 'lodo_viscoso', count: 1 }, { id: 'manzana_silvestre', count: 1 }],
-    gold: 0,
-    note: 'Restores 10% health, instantly. The one you hand to people you like.',
-  },
-  {
-    id: 'brew_escamas', out: 'pocion_escamas', station: 'still' as ForgeStationId,
-    mats: [{ id: 'escama_opaca', count: 2 }, { id: 'diente_reptil', count: 1 }, { id: 'gelatina_basica', count: 1 }],
-    gold: 0,
-    note: 'Light scales: +10% defense for a minute. Ideal against anything that hits with honest muscle.',
-  },
-  {
-    id: 'brew_termico', out: 'elixir_termico', station: 'still' as ForgeStationId,
-    mats: [{ id: 'glandula_fuego', count: 1 }, { id: 'gelatina_fuego', count: 1 }, { id: 'nucleo_viscoso', count: 1 }],
-    gold: 0,
-    note: 'Drink before visiting a volcano or anything that is personally on fire. +25% fire resist, burns nullified.',
-  },
-  {
-    id: 'brew_roble', out: 'pocion_roble', station: 'still' as ForgeStationId,
-    mats: [{ id: 'piedra_runica', count: 1 }, { id: 'cuero_curtido', count: 1 }, { id: 'lodo_viscoso', count: 1 }],
-    gold: 0,
-    note: 'Oak-skin: blows land like weather. +40% push/interrupt resistance and +2 HP/s while it holds.',
-  },
-  {
-    id: 'brew_celeridad', out: 'tonico_celeridad', station: 'still' as ForgeStationId,
-    mats: [{ id: 'pluma_reforzada', count: 2 }, { id: 'garra_afilada', count: 1 }, { id: 'gelatina_rayo', count: 1 }],
-    gold: 0,
-    note: 'Wind-celerity: +20% speed, dodges cost 15% less. For slipping out from under a boss.',
-  },
-  {
-    id: 'brew_acido', out: 'brebaje_acido', station: 'still' as ForgeStationId,
-    mats: [{ id: 'acido_concentrado', count: 2 }, { id: 'polvo_fina', count: 1 }, { id: 'gelatina_corrosiva', count: 1 }],
-    gold: 0,
-    note: 'Corrosive brew, THROWN: a 5 m cloud that strips 30% armor and keeps biting for six seconds.',
-  },
-  {
-    id: 'brew_furia', out: 'elixir_furia', station: 'still' as ForgeStationId,
-    mats: [{ id: 'esencia_profundidades', count: 1 }, { id: 'polvora_maldita', count: 1 }, { id: 'esencia_viento_oscuro', count: 1 }],
-    gold: 0,
-    note: 'Abyss-fury: +35% critical damage and +15% attack speed, at the cost of 15% of your defense. Glass-cannon work.',
-  },
-  {
-    id: 'brew_masa', out: 'elixir_masa', station: 'still' as ForgeStationId,
-    mats: [{ id: 'nucleo_primordial', count: 1 }, { id: 'corona_slime', count: 1 }, { id: 'gema_fuego', count: 2 }],
-    gold: 0,
-    note: 'Inert mass: for twenty seconds, impacts are things that happen to other people — and a tenth of each comes back out as a shockwave.',
-  },
-  {
-    id: 'brew_lagrima', out: 'lagrima_bosque', station: 'still' as ForgeStationId,
-    mats: [
-      { id: 'semilla_bosque', count: 1 },
-      { id: 'esencia_roble', count: 1 },
-      { id: 'esencia_profundidades', count: 1 },
-      { id: 'hierbas_raras', count: 1 },
-    ],
-    gold: 0,
-    note: 'The Tear of the Ancestral Forest: full restoration and ten seconds nothing can alter you. One per fight; two against bosses.',
   },
 ];
 

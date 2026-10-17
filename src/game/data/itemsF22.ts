@@ -107,62 +107,13 @@ export const ITEMS_F22: Record<string, ItemDef> = {
     ],
   },
   sombrero_rey: {
-    id: 'sombrero_rey', name: 'Pirate King\'s Hat', kind: 'armor',
-    desc: 'The mythic reward of the Pirate King: a hat that survived a hundred boardings and looks it. Wear it and the ROYAL BLESSING answers: +75% health, +75% weapon damage and fire cannot burn you. Or lay it on the Anvil of the Titans, where it counts as a catalyst of legends. (+75% stats, fire immunity)',
-    icon: 'Crown', stackable: false, equipable: true, rarity: 'legendary', level: 11,
-    armor: { hp: 0, reduce: 0.20 },
+    id: 'sombrero_rey', name: 'Pirate King\'s Hat', kind: 'key',
+    desc: 'The mythic reward of the Pirate King: a hat that survived a hundred boardings and looks it. The Anvil of the Titans counts it as a catalyst of legends.',
+    icon: 'Crown', stackable: false, rarity: 'legendary',
     lore: [
       'The brim is cut with notches — one for every captain who called himself king before him.',
       'Under it, faintly, the smell of tar and gunpowder and someone else\'s rum.',
       'Goliath\'s sword asks for stranger things than steel. This is one of them.',
-    ],
-  },
-
-  // ---- F28 — LEGENDARY EVENTS: the three world bosses' bounties ----
-  oro_rey_pirata: {
-    id: 'oro_rey_pirata', name: 'Pirate King\'s Gold', kind: 'material',
-    desc: 'Pure gold ingots stamped with the royal seal of the Pirate King, pried from the wreck of his war galleon. The mandatory catalyst to forge and imbue any piece of the Legendary Pirate King set at the advanced forge — it carries fire resistance and structural damage in its weight.',
-    icon: 'Coins', stackable: true, rarity: 'legendary',
-  },
-  madera_reforzada: {
-    id: 'madera_reforzada', name: 'Reinforced Galleon Wood', kind: 'material',
-    desc: 'Bolted planking from the Pirate King\'s flagship, salvaged from the sinking wreck. Each piece riding in your hold reinforces the Hummingbird: +2% hull strength per plank (workbench-grade timber).',
-    icon: 'TreePine', stackable: true, rarity: 'rare',
-  },
-  tesoro_siete_mares: {
-    id: 'tesoro_siete_mares', name: 'Treasure of the Seven Seas', kind: 'key',
-    desc: 'A chest-bound relic the Pirate King kept for the day the seven seas would be one. One of the keys to forging the ultimate weapon.',
-    icon: 'Gem', stackable: false, rarity: 'legendary',
-    lore: [
-      'It is not gold, though it looks like gold decided to think.',
-      'Seven seals, one for each sea. Six of them are broken.',
-      'The Anvil of the Titans hums when this passes by.',
-    ],
-  },
-  sombrero_kasa: {
-    id: 'sombrero_kasa', name: 'Kasa of the Calm Wind', kind: 'armor',
-    desc: 'The Storm Ronin\'s wide straw kasa, reinforced with wind-cured cord. Wear it and the CALM WIND answers: +75% health, +75% weapon damage, and slow effects (weather, elemental, ice) cannot hold you. (+75% stats, slow immunity)',
-    icon: 'Crown', stackable: false, equipable: true, rarity: 'legendary', level: 11,
-    armor: { hp: 0, reduce: 0.20 },
-    lore: [
-      'Woven in the pause between two lightning strikes.',
-      'The Ronin wore it through every storm of the forgotten seas; the rain never once found his eyes.',
-      'It smells, very faintly, of ozone and dry straw.',
-    ],
-  },
-  cuero_bestia_tormenta: {
-    id: 'cuero_bestia_tormenta', name: 'Storm Beast Leather', kind: 'material',
-    desc: 'Hide and reinforced leather cut from the Storm Ronin\'s gear. The tailoring table asks for it by name when sewing the greaves and chest of the Ronin Wanderer set — the armor that refunds stamina when you dodge at the last possible second.',
-    icon: 'Layers', stackable: true, rarity: 'rare',
-  },
-  corazon_tormenta: {
-    id: 'corazon_tormenta', name: 'Heart of the Storm', kind: 'key',
-    desc: 'What the Storm Ronin guarded for the tempest: a knot of living thunder that refuses to ground. One of the keys to forging the ultimate weapon.',
-    icon: 'Zap', stackable: false, rarity: 'legendary',
-    lore: [
-      'It weighs less than it should and more than you expect.',
-      'Every cat in Crowhaven turns to watch it pass.',
-      'Goliath\'s Colossal Sword drinks storms. This one is old enough to know better, and does it anyway.',
     ],
   },
 

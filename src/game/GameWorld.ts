@@ -353,58 +353,11 @@ export async function buildWorld(
   cacheB.build(cacheGroup, { shadows: true });
   scene.add(cacheGroup);
   streamer.register(cacheGroup, 570, 102, 16);
-  prog(0.603, 'Setting Maren\'s still by the garden…');
-  {
-    // Fase 28 — the alchemist's still: a copper kettle on a plank bench by
-    // Maren's garden nook (west of the green). Modest, honest, steaming.
-    const g = new THREE.Group();
-    const sx = -2.5, sz = 155;
-    const sy = terrainHeight.height(sx, sz);
-    g.position.set(sx, sy, sz);
-    const wood = new THREE.MeshStandardMaterial({ color: 0x5d4429, roughness: 0.92 });
-    const copper = new THREE.MeshStandardMaterial({ color: 0xb06a3b, roughness: 0.38, metalness: 0.85 });
-    const bench = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.09, 0.55), wood);
-    bench.position.y = 0.62;
-    bench.castShadow = true;
-    g.add(bench);
-    for (const lx of [-0.62, 0.62]) {
-      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.62, 0.4), wood);
-      leg.position.set(lx, 0.31, 0);
-      leg.castShadow = true;
-      g.add(leg);
-    }
-    const kettle = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.26, 0.34, 14, 1), copper);
-    kettle.position.set(-0.35, 0.84, 0);
-    kettle.castShadow = true;
-    g.add(kettle);
-    const lid = new THREE.Mesh(new THREE.SphereGeometry(0.22, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.5), copper);
-    lid.position.set(-0.35, 1.01, 0);
-    g.add(lid);
-    const spout = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.05, 0.34, 8), copper);
-    spout.position.set(-0.13, 0.94, 0.05);
-    spout.rotation.z = -0.9;
-    g.add(spout);
-    for (let i = 0; i < 3; i++) {
-      const jar = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.07, 0.08, 0.16 + i * 0.03, 10),
-        new THREE.MeshStandardMaterial({ color: 0x8a6f4d, roughness: 0.9 }),
-      );
-      jar.position.set(0.45 + i * 0.17, 0.71, 0.08 - i * 0.14);
-      jar.castShadow = true;
-      g.add(jar);
-    }
-    scene.add(g);
-    streamer.register(g, sx, sz, 12);
-  }
-
   const forgeStations = {
     anvil: greatAnvil.pos.clone(),
     altar: altarGods.pos.clone(),
     titans: anvilTitans.pos.clone(),
     firstLight: firstLight.pos.clone(),
-    // Fase 28 — Maren's still: a copper kettle on a bench by her garden nook
-    // (west of the green, where she works — the herbs around it smell of it).
-    still: new THREE.Vector3(-2.5, terrainHeight.height(-2.5, 155), 155),
   };
 
   prog(0.60, 'Raising the Ancestor’s Nest…');

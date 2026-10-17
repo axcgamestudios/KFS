@@ -12,8 +12,12 @@ import {
 /** Fase 13 — contador de FPS opcional (ajustes → Mostrar FPS). */
 function FpsCounter() {
   const [fps, setFps] = useState(0);
+  const [scale, setScale] = useState(1);
   useEffect(() => {
-    const id = setInterval(() => setFps(gameApi.fps()), 500);
+    const id = setInterval(() => {
+      setFps(gameApi.fps());
+      setScale(gameApi.resScale());
+    }, 500);
     return () => clearInterval(id);
   }, []);
   const color = fps >= 50 ? '#9fe08a' : fps >= 30 ? '#e8c96a' : '#e88a6a';
@@ -23,39 +27,8 @@ function FpsCounter() {
       style={{ background: 'rgba(12,10,8,0.72)' }}
     >
       <span className="kotfs-title text-[0.72rem] tracking-[0.18em]" style={{ color }}>
-        {fps} FPS
+        {fps} FPS{scale < 0.995 ? ` · ${Math.round(scale * 100)}%` : ''}
       </span>
-    </div>
-  );
-}
-
-/**
- * Fase 28 — THE ALCHEMIST'S STILL: live potion effect chips. Polls the
- * AlchemySystem every 500 ms (the FpsCounter pattern); each chip shows the
- * effect's icon and the seconds it has left.
- */
-function AlchemyChips() {
-  const [fx, setFx] = useState<Array<{ id: string; left: number; icon: string; name: string }>>([]);
-  useEffect(() => {
-    const id = setInterval(() => setFx(gameApi.activeEffects()), 500);
-    return () => clearInterval(id);
-  }, []);
-  if (fx.length === 0) return null;
-  return (
-    <div className="pointer-events-none absolute left-1/2 top-12 flex -translate-x-1/2 gap-1.5">
-      {fx.map((e) => (
-        <span
-          key={e.id}
-          className="kfs-frame flex items-center gap-1 px-2 py-0.5"
-          style={{ background: 'rgba(12,10,8,0.66)' }}
-          title={e.name}
-        >
-          <span className="kotfs-title text-[0.6rem] tracking-[0.12em] text-[#e8cc6a]">{e.name}</span>
-          <span className="kotfs-title text-[0.62rem] text-[color:var(--kotfs-parchment)]">
-            {Math.ceil(e.left)}s
-          </span>
-        </span>
-      ))}
     </div>
   );
 }
@@ -412,37 +385,6 @@ function MountPanel({ m }: { m: { horseName: string; gait: string; speedKmh: num
 }
 
 /** Ornate boss bar: filigree flanks, name plate, phase gems, ghost damage. */
-/** Fase 27 - the world-wide big-text announcement (self-dismissing). */
-function WorldBanner({ title, sub }: { title: string; sub?: string }) {
-  const [show, setShow] = useState(true);
-  useEffect(() => {
-    const t = setTimeout(() => setShow(false), 6000);
-    return () => clearTimeout(t);
-  }, []);
-  if (!show) return null;
-  return (
-    <div
-      className="pointer-events-none absolute inset-x-0 top-[22%] z-40 text-center"
-      style={{ animation: 'kfs-banner-in 0.7s cubic-bezier(0.16,1,0.3,1) both' }}
-    >
-      <p
-        className="kotfs-title text-4xl sm:text-5xl tracking-[0.18em] text-[color:#f4d47c]"
-        style={{ textShadow: '0 0 26px rgba(255,120,30,0.55), 0 2px 16px rgba(0,0,0,0.9)' }}
-      >
-        {title}
-      </p>
-      {sub && (
-        <p
-          className="kotfs-title mt-3 text-sm tracking-[0.34em] uppercase text-[color:var(--kotfs-parchment-dim)]"
-          style={{ textShadow: '0 1px 10px rgba(0,0,0,0.85)' }}
-        >
-          {sub}
-        </p>
-      )}
-    </div>
-  );
-}
-
 function BossBar({ b }: { b: BossHud }) {
   const [ghost, setGhost] = useState(b.hp);
   useEffect(() => {
@@ -672,7 +614,6 @@ export default function HUD() {
   const dialogue = useGameStore((s) => s.dialogue);
   const sailing = useGameStore((s) => s.sailing);
   const boss = useGameStore((s) => s.boss);
-  const worldBanner = useGameStore((s) => s.worldBanner);
   const weaponSlots = useGameStore((s) => s.weaponSlots);
   const bowDraw = useGameStore((s) => s.bowDraw);
   const bowHud = useGameStore((s) => s.bowHud);
@@ -725,7 +666,6 @@ export default function HUD() {
   return (
     <div className="pointer-events-none absolute inset-0 z-20 select-none">
       {showFps && <FpsCounter />}
-      <AlchemyChips />
       {/* --- Fase 15 — underwater overlay: the sea from below --- */}
       {submerged && (
         <div
@@ -785,12 +725,6 @@ export default function HUD() {
 
       {/* --- Boss health bar --- */}
       {boss && <BossBar b={boss} />}
-
-      {/* --- Fase 27 - LEGENDARY EVENTS: the world announcement banner
-           (Elder Dragon wake-ups and legendary encounters) --- */}
-      {worldBanner && (
-        <WorldBanner key={worldBanner.id} title={worldBanner.title} sub={worldBanner.sub} />
-      )}
 
       {/* --- Fase 9 — combo chain indicator (cinematic combat) --- */}
       {combo && !atHelm && (

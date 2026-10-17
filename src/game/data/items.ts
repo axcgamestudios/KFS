@@ -316,6 +316,6 @@ Object.assign(ITEMS, ITEMS_F15);
 import { ITEMS_F22 } from './itemsF22';
 Object.assign(ITEMS, ITEMS_F22);
 
-// ---- Fase 28 items (THE ALCHEMIST'S STILL) ----
-import { ITEMS_F28 } from './itemsF28';
-Object.assign(ITEMS, ITEMS_F28);
+// ---- Fase 27 items (EL BESTIARIO COMÚN — the common enemies' loot) ----
+import { ITEMS_F27 } from './itemsF27';
+Object.assign(ITEMS, ITEMS_F27);

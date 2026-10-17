@@ -180,7 +180,7 @@ export const SIDE_QUESTS = [
   'q_rosa', 'sq_raciones', 'sq_yunque', 'sq_espejo', 'sq_fuegos', 'sq_petalo_tumba',
   'sq_caravana', 'sq_caballos', 'sq_cascada', 'sq_cartas', 'sq_bounty', 'sq_moneda',
   'sq_tesoro', 'sq_vela', 'sq_guardianes', 'sq_arce', 'sq_cazatormentas',
-  'sq_estandarte', 'sq_lamento', 'sq_vigia', 'sq_comercio',
+  'sq_estandarte', 'sq_lamento', 'sq_vigia', 'sq_comercio', 'sq_bestiario',
 ];
 
 // ---- Fase 4 quests (Chapters IV-V + secondary campaign) ----

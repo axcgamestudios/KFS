@@ -95,19 +95,6 @@ const ROLE_DEFS: Record<BanditRole, RoleDef> = {
 
 export interface LegendDrop { id: string; count: number; chance?: number }
 
-/** Fase 27 - LEGENDARY EVENTS: public read handle on a duelling legend
- *  (the LegendaryEvents system polls hp/pos/speed without touching the
-   private Bandit internals). */
-export interface DuelHandle {
-  hp: number;
-  maxHp: number;
-  dead: boolean;
-  pos: THREE.Vector3;
-  chaseSpeed: number;
-  damage: number;
-  aggro: boolean;
-}
-
 export interface LegendDef {
   id: string;
   name: string;
@@ -1112,47 +1099,10 @@ export class BanditSystem {
   }
 
   /**
-   * Fase 27 - DUELO LEGENDARIO: the LegendaryEvents system spawns a named
-   * duellist at a DYNAMIC spot (the passes, the storm plains). Same
-   * machinery as the static legends: boss bar, poise, no respawn, loot.
-   */
-  spawnLegendDuel(def: LegendDef, x: number, z: number): DuelHandle | null {
-    const camp: CampDef = { id: `duel_${def.id}_${this.duelSeq}`, name: def.name, x, z, radius: 10 };
-    const b = new Bandit(9700 + this.duelSeq++, camp, true, 4242 + x * 3 + z, def.role);
-    b.legend = def;
-    b.maxHp = def.hp;
-    b.hp = def.hp;
-    b.aggroRadius = def.aggroRadius;
-    b.damage = def.damage;
-    b.chaseSpeed = def.chaseSpeed;
-    b.poise = true;
-    b.pos.set(x, this.terrain.height(x, z), z);
-    b.group.position.copy(b.pos);
-    this.scene.add(b.group);
-    this.bandits.push(b);
-    this.attachVisual(b, true, def);
-    b.forceAggro();
-    return b as unknown as DuelHandle;
-  }
-  private duelSeq = 0;
-
-  /**
    * Fase 12 — AMBUSH: a surprise squad of red knights materialises around a
    * point (collection pickups triggering action). They spawn ALERTED and
    * charge straight in — the player can never gather in peace.
    */
-  /**
-   * Fase 28 — EL VIAJERO's road ambush: same machinery as the gathering
-   * ambush but returns LIVE HANDLES so the TravelerSystem can watch the
-   * pack and drain the merchant's posture bar.
-   */
-  spawnTravelerAmbush(x: number, z: number, count: number): Array<{ alive(): boolean }> {
-    const before = this.bandits.length;
-    this.spawnAmbush(x, z, count);
-    const fresh = this.bandits.slice(before);
-    return fresh.map((b) => ({ alive: () => !b.dead }));
-  }
-
   spawnAmbush(x: number, z: number, count = 3): number {
     let spawned = 0;
     const camp = { ...CAMPS[0], x, z, radius: 4 };
@@ -1479,16 +1429,10 @@ export class BanditSystem {
   }
 
   /** Apply player damage to a bandit; handles loot/XP on death. */
-  /** Fase 28 — set by Game: the acid cloud's armor shred lookup. */
-  acidShredOf: ((bandit: unknown) => number) | null = null;
-
   damage(bandit: unknown, amount: number, heavy: boolean, opts?: { guardBreak?: boolean; forceStagger?: boolean }): void {
     const b = bandit as Bandit;
     const p = this.playerPos();
-    // Fase 28 — CORROSIVE ACID BREW: −30% armor = +30% damage taken while
-    // the cloud holds. One site: every source (steel, DoT, reflect) benefits.
-    const shred = this.acidShredOf ? this.acidShredOf(bandit) : 1;
-    const res = b.takeDamage(amount * shred, heavy, p?.x, p?.z, opts);
+    const res = b.takeDamage(amount, heavy, p?.x, p?.z, opts);
     if (res.guarded) {
       // light hit into a raised weapon: sparks + clang, no real harm
       this.hooks.blockSparks(b.center());
@@ -1537,11 +1481,6 @@ export class BanditSystem {
         this.hooks.addItem?.('seda_sombras', 1);
         got.push('1 × Ancestral Shadow Silk');
       }
-      // Fase 28 — the alchemist's tithe: the golem-plate dust, the hunters'
-      // cured leather, and a jar of the school's storm jelly
-      if (Math.random() < 0.25) { this.hooks.addItem?.('piedra_runica', 1); got.push('runic stone dust'); }
-      if (Math.random() < 0.30) { this.hooks.addItem?.('cuero_curtido', 1); got.push('cured leather'); }
-      if (Math.random() < 0.15) { this.hooks.addItem?.('gelatina_rayo', 1); got.push('elemental storm jelly'); }
       const coins = 14 + Math.floor(Math.random() * 18);
       this.hooks.addCoins(coins);
       this.hooks.giveXp(34);
@@ -1551,8 +1490,6 @@ export class BanditSystem {
     }
     const coins = b.captain ? 25 + Math.floor(Math.random() * 35) : 8 + Math.floor(Math.random() * 14);
     this.hooks.addCoins(coins);
-    // Fase 28 — the commonest foe carries the commonest base: basic jelly
-    if (Math.random() < (b.captain ? 0.7 : 0.4)) this.hooks.addItem?.('gelatina_basica', 1);
     this.hooks.giveXp(b.captain ? 60 : 18);
     this.hooks.sound('hit_scale');
     this.hooks.cameraShake(b.captain ? 0.5 : 0.25);

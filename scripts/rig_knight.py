@@ -24,6 +24,24 @@ v3 — THE FOOT FIX (Fase 26, "que no se vayan a estirar sus pies"):
       shin→knee), sharper bands (÷7, ÷5) fit rigid plate;
     · RIGID SABATON: every vert below the ankle pivot (y < -93) is 100% on
       its ankle bone — the feet CANNOT stretch, by construction.
+
+v4 — THE SWORDLESS-ARM FIX (Fase 27, "el brazo sin espada tiene bugs de
+  estiramiento"): the statue's LEFT forearm CROSSES the body midline
+  (elbow x=38 → wrist x=14, gripping the heater shield at z 16..28) but
+  r_armL demanded x≥17 — every gauntlet/grip vert at x 14..17 fell through
+  classify_point to the DEFAULT 'torso', and the torso band (y<8) put them
+  100% on j_root: the hand stayed WELDED TO THE PELVIS while the arm swung
+  (probe f27: 155 upper + 105 lower hand verts dominated by j_root; the
+  bow aim extends shoulderL to −1.4 rad → the hand stretched across the
+  chest). Two-part fix, mirroring the F26 sabaton:
+    · CONNECTIVITY RECLAIM: a pelvis/torso vert that shares a vertex-
+      neighbour with a true arm vert AND hugs the forearm+wrist chain
+      (<9 units) is arm — cuff, gauntlet and grip are one continuous piece
+      with the forearm, while tasset/skirt plates never share verts with
+      the arm, so the skirt stays rigid with the pelvis;
+    · RIGID GAUNTLET: every arm vert below the wrist cuff (y≤14, within 7
+      units of the wrist segment) is 100% its wrist bone — plate gauntlets
+      do not bend, and the hand can NEVER stretch off the arm again.
 Usage: python3 scripts/rig_knight.py [--check]"""
 import json, struct, sys, math
 import numpy as np
@@ -295,6 +313,15 @@ def compute_weights(pos, part_of):
             # does not tear the deltoid-pectoral junction (y 46..66).
             if y > 46:
                 W[vi, BONE_INDEX['j_torso']] = 0.30 * smoothstepf(46, 62, y)
+            # RIGID GAUNTLET (Fase 27): plate gauntlets don't bend — the
+            # whole hand below the wrist cuff NEVER leaves its wrist bone
+            # (same construction as the F26 rigid sabaton). The grip verts
+            # used to ride j_root: the stretched swordless arm.
+            if y <= 14.0:
+                wa, wb_ = BONE_SEGMENTS[f'j_wrist{side}']
+                if dist_to_segment(p, wa, wb_) < 8.0:
+                    W[vi, :] = 0.0
+                    W[vi, BONE_INDEX[f'j_wrist{side}']] = 1.0
             continue
         if part in ('legR', 'legL'):
             side = 'R' if part == 'legR' else 'L'
@@ -427,8 +454,71 @@ lo_keep = remove_tris(lo, lo_sword_take, shield_tri_mask)
 # per-vertex part assignment
 def assign_parts(m):
     return [classify_point(p[0], p[1], p[2]) for p in m['positions']]
+
+def reclaim_arms(m, parts):
+    """Fase 27 — reclaim the crossing forearm's cuff/gauntlet/grip verts.
+    A pelvis/torso vert that SHARES a vertex-neighbour (2 hops) with a true
+    arm vert AND hugs that side's forearm+wrist chain (< 9 units) is arm:
+    the cuff runs continuously into the forearm, while tasset/skirt plates
+    never share vertices with the arm — so the skirt stays on the pelvis."""
+    parts = list(parts)
+    n = len(parts)
+    idx = m['indices'].reshape(-1, 3)
+    nbr = [set() for _ in range(n)]
+    for tri in idx:
+        a, b, c = int(tri[0]), int(tri[1]), int(tri[2])
+        nbr[a].add(b); nbr[a].add(c)
+        nbr[b].add(a); nbr[b].add(c)
+        nbr[c].add(a); nbr[c].add(b)
+    P = m['positions']
+    for side in ('L', 'R'):
+        elbow_seg = BONE_SEGMENTS[f'j_elbow{side}']
+        wrist_seg = BONE_SEGMENTS[f'j_wrist{side}']
+        # TRUE HAND ZONE (geometric reclaim): verts inside the grip capsule
+        # (z > 16.2 — in front of the skirt, whose plates all live at
+        # z <= 16; y <= 14 — below the wrist cuff; within 8 units of the
+        # wrist segment) are HAND no matter their part. The Upper/Lower mesh
+        # split cuts through the wrist, so connectivity alone cannot reach
+        # the lower mesh's grip verts; and r_arm's boxes (x>=17 / y>=0)
+        # exclude the wrapping fingers (x 10..15, y -1..0).
+        zone = []
+        for vi in range(n):
+            if parts[vi] in ('head', 'sword'):
+                continue
+            p = P[vi]
+            if p[1] <= 14.0 and p[2] > 16.2 and dist_to_segment(p, wrist_seg[0], wrist_seg[1]) < 8.0:
+                if parts[vi] != f'arm{side}':
+                    parts[vi] = f'arm{side}'
+                    zone.append(vi)
+        if zone:
+            Q = P[zone]
+            print(f'  hand-zone {side}: {len(zone)} verts '
+                  f'(x {Q[:,0].min():.0f}..{Q[:,0].max():.0f}, y {Q[:,1].min():.0f}..{Q[:,1].max():.0f}, z {Q[:,2].min():.0f}..{Q[:,2].max():.0f})')
+        seeds = [i for i in range(n) if parts[i] == f'arm{side}']
+        if not seeds:
+            continue
+        hop = set()
+        for s in seeds:
+            hop.update(nbr[s])
+            for v in nbr[s]:
+                hop.update(nbr[v])
+        reclaimed = 0
+        for vi in hop:
+            if parts[vi] not in ('pelvis', 'torso'):
+                continue
+            p = P[vi]
+            d = min(dist_to_segment(p, elbow_seg[0], elbow_seg[1]),
+                    dist_to_segment(p, wrist_seg[0], wrist_seg[1]))
+            if d < 9.0:
+                parts[vi] = f'arm{side}'
+                reclaimed += 1
+        print(f'  reclaim {side}: {reclaimed} cuff/grip verts -> arm{side}')
+    return parts
+
 up_parts = assign_parts(up_keep)
 lo_parts = assign_parts(lo_keep)
+up_parts = reclaim_arms(up_keep, up_parts)
+lo_parts = reclaim_arms(lo_keep, lo_parts)
 from collections import Counter
 print('UPPER parts:', Counter(up_parts).most_common())
 print('LOWER parts:', Counter(lo_parts).most_common())
@@ -617,6 +707,73 @@ if not CHECK_ONLY:
         [STEEL, CLOTH] + ([SWCOL] if sword else []) + [SHCOL],
         '/tmp/rig_attack.png')
 
+    # Fase 27 — BOW AIM: the left arm's biggest excursion (shoulderL −1.4,
+    # elbowL −1.1, straight at the target). The old rig dragged the hand
+    # across the chest here (grip verts on j_root). NUMERIC check: the hand
+    # must track the posed wrist bone rigidly.
+    bow = {
+        'j_shoulderL': ((1, 0, 0), -1.4), 'j_elbowL': ((1, 0, 0), -1.1),
+        'j_shoulderR': ((1, 0, 0), -0.55), 'j_elbowR': ((1, 0, 0), -0.35),
+        'j_torso': ((0, 1, 0), 0.18), 'j_head': ((0, 1, 0), 0.05),
+    }
+    render_pose(
+        [skinned_tris(up_keep, up_w, up_j, bow), skinned_tris(lo_keep, lo_w, lo_j, bow)] +
+        ([prop_tris(sword, 'j_wristR', bow)] if sword else []) +
+        [prop_tris(shield, 'j_wristL', bow)],
+        [STEEL, CLOTH] + ([SWCOL] if sword else []) + [SHCOL],
+        '/tmp/rig_bow.png')
+
+    def hand_rigidity_check(m, w, j, tag):
+        """Hand verts (within 7 units of a wrist segment, y<=14) must be 100%
+        on that wrist — and their skinned bow-aim position must equal the
+        rigid wrist transform to the millimetre."""
+        P = m['gpos']
+        worldm = world_matrices(bow)
+        ok = 0; bad = 0; worst = 0.0
+        for vi in range(len(P)):
+            p = P[vi]
+            for side in ('L', 'R'):
+                wa = bone_game[f'j_wrist{side}']
+                wb = wa + (bone_game[f'j_wrist{side}'] - bone_game[f'j_elbow{side}']) * 0.8
+                # statue-space gate mirrors the clamp: y<=14, dist<7 (game m)
+                ys = (p[1] - 0.0)  # game-space y of statue y is (y+104)*s
+                # recompute statue-space distance from game-space p
+                sx = p[0] / GAME_SCALE; sy = p[1] / GAME_SCALE - 104.0; sz = p[2] / GAME_SCALE
+                sp = np.array([sx, sy, sz])
+                seg = BONE_SEGMENTS[f'j_wrist{side}']
+                # TRUE hand zone: in FRONT of the skirt (statue pelvis verts
+                # all live at z <= 16; the hand grips at z 16..28) and below
+                # the wrist cuff. Tasset plates near the wrist segment start
+                # are skirt — they MUST stay on the root.
+                if sy > 14.0 or sz <= 16.2 or dist_to_segment(sp, seg[0], seg[1]) >= 8.0:
+                    continue
+                # must be 100% on the wrist
+                wi = list(j[vi]); wv = list(w[vi])
+                top = int(wi[int(np.argmax(wv))])
+                if top != BONE_INDEX[f'j_wrist{side}'] or max(wv) < 0.999:
+                    bad += 1
+                    if bad <= 10:
+                        print(f'    FAIL[{tag}] side={side} statue=({sx:.1f},{sy:.1f},{sz:.1f}) top={BONES[top][0]} w={np.round(wv, 2).tolist()}')
+                    continue
+                # skinned vs rigid wrist transform
+                M = worldm[f'j_wrist{side}']; r = bone_game[f'j_wrist{side}']
+                rigid = (p - r) @ M[:3, :3].T + M[:3, 3]
+                skin = np.zeros(3)
+                for k in range(4):
+                    if w[vi][k] <= 0: continue
+                    bn = BONES[int(j[vi][k])][0]
+                    Mk = worldm[bn]; rk = bone_game[bn]
+                    skin += w[vi][k] * ((p - rk) @ Mk[:3, :3].T + Mk[:3, 3])
+                dev = float(np.linalg.norm(skin - rigid))
+                worst = max(worst, dev)
+                ok += 1
+        print(f'  hand rigidity [{tag}]: {ok} hand verts rigid, {bad} NOT on wrist, worst dev {worst*1000:.2f} mm')
+        return bad == 0 and worst < 0.001
+    okA = hand_rigidity_check(up_keep, up_w, up_j, 'upper')
+    okB = hand_rigidity_check(lo_keep, lo_w, lo_j, 'lower')
+    if not (okA and okB):
+        print('  *** HAND RIGIDITY FAILED ***')
+
 # ------------------------------------------------------------------ GLB writing
 def pad4(n):
     return (4 - n % 4) % 4
@@ -719,7 +876,7 @@ def write_glb(path):
         nodes[bone_node['j_wristL']].setdefault('children', []).append(n)
 
     gltf = {
-        'asset': {'version': '2.0', 'generator': 'KFS rigger v3 (rigid sabatons)'},
+        'asset': {'version': '2.0', 'generator': 'KFS rigger v4 (rigid sabatons + rigid gauntlets)'},
         'scene': 0,
         'scenes': [{'name': 'knight', 'nodes': scene_nodes}],
         'nodes': nodes,

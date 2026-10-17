@@ -238,6 +238,22 @@ export const QUESTS_F4: Record<string, QuestDef> = {
     rewards: { xp: 90, items: [{ id: 'pocion', count: 1 }, { id: 'coin', count: 25 }] },
     completionJournal: 'Rosa heard the three tales with her elbows on the bar and her eyes like candles. "Tonight the tavern sings on its own," she announced. The cinnamon smelled of glory again.',
   },
+  // ---- Fase 27 — EL BESTIARIO COMÚN: the smith's bounty board ----
+  sq_bestiario: {
+    id: 'sq_bestiario',
+    title: "The Smith's Bestiary",
+    description: "Bram's bounty board is full: the meadows crawl with goblins, kobolds and mud-things — and a hoarder-king camps by the old road.",
+    journal: 'Bram nailed a fresh bounty board to the smithy post. Four goblin clubs, three kobold spears, three of the swamp mud-spackers — and the crown of the hoarder called Krog. He pays per head, and better for the big one.',
+    objectives: [
+      { id: 'o1', text: 'Cull 4 Duendes Silvestres (0/4)', type: 'kill', target: 'creature_duende', count: 4 },
+      { id: 'o2', text: 'Cull 3 Kobolds de las Estribaciones (0/3)', type: 'kill', target: 'creature_kobold', count: 3 },
+      { id: 'o3', text: 'Cull 3 Grimpotes de los Manglares (0/3)', type: 'kill', target: 'creature_grimpote', count: 3 },
+      { id: 'o4', text: "Break Krog's camp: El Acaparador", type: 'kill', target: 'creature_krog', count: 1 },
+      { id: 'o5', text: "Collect the smith's bounty", type: 'talk', target: 'bram_bestiario' },
+    ],
+    rewards: { xp: 220, items: [{ id: 'coin', count: 180 }, { id: 'pocion', count: 3 }, { id: 'chatarra_hierro', count: 4 }] },
+    completionJournal: 'The board is closed and the meadows breathe again. Bram paid in coins, tonics and good iron — "the kind that remembers being a sword." The common folk sleep better. So, quietly, do I.',
+  },
   sq_bounty: {
     id: 'sq_bounty',
     title: 'Drakeling Hunter',

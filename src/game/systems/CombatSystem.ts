@@ -199,6 +199,20 @@ export const WEAPONS: Record<string, WeaponDef> = {
     lightDmg: 44, heavyDmg: 74, reach: 2.56, arc: 1.8,
     lightDur: 0.45, heavyDur: 0.74, recovery: 0.29, lightStamina: 8, heavyStamina: 15,
   },
+  // ---- Fase 27 — EL BESTIARIO: the mini-jefes' weapons ----
+  garrote_krog: {
+    // Krog's iron club: slow arcs, brutal impact — +15% against lesser foes
+    // (the Bestiary applies the humanoid-minor bonus on hit routing)
+    id: 'garrote_krog', kind: 'sword',
+    lightDmg: 27, heavyDmg: 50, reach: 2.45, arc: 1.7,
+    lightDur: 0.56, heavyDur: 0.88, recovery: 0.36, lightStamina: 9, heavyStamina: 17,
+  },
+  espada_gelatina: {
+    // King Slime's elastic blade: epic reach, whips fast for its size
+    id: 'espada_gelatina', kind: 'sword',
+    lightDmg: 42, heavyDmg: 70, reach: 2.95, arc: 1.86,
+    lightDur: 0.44, heavyDur: 0.72, recovery: 0.27, lightStamina: 7, heavyStamina: 14,
+  },
   gemelas_viento: {
     id: 'gemelas_viento', kind: 'sword',
     lightDmg: 48, heavyDmg: 82, reach: 2.58, arc: 1.84,
@@ -240,7 +254,12 @@ export const SWORD_PRIORITY = [
   'espada_almirante_rota', 'espada_plata_rota',
   'espada_fuego', 'espada_escarcha', 'espada_tormenta',
   'espada_almirante',
-  'espada_guardian', 'espada_eirik', 'espada_plata', 'espada_acero',
+  // Fase 27 — King Slime's elastic epic rides just under the boss blades
+  'espada_gelatina',
+  'espada_guardian', 'espada_eirik', 'espada_plata',
+  // Fase 27 — Krog's club beats bare starter steel, nothing more
+  'garrote_krog',
+  'espada_acero',
 ];
 export const WEAPON_SLOTS = ['espada_acero', 'hacha_orden', 'lanza_caza', 'arco_naufragio'];
 /** Fase 18 — the bow family, in cycle order (slot 4 presses walk this list). */
@@ -452,6 +471,9 @@ export class CombatSystem {
   /** Refs wired by Game: radial bandit queries + the daylight factor for
    *  Apollo's blessing. */
   banditsInRadiusRef: ((pos: THREE.Vector3, r: number) => Array<{ bandit: unknown; point: THREE.Vector3 }>) | null = null;
+  /** Fase 27 — outgoing damage multiplier (the druid bear's ROAR sets 0.8
+   *  for 6 s; the Game applies it in the damageBandit/bestiary dispatch). */
+  outDamageMul = 1;
   dayFactorRef: (() => number) | null = null;
   /** Fired whenever the bar moves (the Game mirrors it to the HUD store). */
   onValorChange?: (v: number) => void;
@@ -961,7 +983,7 @@ export class CombatSystem {
     // --- Swing progression ---
     if (p.attackT > 0) {
       const wasAir = !p.grounded;
-      p.attackT += (dt / p.attackDur) * this.alchemyAttackSpeed; // Fase 28 — Fury: the swing plays faster
+      p.attackT += dt / p.attackDur;
       const impactAt = p.attackKind === 'heavy' ? 0.55
         : p.attackKind === 'spin' ? 0.5
         : p.attackKind === 'uppercut' ? 0.62
@@ -1691,12 +1713,6 @@ export class CombatSystem {
     p.onAttackSwing?.();
   }
 
-  // ---- Fase 28 — THE ALCHEMIST'S STILL: Game keeps these fresh each frame.
-  /** Abyss-Fury: added to every critical multiplier (0.35 while active). */
-  alchemyCritAdd = 0;
-  /** Abyss-Fury: attack cadence × (1.15 while active). */
-  alchemyAttackSpeed = 1;
-
   private lightAlt = false;
   private altLight(): 'light1' | 'light2' {
     this.lightAlt = !this.lightAlt;
@@ -1740,7 +1756,7 @@ export class CombatSystem {
     const hit = this.hooks.dragonMelee(p.position, p.yaw, weapon.reach, multiArc);
     if (hit) {
       // ESPADA GARRA — carved from the Ancestor's own claw: +25% vs dragons
-      let final = hit.head ? dmg * (1.5 + this.alchemyCritAdd) : dmg; // Fase 28 — Fury sharpens every crit
+      let final = hit.head ? dmg * 1.5 : dmg;
       if (wid === 'espada_garra') final *= 1.25;
       this.hooks.damageDragon(hit.dragon, final, heavy);
       this.vfx.weaponImpact(hit.point);
@@ -1805,15 +1821,9 @@ export class CombatSystem {
           // guaranteed critical on any enemy that has not noticed you
           const unaware = !(bHit.bandit as { aggroed?: boolean }).aggroed;
           if (wid === 'wakizashi' && this.quickDrawT > 0 && unaware) {
-            strikeDmg *= 2.2 + this.alchemyCritAdd; // Fase 28 — Fury sharpens every crit
+            strikeDmg *= 2.2;
             this.quickDrawT = 0;
             this.flashEvent('QUICK DRAW!');
-          }
-          // Fase 28 — ABYSS-FURY: while the elixir holds, one strike in five
-          // lands as a true critical at ×1.6 (+35% harder with the elixir).
-          if (this.alchemyCritAdd > 0 && Math.random() < 0.2) {
-            strikeDmg *= 1.6 + this.alchemyCritAdd;
-            this.flashEvent('CRITICAL');
           }
           this.hooks.damageBandit?.(bHit.bandit, strikeDmg, heavy, this.banditOpts(wid, isBokken, heavy));
           if (launchNow) this.hooks.launchBandit?.(bHit.bandit, 6.2);
@@ -2112,7 +2122,7 @@ export class CombatSystem {
       if (dragonPart) {
         let dmg = a.dmg;
         if (dragonPart.head) {
-          dmg *= (a.pierce ? 2.0 : 2.25) + this.alchemyCritAdd; // weak points: 200-250% (+Fury)
+          dmg *= a.pierce ? 2.0 : 2.25; // weak points: 200-250%
           this.flashEvent('WEAK POINT!');
           this.onCameraPunch?.(0.4);
           this.hooks.sound('hit_scale');
@@ -2138,7 +2148,7 @@ export class CombatSystem {
         let dmg = a.dmg;
         const headY = (this.banditHeadYRef?.(bandit)) ?? Infinity;
         if (a.mesh.position.y >= headY) {
-          dmg *= (a.pierce ? 1.9 : 2.2) + this.alchemyCritAdd; // Fase 28 — Fury sharpens headshots
+          dmg *= a.pierce ? 1.9 : 2.2;
           this.flashEvent('HEADSHOT');
           this.onCameraPunch?.(0.35);
           this.hooks.sound('hit_scale');

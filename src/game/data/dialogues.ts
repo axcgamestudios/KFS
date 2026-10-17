@@ -562,6 +562,53 @@ export const DIALOGUES: Record<string, NPCDialogue> = {
     name: 'Bram the Smith',
     trees: [
       {
+        // Fase 27 — THE SMITH'S BESTIARY: bounty payout (kill counters met)
+        cond: 'bestiario_kills_done',
+        notCond: 'bestiario_done',
+        start: 'bs3',
+        nodes: {
+          bs3: {
+            text: 'Four goblin clubs, three kobold spears, three of those swamp-things — AND the hoarder\'s crown? You emptied the meadows, Warden. The board is yours to close: coins, tonics, and the good iron from my scrap pile.',
+            options: [
+              {
+                text: 'The board is closed. Good forging, Bram.',
+                action: [
+                  { t: 'talk', target: 'bram_bestiario' },
+                  { t: 'flag', flag: 'bestiario_done' },
+                  { t: 'close' },
+                ],
+              },
+            ],
+          },
+        },
+      },
+      {
+        // Fase 27 — THE SMITH'S BESTIARY: the offer (after the first kill)
+        cond: 'bestiario_board',
+        notCond: 'bestiario_started',
+        start: 'bs1',
+        nodes: {
+          bs1: {
+            text: 'You have blood on your boots — good, honest, goblin blood. Look at the board: the meadows are crawling again. Clubs, scales and mud-things, and something BIG hoarding in the camp by the old road. I pay per head. Better for the big one.',
+            options: [
+              {
+                text: 'Consider the board open.',
+                action: [
+                  { t: 'quest', id: 'sq_bestiario' },
+                  { t: 'flag', flag: 'bestiario_started' },
+                  { t: 'close' },
+                ],
+              },
+              { text: 'Not today, smith.', next: 'bs2' },
+            ],
+          },
+          bs2: {
+            text: 'The board does not rot, and neither do bounties. Come back when your blade itches.',
+            options: [{ text: 'Farewell.', action: [{ t: 'close' }] }],
+          },
+        },
+      },
+      {
         cond: 'aldric_ship_talked',
         notCond: 'ship_repaired',
         start: 'rf1',
