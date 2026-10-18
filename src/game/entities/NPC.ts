@@ -328,4 +328,19 @@ export class NPC {
     this.target.copy(this.group.position);
     this.moveState = { s: 'pause', t: 1 + this.rng() * 3 };
   }
+
+  /** Fase 28 — EL VIAJERO: re-home the NPC to a new anchor (the trade
+   *  circuit relocates him every new day). Rewrites the def anchors so
+   *  the daily schedule follows, teleports, and resumes wandering. */
+  relocate(pos: THREE.Vector3): void {
+    this.def.home.copy(pos);
+    this.def.work.copy(pos);
+    this.def.evening.copy(pos);
+    this.group.position.copy(pos);
+    this.anchor.copy(pos);
+    this.target.copy(pos);
+    this.activity = 'work';
+    this.moveState = { s: 'pause', t: 1 + this.rng() * 3 };
+    this.walkTime = 0;
+  }
 }

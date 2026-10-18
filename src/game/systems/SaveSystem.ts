@@ -52,6 +52,8 @@ export interface SaveData {
     riding?: string | null;
   };
   weather?: { kind: 'clear' | 'cloudy' | 'rain' | 'storm'; timer: number };
+  /** Fase 28 — the alchemist's running windows (optional; old saves lack it). */
+  buffs?: Array<{ id: string; left: number }>;
 }
 
 export interface Settings extends GraphicsSettings {

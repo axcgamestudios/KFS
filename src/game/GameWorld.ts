@@ -21,6 +21,8 @@ import { buildSmithy } from './structures/Smithy';
 import {
   buildGreatAnvil, buildAltarOfGods, buildAnvilOfTitans, buildFirstLightCache,
 } from './structures/ForgeStations';
+import { buildAlchemyTable } from './structures/AlchemyStation';
+import { buildTravellerCamp, TRAVELLER_STOPS } from './structures/TravellerCamp';
 import { createChest, createHerb, type ChestHandles } from './structures/Props';
 import { StaticBuilder, MAT } from './structures/Materials';
 import { buildFase4World, type Fase4Refs } from './structures/Fase4POIs';
@@ -69,6 +71,9 @@ export interface WorldRefs {
     titans: THREE.Vector3;
     firstLight: THREE.Vector3;
   };
+  /** Fase 28 — LA MESA DE ALQUIMIA: the anchor of Maren's distillation
+   *  table (the interactable prompt position). */
+  alchemyTable: THREE.Vector3;
   /** Dock point where the repaired Colibrí spawns / respawns. */
   dockSpawn: { x: number; z: number; heading: number };
   /** Fase 4 systems: assets, weather and the new POI refs. */
@@ -360,6 +365,27 @@ export async function buildWorld(
     firstLight: firstLight.pos.clone(),
   };
 
+  // ---- Fase 28 — LA MESA DE ALQUIMIA (Maren's garden nook, west of the green) ----
+  prog(0.606, 'Decanting the alchemist’s table…');
+  const alchemyB = new StaticBuilder(colliders, 'alchemy_mesa');
+  const alchemyTable = buildAlchemyTable(alchemyB, terrainHeight, { x: -16, z: 148, yaw: 1.0 });
+  const alchemyGroup = new THREE.Group();
+  alchemyB.build(alchemyGroup, { shadows: true });
+  scene.add(alchemyGroup);
+  streamer.register(alchemyGroup, -16, 148, 14);
+
+  // ---- Fase 28 — EL VIAJERO: the three camps of the old trade circuit ----
+  prog(0.608, 'Marking the Traveller’s route…');
+  for (let i = 0; i < TRAVELLER_STOPS.length; i++) {
+    const stop = TRAVELLER_STOPS[i];
+    const campB = new StaticBuilder(colliders, `viajero_camp_${i}`);
+    buildTravellerCamp(campB, terrainHeight, { x: stop.x, z: stop.z, yaw: 0.55 + i * 0.4 });
+    const campGroup = new THREE.Group();
+    campB.build(campGroup, { shadows: true });
+    scene.add(campGroup);
+    streamer.register(campGroup, stop.x, stop.z, 18);
+  }
+
   prog(0.60, 'Raising the Ancestor’s Nest…');
   const lairB = new StaticBuilder(colliders, 'lair');
   const lair = buildDragonLair(lairB, terrainHeight);
@@ -543,6 +569,17 @@ export async function buildWorld(
       evening: new THREE.Vector3(160, g(160, 280), 280),
       nightAtHome: true,
     },
+    {
+      // Fase 28 — EL VIAJERO: the wanderer of the old trade circuit. He
+      // walks the island anti-clockwise — one day at each camp, then the
+      // next. The def starts him at stop 0; Game relocates him on new-day
+      // (and after load) by dayCount % 3, so the anchors are mutated live.
+      id: 'viajero', name: 'El Viajero', paletteIndex: 4, cape: true, role: 'merchant', dialogueId: 'viajero',
+      home: new THREE.Vector3(TRAVELLER_STOPS[0].x, g(TRAVELLER_STOPS[0].x, TRAVELLER_STOPS[0].z), TRAVELLER_STOPS[0].z),
+      work: new THREE.Vector3(TRAVELLER_STOPS[0].x, g(TRAVELLER_STOPS[0].x, TRAVELLER_STOPS[0].z), TRAVELLER_STOPS[0].z),
+      evening: new THREE.Vector3(TRAVELLER_STOPS[0].x, g(TRAVELLER_STOPS[0].x, TRAVELLER_STOPS[0].z), TRAVELLER_STOPS[0].z),
+      nightAtHome: false,
+    },
   ];
 
   prog(0.82, 'Releasing gulls over the bay…');
@@ -603,6 +640,7 @@ export async function buildWorld(
     kits,
     navel,
     forgeStations,
+    alchemyTable: alchemyTable.pos.clone(),
   };
 }
 

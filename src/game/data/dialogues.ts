@@ -8,7 +8,7 @@ export type DialogueActionSingle =
   | { t: 'xp'; amount: number }
   | { t: 'talk'; target: string }
   /** Fase 16 — open a merchant's shop panel and close the dialogue. */
-  | { t: 'shop'; vendor: string }
+  | { t: 'shop'; vendor: string; tab?: 'wares' | 'sells' }
   | { t: 'close' };
 
 /** Actions can be a single action or a list applied in order. */
@@ -1011,3 +1011,8 @@ export const LORE: Record<string, LoreInteraction> = {
 //      Tom's horn legend) — grafted onto the existing NPC trees. ----
 import { applyF15Dialogues } from './dialoguesF15';
 applyF15Dialogues(DIALOGUES);
+
+// ---- Fase 28 dialogues (POCIONES & EL VIAJERO — the wanderer, Maren's
+//      table, Tom's regards) — grafted onto the existing NPC trees. ----
+import { applyF28Dialogues } from './dialoguesF28';
+applyF28Dialogues(DIALOGUES);

@@ -140,9 +140,13 @@ interface GameStore {
   /** Fase 21 — true while the FIRST PERSON lens (B) rides the hero's eyes. */
   firstPerson: boolean;
   /** Fase 16 — open merchant panel (null = closed). */
-  shop: { vendor: string } | null;
+  shop: { vendor: string; tab?: 'wares' | 'sells' } | null;
   /** Fase 22 — open forge panel (null = closed). */
   forge: { station: 'anvil' | 'altar' | 'titans' } | null;
+  /** Fase 28 — open alchemy panel (null = closed). */
+  alchemy: { station: 'mesa' } | null;
+  /** Fase 28 — the alchemist's running windows (HUD strip). */
+  activeEffects: Array<{ id: string; name: string; icon: string; left: number; total: number }>;
   /** Fase 22 — seconds of summoned eclipse left (0 = clear sky). Drives the
    *  HUD ring-of-fire countdown badge. */
   eclipseLeft: number;
@@ -204,9 +208,13 @@ interface GameStore {
   setDialogue: (d: DialogueState | null) => void;
   setDiscovery: (d: { title: string; sub: string } | null) => void;
   /** Fase 16 — merchant panel state (null closes it). */
-  setShop: (s: { vendor: string } | null) => void;
+  setShop: (s: { vendor: string; tab?: 'wares' | 'sells' } | null) => void;
   /** Fase 22 — forge panel open/close. */
   setForge: (s: { station: 'anvil' | 'altar' | 'titans' } | null) => void;
+  /** Fase 28 — alchemy panel open/close. */
+  setAlchemy: (s: { station: 'mesa' } | null) => void;
+  /** Fase 28 — HUD strip of running windows (pushed on the 0.15s cadence). */
+  setActiveEffects: (list: Array<{ id: string; name: string; icon: string; left: number; total: number }>) => void;
   /** Fase 22 — eclipse countdown for the HUD badge. */
   setEclipseLeft: (n: number) => void;
   /** Fase 17 — Sea Fury bar (0..300) + combat cue state. */
@@ -245,6 +253,8 @@ export const useGameStore = create<GameStore>((set) => ({
   submerged: false,
   shop: null,
   forge: null,
+  alchemy: null,
+  activeEffects: [],
   eclipseLeft: 0,
   negotiation: null,
   valor: 0,
@@ -296,6 +306,8 @@ export const useGameStore = create<GameStore>((set) => ({
   setDiscovery: (d) => set({ discovery: d }),
   setShop: (s) => set({ shop: s }),
   setForge: (s) => set({ forge: s }),
+  setAlchemy: (s) => set({ alchemy: s }),
+  setActiveEffects: (list) => set({ activeEffects: list }),
   setEclipseLeft: (n) => set((s) => (Math.abs(s.eclipseLeft - n) < 0.5 ? s : { eclipseLeft: Math.max(0, n) })),
   setValor: (v) => set((s) => (s.valor === v ? s : { valor: Math.max(0, Math.min(300, v)) })),
   setDangerCue: (c) => set((s) => (s.dangerCue === c ? s : { dangerCue: c })),

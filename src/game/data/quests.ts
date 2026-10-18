@@ -181,8 +181,13 @@ export const SIDE_QUESTS = [
   'sq_caravana', 'sq_caballos', 'sq_cascada', 'sq_cartas', 'sq_bounty', 'sq_moneda',
   'sq_tesoro', 'sq_vela', 'sq_guardianes', 'sq_arce', 'sq_cazatormentas',
   'sq_estandarte', 'sq_lamento', 'sq_vigia', 'sq_comercio', 'sq_bestiario',
+  'sq_alquimia', 'sq_viajero',
 ];
 
 // ---- Fase 4 quests (Chapters IV-V + secondary campaign) ----
 import { QUESTS_F4 } from './questsF4';
 Object.assign(QUESTS, QUESTS_F4);
+
+// ---- Fase 28 quests (POCIONES & EL VIAJERO — the two side quests) ----
+import { QUESTS_F28 } from './questsF28';
+Object.assign(QUESTS, QUESTS_F28);

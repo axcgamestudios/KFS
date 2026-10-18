@@ -108,7 +108,8 @@ export class DialogueSystem {
         case 'talk': this.state.talkMilestone(a.target); break;
         case 'shop':
           // Fase 16 — hand over to the merchant panel
-          useGameStore.getState().setShop({ vendor: a.vendor });
+          // Fase 28 — optional sell tab (El Viajero's buyers' list)
+          useGameStore.getState().setShop({ vendor: a.vendor, tab: a.tab });
           close = true;
           break;
         case 'close': close = true; break;

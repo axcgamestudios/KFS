@@ -319,3 +319,7 @@ Object.assign(ITEMS, ITEMS_F22);
 // ---- Fase 27 items (EL BESTIARIO COMÚN — the common enemies' loot) ----
 import { ITEMS_F27 } from './itemsF27';
 Object.assign(ITEMS, ITEMS_F27);
+
+// ---- Fase 28 items (POCIONES & EL VIAJERO — the alchemist's shelf) ----
+import { ITEMS_F28 } from './itemsF28';
+Object.assign(ITEMS, ITEMS_F28);

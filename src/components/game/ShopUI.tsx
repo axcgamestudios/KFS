@@ -4,17 +4,20 @@ import { useEffect, useMemo, useState } from 'react';
 import { useGameStore } from '@/store/gameStore';
 import { gameApi } from '@/game/api';
 import { ITEMS } from '@/game/data/items';
-import { BowArrow, Coins, Feather, Flame, Layers, Package, Shield, Shirt, Sword, X, Zap } from 'lucide-react';
+import {
+  Coins, Feather, Flame, Layers, Package, Shield, Shirt, Sword, X, Zap,
+} from 'lucide-react';
 
 const ICONS: Record<string, React.ComponentType<{ size?: number | string; className?: string }>> = {
-  Coins, Feather, Layers, Shield, Shirt, Sword, Package, BowArrow, Flame, Zap,
+  Feather, Layers, Shield, Shirt, Sword, Package, Flame, Zap, Coins,
 };
 
 /**
  * Fase 16 — SISTEMA DE COMERCIANTES: the merchant panel.
- * Opened from a vendor's dialogue ("Ver mercancía"); ESC or the X closes it
- * and hands control back. Buys go through gameApi.buyShopItem, which
- * re-validates level + gold on the game side.
+ * Fase 28 — EL VIAJERO: vendors with a buyers' list get a second tab
+ * ("HE BUYS") — the sell side of the economy. Sells go through
+ * gameApi.sellShopItem, which re-validates the entry + the stock on the
+ * game side; buys still go through buyShopItem.
  */
 export default function ShopUI() {
   const shop = useGameStore((s) => s.shop);
@@ -22,6 +25,11 @@ export default function ShopUI() {
 
   const [tick, setTick] = useState(0);
   const refresh = () => setTick((t) => t + 1);
+  /** Fase 28 — active tab; the dialogue can preselect the sell tab. */
+  const [tab, setTab] = useState<'wares' | 'sells'>('wares');
+  useEffect(() => {
+    setTab(shop?.tab === 'sells' ? 'sells' : 'wares');
+  }, [shop]);
 
   const catalog = useMemo(() => (shop ? gameApi.shopCatalog(shop.vendor) : null), [shop, tick]);
 
@@ -43,6 +51,13 @@ export default function ShopUI() {
     setShop(null);
     gameApi.clickResumeHint();
   };
+
+  const hasSells = !!catalog.buys && catalog.buys.length > 0;
+  const sells = [...(catalog.buys ?? [])];
+  if (tab === 'sells') {
+    // what you actually carry floats to the top (stable within groups)
+    sells.sort((a, b) => (b.have > 0 ? 1 : 0) - (a.have > 0 ? 1 : 0));
+  }
 
   return (
     <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/60">
@@ -71,7 +86,25 @@ export default function ShopUI() {
             </button>
           </div>
         </div>
-        <hr className="kotfs-hr mb-5" />
+        <hr className="kotfs-hr mb-3" />
+
+        {/* Fase 28 — the tabs (only when the vendor buys) */}
+        {hasSells && (
+          <div className="mb-3 flex items-center gap-2">
+            <button
+              className={`kotfs-btn !px-3 !py-1 text-[0.62rem] ${tab === 'wares' ? '' : 'opacity-40'}`}
+              onClick={() => setTab('wares')}
+            >
+              HIS WARES
+            </button>
+            <button
+              className={`kotfs-btn !px-3 !py-1 text-[0.62rem] ${tab === 'sells' ? '' : 'opacity-40'}`}
+              onClick={() => setTab('sells')}
+            >
+              HE BUYS
+            </button>
+          </div>
+        )}
 
         {/* level gate (should not happen: the dialogue never opens the shop
             below the level, but the panel defends itself anyway) */}
@@ -79,7 +112,77 @@ export default function ShopUI() {
           <p className="py-12 text-center italic text-[color:var(--kotfs-parchment-dim)]">
             Come back when you are stronger.
           </p>
+        ) : tab === 'sells' && hasSells ? (
+          /* ---------------- THE SELL TAB (Fase 28) ---------------- */
+          <div className="kotfs-scroll grid max-h-[56vh] grid-cols-1 gap-2 overflow-y-auto pr-1 md:grid-cols-2">
+            {sells.map((e) => {
+              const Icon = ICONS[ITEMS[e.id]?.icon ?? 'Package'] ?? Package;
+              const none = e.have === 0;
+              return (
+                <div
+                  key={e.id}
+                  className={`relative flex gap-3 border p-3 ${
+                    none
+                      ? 'border-[color:rgba(120,120,120,0.2)] bg-black/20'
+                      : 'border-[color:rgba(201,162,39,0.4)] bg-black/30 hover:border-[color:var(--kotfs-gold)]'
+                  }`}
+                >
+                  <div
+                    className={`flex h-12 w-12 shrink-0 items-center justify-center border border-[color:rgba(201,162,39,0.25)] bg-black/40 ${
+                      e.rarity === 'legendary'
+                        ? 'kotfs-rarity-legendary'
+                        : e.rarity === 'rare'
+                          ? 'kotfs-rarity-rare'
+                          : ''
+                    }`}
+                  >
+                    <Icon
+                      size={24}
+                      className={e.rarity === 'legendary' ? 'kotfs-rarity-legendary' : e.rarity === 'rare' ? 'kotfs-rarity-rare' : 'text-[color:var(--kotfs-parchment-dim)]'}
+                    />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <h3
+                        className={`kotfs-title truncate text-[0.8rem] ${
+                          e.rarity === 'legendary'
+                            ? 'kotfs-rarity-legendary'
+                            : e.rarity === 'rare'
+                              ? 'kotfs-rarity-rare'
+                              : 'text-[color:var(--kotfs-parchment)]'
+                        }`}
+                      >
+                        {e.name}
+                      </h3>
+                      <span className="kotfs-title flex shrink-0 items-center gap-1 text-[0.75rem] text-[color:var(--kotfs-gold)]">
+                        <Coins size={12} /> {e.price}
+                      </span>
+                    </div>
+                    <p className="mt-0.5 text-[0.6rem] tracking-wide text-[color:var(--kotfs-parchment-dim)]">
+                      in your satchel: <span className={`tabular-nums ${none ? 'text-[color:rgb(200,120,100)]' : 'text-[color:rgb(150,200,150)]'}`}>{e.have}</span>
+                    </p>
+                    <p className="kotfs-scroll mt-1 max-h-16 overflow-y-auto text-[0.68rem] leading-snug text-[color:var(--kotfs-parchment-dim)]">
+                      {e.note ?? e.desc}
+                    </p>
+                    <div className="mt-2">
+                      <button
+                        className={`kotfs-btn !px-3 !py-1 text-[0.65rem] ${none ? 'opacity-40' : ''}`}
+                        disabled={none}
+                        onClick={() => {
+                          gameApi.sellShopItem(shop.vendor, e.id);
+                          refresh();
+                        }}
+                      >
+                        {none ? 'none carried' : `Sell one · ${e.price}`}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         ) : (
+          /* ---------------- THE WARES TAB (original) ---------------- */
           <div className="kotfs-scroll grid max-h-[56vh] grid-cols-1 gap-2 overflow-y-auto pr-1 md:grid-cols-2">
             {catalog.entries.map((e) => {
               const Icon = ICONS[ITEMS[e.id]?.icon ?? 'Package'] ?? Package;

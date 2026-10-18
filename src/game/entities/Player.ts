@@ -343,10 +343,20 @@ export class Player {
     return this.rollT > 0;
   }
 
-  /** Fase 22 — KIMONO: +5% stamina recovery (Flowing Movement). */
+  /** Fase 22 — KIMONO: +5% stamina recovery (Flowing Movement).
+   *  Fase 28 — externStaminaMul: the alchemist's window (Poción del Viento
+   *  rides +40%); Game syncs it from the AlchemySystem every frame. */
+  externStaminaMul = 1;
   get staminaRegenMult(): number {
-    return this.armorPassive === 'kimono' ? 1.05 : 1;
+    return (this.armorPassive === 'kimono' ? 1.05 : 1) * this.externStaminaMul;
   }
+
+  /** Fase 28 — LA MESA DE ALQUIMIA: Elíxir de Masa Inerte halves long-fall
+   *  damage while the window runs (Game syncs it from AlchemySystem). */
+  fallDmgMul = 1;
+
+  /** Fase 28 — the stride window (Poción del Viento); Game syncs it. */
+  potionSpeedMul = 1;
 
   /** Fase 22 — the dodge's cost: HARPOS are weightless (−30%); the
    *  ANCESTRAL plate drags a little (the price of a legend, −5% speed). */
@@ -545,6 +555,9 @@ export class Player {
     const wantRun = input.isDown('sprint') && inputLen > 0 && this.stamina > 1 && !this.swimming && !this.wading;
     let speed = this.swimming ? this.stats.swimSpeed : wantRun ? this.stats.runSpeed : this.stats.walkSpeed;
     if (this.wading) speed = this.stats.walkSpeed * 0.62; // pushing through chest-deep water
+    // Fase 28 — the alchemist's stride window (Poción del Viento ×1.15);
+    // Game keeps it at 1 while nothing runs
+    speed *= this.potionSpeedMul;
     // Combat movement modifiers (Fase 3)
     if (this.dashing) speed = 0;                       // the rope owns the body
     else if (this.rollT > 0) speed = 7.6;              // dodge roll burst
@@ -817,7 +830,7 @@ export class Player {
         if (!this.wasGrounded && this.airTime > 0.35) {
           const fallSpeed = -this.verticalVel;
           if (fallSpeed > 13) {
-            const dmg = Math.round((fallSpeed - 13) * 7);
+            const dmg = Math.round((fallSpeed - 13) * 7 * this.fallDmgMul);
             this.health = Math.max(0, this.health - dmg);
             this.onDamaged?.(dmg, 'caida');
           }

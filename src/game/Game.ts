@@ -31,6 +31,9 @@ import { DragonManager } from './systems/DragonManager';
 import { BanditSystem } from './systems/BanditSystem';
 import { BestiarySystem } from './systems/BestiarySystem';
 import { ForgeSystem } from './systems/ForgeSystem';
+import { AlchemySystem } from './systems/AlchemySystem';
+import { POTION_ITEM_EFFECTS, POTION_EFFECTS } from './data/alchemyRecipes';
+import { TRAVELLER_STOPS } from './structures/TravellerCamp';
 import type { Dragon } from './entities/Dragon';
 import { CinematicSystem, type CineShot } from './systems/CinematicSystem';
 import { walkActor, heroSalute, idleActor, faceTarget } from './systems/CineActors';
@@ -80,6 +83,21 @@ const INTRO_SHOTS: IntroShot[] = [
     text: '…and the tide carries someone back home. The Warden\'s son has returned. KINGDOMS OF THE FORGOTTEN SEAS — Chapter 1: A Brand New Beginning.',
   },
 ];
+
+/** Fase 28 — one hint line per timed potion, for the use-item toast. */
+function potionHint(id: string): string {
+  switch (id) {
+    case 'pocion_fuerza': return 'every blow lands like a falling tree (+25% damage)';
+    case 'pocion_piel_piedra': return 'the skin reads as granite (−25% damage taken)';
+    case 'pocion_viento': return 'the legs answer faster (+15% stride) and the breath comes back sooner (+40% regen)';
+    case 'pocion_regeneracion': return 'the flesh knits itself shut (+3 health/s)';
+    case 'pocion_veneno': return 'your edge leaves a biting rot on bestiary flesh (5 dmg/tick)';
+    case 'pocion_fuego': return 'your edge carries embers into bestiary flesh (7 dmg/tick)';
+    case 'elixir_masa_inerte': return 'falls and blasts lose half their teeth';
+    case 'antidoto': return 'legs cleared, and 8 seconds of refusal for what ails them';
+    default: return 'the window is open';
+  }
+}
 
 export class Game {
   private engine: Engine;
@@ -133,6 +151,7 @@ export class Game {
   private bestiary?: BestiarySystem;
   /** Fase 22 — THE FORGE OF LEGENDS: recipes, stations and the eclipse. */
   private forge?: ForgeSystem;
+  private alchemy?: AlchemySystem;
   /** Fase 15 — sea serpents + the King of the Sea (Navel of the Sea arena). */
   private seaBeasts?: SeaBeastSystem;
   /** Fase 15 — random pirate ambushes on the high seas + toll negotiation. */
@@ -453,6 +472,10 @@ export class Game {
           this.bestiary.damage(bandit, dmg, {
             heavy, fromX: this.player?.position.x, fromZ: this.player?.position.z,
           });
+          // Fase 28 — the edge oils: while the window runs, every connected
+          // blow leaves the bestiary flesh rotting (poison) or burning
+          const ench = this.alchemy?.weaponEnchant();
+          if (ench) this.bestiary.applyStatus(bandit, ench, 8);
         } else {
           this.bandits?.damage(bandit, amount * outMul, heavy);
         }
@@ -675,6 +698,8 @@ export class Game {
         playerStatus: (kind, dur, mul) => {
           const p = this.player;
           if (!p) return;
+          // Fase 28 — the antidote's window: refuse new external statuses
+          if (this.alchemy && this.alchemy.statusImmuneLeft() > 0) return;
           if (kind === 'root') {
             p.applyExternStatus('root', dur);
             this.rig?.punch(0.4);
@@ -726,6 +751,16 @@ export class Game {
       sparks: (pos: THREE.Vector3) => this.vfx?.blockSparks(pos.clone().add(new THREE.Vector3(0, 1.0, 0))),
       cameraShake: (i: number) => { this.shakeT = Math.max(this.shakeT, i); },
     });
+
+    // --- Fase 28 — LA MESA DE ALQUIMIA: the brewing engine ---
+    this.alchemy = new AlchemySystem(this.state, {
+      notify: (kind: 'info' | 'item' | 'quest', title: string, body?: string) =>
+        useGameStore.getState().notify(kind, title, body),
+      sound: (id: string) => this.audio.playEvent(id as Parameters<typeof this.audio.playEvent>[0]),
+      sparks: (pos: THREE.Vector3) => this.vfx?.blockSparks(pos.clone().add(new THREE.Vector3(0, 1.05, 0))),
+      setFlag: (flag: string) => this.state.setFlag(flag),
+    });
+    this.alchemy.setTablePos(world.alchemyTable);
 
     // Fase 12 — AMBUSHES: gathering quest materials can wake the red
     // knights. Not every pickup — the threat must stay a surprise.
@@ -1165,6 +1200,20 @@ export class Game {
         },
       });
     }
+
+    // --- Fase 28 — LA MESA DE ALQUIMIA (Maren's garden, west of the green) ---
+    w.interactables.push({
+      id: 'mesa_alquimia',
+      pos: w.alchemyTable.clone(),
+      radius: 3.0,
+      prompt: 'Brew at the alchemy table',
+      available: () => true,
+      run: () => {
+        if (!this.alchemy) return;
+        this.input.releaseLock();
+        useGameStore.getState().setAlchemy({ station: 'mesa' });
+      },
+    });
 
     // --- Fase 22 — THE FIRST LIGHT CACHE (old lighthouse): the sun essence ---
     {
@@ -1754,6 +1803,9 @@ export class Game {
     }
     this.restoreWorldFromState();
     this.syncProgression();
+    // Fase 28 — fresh windows and the Traveller at day-1's stop
+    this.alchemy?.deserializeEffects(null);
+    this.relocateTraveller(1, false);
   }
 
   newGameWithIntro(): void {
@@ -1823,6 +1875,8 @@ export class Game {
       // Fase 16 — the hero's own (admin) dragons survive the reload too
       dragons: this.dragons?.serializeAdmins(),
       weather: this.world!.weather.serialize(),
+      // Fase 28 — the alchemist's running windows survive the reload
+      buffs: this.alchemy?.serializeEffects(),
     };
   }
 
@@ -1849,6 +1903,9 @@ export class Game {
     this.state.deserialize(data.gameState);
     this.player.deserialize(data.player);
     this.world.sky.deserialize(data.time);
+    // Fase 28 — the alchemist's windows + the Traveller at his day-stop
+    this.alchemy?.deserializeEffects(data.buffs);
+    this.relocateTraveller(data.time.dayCount ?? 1, false);
     this.dead = false;
 
     // Naval restoration: only when the Colibrí was already repaired
@@ -1906,6 +1963,24 @@ export class Game {
     this.input.requestLock();
     store.notify('save', 'Game loaded', `Day ${data.time.dayCount} · Level ${data.gameState.level}`);
     return true;
+  }
+
+  /** Fase 28 — EL VIAJERO: put him at today's stop of the trade circuit
+   *  (dayCount % 3 over TRAVELLER_STOPS). Called on new-day, on load and on
+   *  new game; the camps stay where they are — you learn the route by
+   *  finding the fires cold. He settles 1.6m south of the fire (the stop
+   *  anchor IS the fire ring; dropping him at 0 would plant him in the
+   *  embers until the wander pushes him out). */
+  private relocateTraveller(dayCount: number, announce: boolean): void {
+    const npc = this.npcs.find((n) => n.def.id === 'viajero');
+    if (!npc || !this.world) return;
+    const n = TRAVELLER_STOPS.length;
+    const stop = TRAVELLER_STOPS[((Math.floor(dayCount) % n) + n) % n];
+    const y = this.world.terrainHeight.height(stop.x, stop.z - 1.6);
+    npc.relocate(new THREE.Vector3(stop.x, y, stop.z - 1.6));
+    if (announce) {
+      useGameStore.getState().notify('info', 'El Viajero levanta campamento', `${stop.name} — the fire is warm today.`);
+    }
   }
 
   /** Sync chests/herbs visuals with loaded state. */
@@ -2120,6 +2195,16 @@ export class Game {
         dmg = 0;
       }
     }
+    // ---- Fase 28 — the alchemist's windows ----
+    if (this.alchemy) {
+      // Piel de Piedra: a quarter of every blow taken is refused
+      const takenMul = this.alchemy.damageTakenMul();
+      if (takenMul !== 1) dmg *= takenMul;
+      // Elíxir de Masa Inerte: blasts (bombs, shockwaves, the daimyo's mist)
+      if (this.alchemy.fallAndBlastMul() < 1 && reason && /bomb|explos|stomp|shockwave|mist_wave|brea/i.test(reason)) {
+        dmg *= this.alchemy.fallAndBlastMul();
+      }
+    }
     const lost = p.takeHit(dmg, fromX, fromZ, opts);
     if (lost > 0) {
       this.audio.playEvent('damage');
@@ -2166,7 +2251,7 @@ export class Game {
     const naval = this.naval!;
     const dialogueActive = !!store.dialogue;
     // Fase 22 — any screen-owning panel freezes the hero (shop/forge/toll)
-    const panelActive = dialogueActive || !!store.shop || !!store.forge || !!store.negotiation;
+    const panelActive = dialogueActive || !!store.shop || !!store.forge || !!store.negotiation || !!store.alchemy;
     const sailing = naval.playerSailing && !!naval.activeShip;
     const riding = !!this.mounts?.ridingId;
     // Fase 15 — dragon riding (admin spawns): the hero holds the reins
@@ -2270,13 +2355,14 @@ export class Game {
       // cinematics/dialogue/sailing), plus the roar debuff decay
       this.bestiary?.setPlayerAnchor(p.position);
       this.bestiary?.update(dt, p.position, !this.dead && !dialogueActive && !sailing && !rig.freeCam);
-      if (this.bestiary) {
-        if (this.bestiary.roarDebuffT > 0) {
-          this.bestiary.roarDebuffT -= dt;
-          this.combat!.outDamageMul = 0.8;
-        } else {
-          this.combat!.outDamageMul = 1;
-        }
+      if (this.bestiary && this.bestiary.roarDebuffT > 0) {
+        this.bestiary.roarDebuffT -= dt;
+      }
+      // Fase 28 — compose the OUT multiplier: the bear-roar debuff (×0.8)
+      // with the alchemist's windows (Fuerza del Coloso ×1.25 while it runs)
+      if (this.combat) {
+        const roar = this.bestiary && this.bestiary.roarDebuffT > 0 ? 0.8 : 1;
+        this.combat.outDamageMul = roar * (this.alchemy?.damageOutMul() ?? 1);
       }
     }
 
@@ -2294,6 +2380,19 @@ export class Game {
       // the Shadow Dō: enemies see you 20% later at night or in fog
       const nightOrFog = w.sky.dayFraction < 0.22 || w.sky.dayFraction > 0.8 || w.weather.fogMul > 1.5;
       this.bandits?.setDetectionMult(armorId === 'do_sombras' && nightOrFog ? 0.8 : 1);
+    }
+
+    // --- Fase 28 — LA MESA DE ALQUIMIA: the timed windows tick + the live
+    //     systems drink them (stride, breath, the long falls, regeneration) ---
+    if (this.alchemy) {
+      this.alchemy.update(dt);
+      p.fallDmgMul = this.alchemy.fallAndBlastMul();
+      p.externStaminaMul = this.alchemy.staminaRegenMul();
+      p.potionSpeedMul = this.alchemy.speedMul();
+      const rg = this.alchemy.hpPerSec();
+      if (rg > 0 && p.health > 0) {
+        p.health = Math.min(p.stats.maxHealth, p.health + rg * dt);
+      }
     }
 
     // --- Fase 11 — combat framing: the rig widens while enemies are hot ---
@@ -2363,6 +2462,8 @@ export class Game {
     const newDay = w.sky.tick(dt);
     if (newDay) {
       store.notify('info', `Day ${w.sky.dayCount} in Aldmor`, formatClock(w.sky.dayFraction));
+      // Fase 28 — EL VIAJERO: the trade circuit moves with the dawn
+      this.relocateTraveller(w.sky.dayCount, true);
     }
 
     // --- Fase 8 — dusk swaps the shield for a lit torch (dawn brings it back) ---
@@ -2729,6 +2830,8 @@ export class Game {
       (window as unknown as { __kotfsPlayer?: { x: number; y: number; z: number } }).__kotfsPlayer = {
         x: p.position.x, y: p.position.y, z: p.position.z,
       };
+      // Fase 28 — the alchemist's windows: HUD strip (rides the 0.15s cadence)
+      useGameStore.getState().setActiveEffects(this.alchemy?.activeEffectsView() ?? []);
       const tracker = this.state.currentTracker();
       // Fase 11 — the señálero: live distance + bearing + in-world beacon
       // Fase 12 — + a true SCREEN-SPACE pin (edge-clamped when off-screen)
@@ -3587,6 +3690,46 @@ export class Game {
         this.state.setFlag('semilla_bendicion');
         this.audio.playEvent('unlock');
         useGameStore.getState().notify('quest', 'SEMILLA DEL BOSQUE SAGRADO', 'The seed takes root in your shadow. Should you fall, the forest will raise you once — at half strength.');
+      } else if (id === 'pocion_curacion_menor') {
+        // Fase 28 — the first lesson: 25 health back in a swallow
+        if (!st().removeItem(id, 1)) return;
+        const p = this.player!;
+        p.health = Math.min(p.stats.maxHealth, p.health + 25);
+        this.audio.playEvent('pickup');
+        useGameStore.getState().notify('item', 'Poción de Curación Menor', 'The first lesson. +25 health.');
+      } else if (id === 'pocion_curacion_mayor') {
+        // Fase 28 — the stabilized brew: 70 health in one long swallow
+        if (!st().removeItem(id, 1)) return;
+        const p = this.player!;
+        p.health = Math.min(p.stats.maxHealth, p.health + 70);
+        this.audio.playEvent('pickup');
+        useGameStore.getState().notify('item', 'Poción de Curación Mayor', 'The jelly forgot to spoil. +70 health.');
+      } else if (id === 'te_errante') {
+        // Fase 28 — whatever he boils at the fire: breath + a small mend
+        if (!st().removeItem(id, 1)) return;
+        const p = this.player!;
+        p.stamina = Math.min(p.stats.maxStamina, p.stamina + 50);
+        p.health = Math.min(p.stats.maxHealth, p.health + 10);
+        this.audio.playEvent('pickup');
+        useGameStore.getState().notify('item', 'Té del Errante', 'For the road, not for the taste. +50 breath, +10 health.');
+      } else if (POTION_ITEM_EFFECTS[id]) {
+        // Fase 28 — a TIMED potion: open (or re-open) the window
+        if (!st().removeItem(id, 1)) return;
+        const effectId = POTION_ITEM_EFFECTS[id];
+        this.alchemy?.applyEffect(effectId);
+        const def = POTION_EFFECTS[effectId];
+        const p = this.player!;
+        if (id === 'antidoto') {
+          // the consume-time half: clear whatever holds the legs
+          p.rootedT = 0;
+          p.externSlowT = 0;
+        }
+        this.audio.playEvent('unlock');
+        useGameStore.getState().notify(
+          'item',
+          ITEMS[id]?.name ?? id,
+          `${def?.name ?? 'The window'} — ${potionHint(id)} (${def?.dur ?? 0}s).`,
+        );
       }
     };
     gameApi.readItem = (id) => {
@@ -3685,6 +3828,17 @@ export class Game {
             stats: statsBits.join(' · '),
           };
         }),
+        // Fase 28 — the sell tab (El Viajero buys treasures & junk)
+        buys: def.buys?.map((b) => ({
+          id: b.item,
+          name: ITEMS[b.item]?.name ?? b.item,
+          desc: ITEMS[b.item]?.desc ?? '',
+          icon: ITEMS[b.item]?.icon ?? 'Package',
+          price: b.price,
+          note: b.note,
+          have: s.countItem(b.item),
+          rarity: ITEMS[b.item]?.rarity,
+        })),
       };
     };
     gameApi.buyShopItem = (vendor, itemId) => {
@@ -3702,6 +3856,24 @@ export class Game {
         'item',
         ITEMS[itemId]?.name ?? itemId,
         `${def.name}: "Fair deal." ${qty > 1 ? `${qty} units` : 'One piece'} added — you have ${s.countItem('coin')} coins left.`,
+      );
+      return 'ok';
+    };
+
+    // Fase 28 — EL VIAJERO: the sell side of the economy
+    gameApi.sellShopItem = (vendor, itemId) => {
+      const def = VENDORS[vendor];
+      const entry = def?.buys?.find((b) => b.item === itemId);
+      if (!def || !entry) return 'none';
+      const s = st();
+      if (!s.hasItem(itemId)) return 'none';
+      if (!s.removeItem(itemId, 1)) return 'none';
+      s.addItem('coin', entry.price);
+      this.audio.playEvent('unlock');
+      useGameStore.getState().notify(
+        'item',
+        `Sold — ${ITEMS[itemId]?.name ?? itemId}`,
+        `${def.name} counts out ${entry.price} coins without asking where it came from. You have ${s.countItem('coin')}.`,
       );
       return 'ok';
     };
@@ -3748,6 +3920,35 @@ export class Game {
     };
     gameApi.forgeCraft = (station, recipeId) => this.forge?.craft(recipeId, station) ?? 'gate';
     gameApi.summonEclipse = () => this.forge?.summonEclipse() ?? false;
+
+    // --- Fase 28 — LA MESA DE ALQUIMIA (the brewing api) ---
+    gameApi.alchemyCatalog = () => {
+      if (!this.alchemy) return null;
+      const def = this.alchemy.stationDef('mesa');
+      const s = st();
+      return {
+        name: def.name,
+        title: def.title,
+        greeting: def.greeting,
+        level: s.level,
+        coins: s.countItem('coin'),
+        effects: this.alchemy.activeEffectsView(),
+        recipes: this.alchemy.catalog('mesa').map((r) => ({
+          id: r.id,
+          out: r.out,
+          outName: r.outName,
+          outIcon: r.outIcon,
+          outRarity: r.outRarity,
+          outDesc: r.outDesc,
+          gold: r.gold,
+          note: r.note,
+          canCraft: r.canCraft,
+          status: r.status,
+          mats: r.mats,
+        })),
+      };
+    };
+    gameApi.alchemyCraft = (recipeId) => this.alchemy?.craft(recipeId, 'mesa') ?? 'materials';
 
     gameApi.journal = () => st().journal;
     gameApi.quests = (): QuestView[] => {

@@ -417,7 +417,7 @@ export class AudioSystem {
     | 'roar' | 'roar_big' | 'wing' | 'wing_big' | 'thud' | 'fire' | 'hit_scale'
     | 'block' | 'bow_draw' | 'bow_release' | 'arrow_hit' | 'stagger' | 'boss_die' | 'swap'
     | 'hoof' | 'hoof_gallop' | 'horse_neigh' | 'chain' | 'thunder' | 'rain_start' | 'cart_rattle' | 'ending'
-    | 'forge' | 'eclipse'
+    | 'forge' | 'eclipse' | 'brew'
   ): void {
     switch (kind) {
       case 'discovery':
@@ -540,6 +540,13 @@ export class AudioSystem {
         this.tone(164.8, 2.4, 0.07, 'sine', 80);
         this.tone(220, 2.0, 0.05, 'triangle', 110);
         this.noiseBurst({ freq: 500, q: 0.6, type: 'lowpass', dur: 1.8, gain: 0.05 });
+        break;
+      case 'brew':
+        // Fase 28 — the alembic: a double glug, the steam hiss, a bright bell
+        this.tone(660, 0.16, 0.06, 'sine', 420);
+        this.tone(392, 0.22, 0.07, 'sine', 230);
+        this.noiseBurst({ freq: 1600, q: 0.8, type: 'highpass', dur: 0.5, gain: 0.045 });
+        this.tone(1760, 0.6, 0.028, 'sine', 1200);
         break;
       case 'bow_draw':
         this.noiseBurst({ freq: 1200, q: 2.2, dur: 0.35, gain: 0.05 });

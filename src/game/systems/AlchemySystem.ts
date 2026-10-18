@@ -1,288 +1,259 @@
 import * as THREE from 'three';
+import {
+  ALCHEMY_RECIPES, ALCHEMY_STATIONS, POTION_EFFECTS,
+  type AlchemyRecipe, type AlchemyStationId, type PotionEffectDef,
+} from '../data/alchemyRecipes';
+import { ITEMS } from '../data/items';
 import type { GameState } from './GameState';
-import type { Player } from '../entities/Player';
 
 /**
- * Fase 28 — THE ALCHEMIST'S ENGINE.
+ * Fase 28 — LA MESA DE ALQUIMIA: the brewing engine + the timed effects.
  *
- * One system owns every live potion effect:
- *  · use(potionId) — validated HERE (the UI is untrusted); instant parts
- *    applied immediately, timed parts registered with the band durations
- *  · update(dt) — ticks expirations, Oak-Skin regen, acid DoTs, and the
- *    per-combat limit window
- *  · mods — read each frame by Player / CombatSystem / the damage router
- *  · the acid flask's throw (aim point + 5 m cloud + shred + DoT)
- *  · the Tear of the Ancestral Forest's per-combat limit: one use against
- *    mini-bosses and monsters, two against bosses; the counter resets after
- *    10 s out of combat
+ * · Recipes consume materials + gold (checked HERE, never trusted from the
+ *   UI) and grant a stackable potion, exactly like the forge.
+ * · TIMED potions (POTION_ITEM_EFFECTS) open a modifier window here; the
+ *   Game composes them into the live systems every frame:
+ *   damage out (with the roar), damage taken, stride, breath, regeneration,
+ *   fall/blast halving, the weapon enchantments (bestiary DoT) and the
+ *   antidote's brief refusal of new external statuses.
+ * · Windows survive the reload: serializeEffects()/deserializeEffects().
  */
-export interface AlchemyMods {
-  /** All incoming damage × (Light Scales 0.9 / Fury 1.15). */
-  defenseMult: number;
-  /** Fire-elemental damage × (Thermal Isolation 0.75). */
-  fireMult: number;
-  /** Knockback impulse × (Oak-Skin 0.6). */
-  stability: number;
-  /** HP per second (Oak-Skin +2). */
-  regenHpPS: number;
-  /** Walk/run speed × (Celerity 1.2). */
-  speedMult: number;
-  /** Dodge stamina cost × (Celerity 0.85). */
-  dodgeCostMult: number;
-  /** Added to the critical damage multiplier (Fury +0.35). */
-  critDamageAdd: number;
-  /** Attack cadence × (Fury 1.15). */
-  attackSpeedMult: number;
-  /** Fraction of impact/fall/explosion damage absorbed (Inert Mass 0.5). */
-  absorbImpact: number;
-  /** Fraction of the absorbed amount returned as a shockwave (0.1). */
-  reflectFraction: number;
-  /** True while the Tear's 10 s alteration immunity holds. */
-  statusImmune: boolean;
-}
 
-/** A combat target the alchemy engine can reach (wired in Game.ts). */
-export interface AlchemyTarget {
-  kind: 'bandit' | 'dragon';
-  ref: unknown;
-  isBoss: boolean;
-  pos: THREE.Vector3;
-  isAlive(): boolean;
-  damage(amount: number): boolean; // returns died
-}
+export type BrewResult = 'ok' | 'materials' | 'gold';
 
 export interface AlchemyHooks {
-  notify(kind: 'info' | 'quest' | 'item', title: string, body?: string): void;
-  sound(id: 'pickup' | 'forge'): void;
-  /** Shockwave ring at a world position (Inert Mass reflect). */
-  shockwave(pos: THREE.Vector3, scale?: number): void;
-  /** Acid cloud VFX at a world position. */
-  acidCloud(pos: THREE.Vector3): void;
-  /** Enumerate combat targets near a point (throw + reflect + DoT wiring). */
-  nearbyTargets(pos: THREE.Vector3, radius: number): AlchemyTarget[];
-  /** The player's current attack damage snapshot (the acid DoT basis). */
-  playerAttackDamage(): number;
-  /** The player (heals, aim). */
-  player(): Player | null;
+  notify(kind: string, title: string, body: string): void;
+  /** Audio event ids ('brew' registered by Game). */
+  sound(id: string): void;
+  /** Spark/bubble burst at the table position (craft VFX). */
+  sparks(pos: THREE.Vector3, scale?: number): void;
+  setFlag(flag: string): void;
 }
 
-const TEAR_COMBAT_RESET = 10;
-
-interface TimedDef { d: number; name: string; icon: string; line: string }
-const TIMED: Record<string, TimedDef> = {
-  pocion_escamas: { d: 60, name: 'Light Scales', icon: 'ShieldCheck', line: 'Your skin dulls. Blunt things will have to try harder for a minute.' },
-  elixir_termico: { d: 45, name: 'Thermal Isolation', icon: 'Thermometer', line: 'A film of calm heat settles over you. Dragonfire has to argue with it now.' },
-  pocion_roble: { d: 30, name: 'Oak-Skin', icon: 'TreeDeciduous', line: 'Blows land like weather for the next half minute.' },
-  tonico_celeridad: { d: 40, name: 'Wind-Celerity', icon: 'Footprints', line: 'The ground feels slightly further away than usual.' },
-  elixir_furia: { d: 30, name: 'Abyss-Fury', icon: 'Swords', line: 'The trade is exactly what it tasted like: fury now, bruising later.' },
-  elixir_masa: { d: 20, name: 'Inert Mass', icon: 'Weight', line: 'It does not slosh. Impacts are about to become other people\'s problem.' },
-  lagrima_bosque: { d: 10, name: 'The Ancestral Tear', icon: 'Droplets', line: 'It is, somehow, raining inside you. Nothing can alter you for ten seconds.' },
-};
-
-interface ActiveEffect { potionId: string; until: number }
+/** HUD chip view of one running window. */
+export interface ActiveEffectView {
+  id: string;
+  name: string;
+  icon: string;
+  left: number;
+  total: number;
+}
 
 export class AlchemySystem {
-  private state: GameState;
+  /** Running windows: effect id → seconds left. */
+  private effects = new Map<string, number>();
   private hooks: AlchemyHooks;
-  /** Monotonic clock (seconds) — driven by update(). */
-  private now = 0;
-  private effects: ActiveEffect[] = [];
-  /** Acid DoTs: the target entry travels with the dot. */
-  private dots: Array<{ target: AlchemyTarget; dps: number; until: number; nextTick: number }> = [];
-  /** Enemies currently shredded by an acid cloud (damage taken ×1.3). */
-  private shredded = new Map<unknown, number>();
-  /** Tear per-combat bookkeeping. */
-  private tearUses = 0;
-  private lastCombatAt = -Infinity;
-  private inCombat = false;
-  private lastBossNearby = false;
-  private regenAccum = 0;
+  private state: GameState;
+  private tablePos = new THREE.Vector3();
 
   constructor(state: GameState, hooks: AlchemyHooks) {
     this.state = state;
     this.hooks = hooks;
   }
 
-  // ---------------------------------------------------------------- queries
-
-  /** Live modifiers (fresh object every call — always consistent). */
-  get mods(): AlchemyMods {
-    const has = (id: string) => this.effects.some((e) => e.potionId === id);
-    return {
-      defenseMult: has('pocion_escamas') ? 0.9 : has('elixir_furia') ? 1.15 : 1,
-      fireMult: has('elixir_termico') ? 0.75 : 1,
-      stability: has('pocion_roble') ? 0.6 : 1,
-      regenHpPS: has('pocion_roble') ? 2 : 0,
-      speedMult: has('tonico_celeridad') ? 1.2 : 1,
-      dodgeCostMult: has('tonico_celeridad') ? 0.85 : 1,
-      critDamageAdd: has('elixir_furia') ? 0.35 : 0,
-      attackSpeedMult: has('elixir_furia') ? 1.15 : 1,
-      absorbImpact: has('elixir_masa') ? 0.5 : 0,
-      reflectFraction: has('elixir_masa') ? 0.1 : 0,
-      statusImmune: has('lagrima_bosque'),
-    };
+  /** The world anchor of the table (craft VFX + nothing else). */
+  setTablePos(pos: THREE.Vector3): void {
+    this.tablePos.copy(pos);
   }
 
-  /** UI/HUD/verification: live effects with remaining seconds. */
-  activeEffects(): Array<{ id: string; left: number; icon: string; name: string }> {
-    return this.effects
-      .map((e) => {
-        const def = TIMED[e.potionId];
-        return def ? { id: e.potionId, left: Math.max(0, e.until - this.now), icon: def.icon, name: def.name } : null;
-      })
-      .filter((x): x is { id: string; left: number; icon: string; name: string } => x !== null && x.left > 0)
-      .sort((a, b) => b.left - a.left);
+  // ------------------------------------------------------------ queries
+
+  stationDef(id: AlchemyStationId) {
+    return ALCHEMY_STATIONS[id];
   }
 
-  /** Is `ref` armor-shredded by an acid cloud right now? (damage ×1.3) */
-  shredMult(ref: unknown): number {
-    const until = this.shredded.get(ref);
-    return until !== undefined && until > this.now ? 1.3 : 1;
+  /** Recipes of the station, annotated with live availability for the UI. */
+  catalog(station: AlchemyStationId): Array<{
+    id: string;
+    out: string;
+    gold: number;
+    note: string;
+    canCraft: boolean;
+    status: BrewResult;
+    mats: Array<{ id: string; name: string; icon: string; have: number; need: number }>;
+    outName: string;
+    outIcon: string;
+    outRarity: string;
+    outDesc: string;
+  }> {
+    return ALCHEMY_RECIPES.filter((r) => r.station === station).map((r) => {
+      const item = ITEMS[r.out];
+      const mats = r.mats.map((m) => ({
+        id: m.id,
+        name: ITEMS[m.id]?.name ?? m.id,
+        icon: ITEMS[m.id]?.icon ?? 'Package',
+        have: this.state.countItem(m.id),
+        need: m.count,
+      }));
+      let status: BrewResult = 'ok';
+      if (mats.some((m) => m.have < m.need)) status = 'materials';
+      else if (this.state.countItem('coin') < r.gold) status = 'gold';
+      return {
+        id: r.id,
+        out: r.out,
+        gold: r.gold,
+        note: r.note,
+        canCraft: status === 'ok',
+        status,
+        mats,
+        outName: item?.name ?? r.out,
+        outIcon: item?.icon ?? 'Package',
+        outRarity: item?.rarity ?? 'common',
+        outDesc: item?.desc ?? '',
+      };
+    });
   }
 
-  // ---------------------------------------------------------------- actions
+  // ------------------------------------------------------------ actions
 
-  /** Drink a potion. ALL validation lives here. */
-  use(potionId: string): 'ok' | 'unknown' | 'empty' | 'combat-limit' {
-    const p = this.hooks.player();
-    if (!p) return 'unknown';
-    const consume = (): boolean => this.state.removeItem(potionId, 1);
-    switch (potionId) {
-      case 'pocion_curacion_menor': {
-        if (!consume()) return 'empty';
-        p.health = Math.min(p.stats.maxHealth, p.health + Math.ceil(p.stats.maxHealth * 0.1));
-        this.hooks.sound('pickup');
-        this.hooks.notify('item', 'Lesser Healing Potion', 'A warm flush — a tenth of your health comes back.');
-        return 'ok';
-      }
-      case 'pocion_escamas':
-      case 'elixir_termico':
-      case 'pocion_roble':
-      case 'tonico_celeridad':
-      case 'elixir_furia':
-      case 'elixir_masa': {
-        if (!consume()) return 'empty';
-        this.registerTimed(potionId);
-        return 'ok';
-      }
-      case 'lagrima_bosque': {
-        if (this.inCombat && this.tearUses >= (this.lastBossNearby ? 2 : 1)) return 'combat-limit';
-        if (!consume()) return 'empty';
-        this.tearUses += 1;
-        this.lastCombatAt = this.now;
-        this.inCombat = true;
-        p.health = p.stats.maxHealth;
-        p.stamina = p.stats.maxStamina;
-        this.registerTimed(potionId);
-        return 'ok';
-      }
-      case 'brebaje_acido': {
-        if (!consume()) return 'empty';
-        this.throwAcid();
-        return 'ok';
-      }
-      default:
-        return 'unknown';
+  /** Run a recipe. ALL validation happens here (UI is untrusted). */
+  craft(recipeId: string, station: AlchemyStationId): BrewResult {
+    const r: AlchemyRecipe | undefined = ALCHEMY_RECIPES.find((x) => x.id === recipeId);
+    if (!r || r.station !== station) return 'materials';
+    for (const m of r.mats) {
+      if (this.state.countItem(m.id) < m.count) return 'materials';
     }
+    if (this.state.countItem('coin') < r.gold) return 'gold';
+    // consume
+    for (const m of r.mats) this.state.removeItem(m.id, m.count);
+    this.state.removeItem('coin', r.gold);
+    // grant
+    const item = ITEMS[r.out];
+    this.state.addItem(r.out, 1);
+    this.state.giveXp(20);
+    // the quest watchman: the first successful boil ever
+    if (!this.state.hasFlag('primera_pocion')) this.hooks.setFlag('primera_pocion');
+    this.hooks.sound('brew');
+    this.hooks.sparks(this.tablePos, 0.55);
+    this.hooks.notify('quest', `BREWED — ${item?.name ?? r.out}`,
+      'Steam, salt and something faintly alive. Drink it from the satchel (TAB) when the moment is right.');
+    return 'ok';
   }
 
-  private registerTimed(potionId: string): void {
-    const def = TIMED[potionId];
+  // ------------------------------------------------------------ effects
+
+  /** Open (or re-open) a timed window. Instant potions never come here. */
+  applyEffect(effectId: string): void {
+    const def = POTION_EFFECTS[effectId];
     if (!def) return;
-    // the same potion re-drunk restarts its clock (no stacking)
-    this.effects = this.effects.filter((e) => e.potionId !== potionId);
-    this.effects.push({ potionId, until: this.now + def.d });
-    const p = this.hooks.player();
-    if (p) p.model.flash?.();
-    this.hooks.sound('pickup');
-    this.hooks.notify('item', def.name, def.line);
+    this.effects.set(effectId, Math.max(this.effects.get(effectId) ?? 0, def.dur));
   }
 
-  /**
-   * THROW the Corrosive Acid Brew: the cloud blooms 9 m ahead along the
-   * player's facing; everything inside 5 m is shredded (damage taken ×1.3)
-   * and takes 20% of the player's attack as damage per second for 6 s.
-   */
-  private throwAcid(): void {
-    const p = this.hooks.player();
-    if (!p) return;
-    const pos = new THREE.Vector3(p.position.x + Math.sin(p.yaw) * 9, p.position.y + 0.5, p.position.z + Math.cos(p.yaw) * 9);
-    this.hooks.acidCloud(pos);
-    this.hooks.sound('forge');
-    const dps = Math.max(2, Math.round(this.hooks.playerAttackDamage() * 0.2));
-    for (const t of this.hooks.nearbyTargets(pos, 5)) {
-      if (!t.isAlive()) continue;
-      this.shredded.set(t.ref, this.now + 6);
-      this.dots.push({ target: t, dps, until: this.now + 6, nextTick: this.now + 0.5 });
-    }
-    this.hooks.notify(
-      'item',
-      'Corrosive Acid Brew',
-      'The flask does not survive the throw. Everything inside the cloud just lost a third of its armor.',
-    );
+  /** Clear running windows (antidote's consume-time half). */
+  cureExternals(): void {
+    this.effects.delete('antidoto');
+    // nothing else is clearable — the rest are potions, not ailments
   }
-
-  /** Player absorbed impact/fall/explosion damage under Inert Mass: reflect 10%. */
-  onImpactAbsorbed(absorbed: number, at: THREE.Vector3): void {
-    if (this.mods.reflectFraction <= 0) return;
-    const out = Math.max(1, Math.round(absorbed * this.mods.reflectFraction));
-    this.hooks.shockwave(at, Math.min(2.2, 0.8 + out * 0.02));
-    let hits = 0;
-    for (const t of this.hooks.nearbyTargets(at, 6)) {
-      if (!t.isAlive()) continue;
-      if (t.damage(out)) hits++;
-    }
-    if (hits > 0) {
-      this.hooks.notify('info', 'Inert Mass', 'The impact comes back out of you as a shockwave.');
-    }
-  }
-
-  /** Combat contact (player dealt or took damage). Bosses allow 2 Tears. */
-  noteCombat(isBossNearby: boolean): void {
-    this.inCombat = true;
-    this.lastCombatAt = this.now;
-    this.lastBossNearby = this.lastBossNearby || isBossNearby;
-  }
-
-  // ---------------------------------------------------------------- update
 
   update(dt: number): void {
-    this.now += dt;
-    // expirations (same-potion refresh handled at registration)
-    this.effects = this.effects.filter((e) => e.until > this.now);
-    // Oak-Skin regen (integer HP accrual)
-    this.regenAccum += dt * this.mods.regenHpPS;
-    if (this.regenAccum >= 1) {
-      const heal = Math.floor(this.regenAccum);
-      const p = this.hooks.player();
-      if (p && heal > 0) p.health = Math.min(p.stats.maxHealth, p.health + heal);
-      this.regenAccum -= heal;
-    }
-    // acid DoT ticks (0.5 s cadence)
-    for (const d of this.dots) {
-      if (this.now >= d.nextTick && d.until > this.now) {
-        d.nextTick = this.now + 0.5;
-        if (d.target.isAlive()) d.target.damage(d.dps);
+    if (this.effects.size === 0) return;
+    for (const [id, left] of [...this.effects]) {
+      const next = left - dt;
+      if (next > 0) {
+        this.effects.set(id, next);
+        continue;
       }
-    }
-    this.dots = this.dots.filter((d) => d.until > this.now && d.target.isAlive());
-    for (const [ref, until] of this.shredded) if (until <= this.now) this.shredded.delete(ref);
-    // out-of-combat reset for the Tear
-    if (this.inCombat && this.now - this.lastCombatAt > TEAR_COMBAT_RESET) {
-      this.inCombat = false;
-      this.tearUses = 0;
-      this.lastBossNearby = false;
+      this.effects.delete(id);
+      const def = POTION_EFFECTS[id];
+      if (def) {
+        this.hooks.notify('info', `${def.name} se desvanece`, fadeLine(id));
+      }
     }
   }
 
-  /** Verification helper. */
-  debugState(): { effects: number; dots: number; shredded: number; tearUses: number; inCombat: boolean } {
-    return {
-      effects: this.effects.length,
-      dots: this.dots.length,
-      shredded: this.shredded.size,
-      tearUses: this.tearUses,
-      inCombat: this.inCombat,
-    };
+  // ---- composed getters (Game wires these into the live systems) ----
+
+  damageOutMul(): number {
+    return this.compose('damageOutMul', 1, (a, b) => a * b);
+  }
+
+  damageTakenMul(): number {
+    return this.compose('damageTakenMul', 1, (a, b) => a * b);
+  }
+
+  speedMul(): number {
+    return this.compose('speedMul', 1, (a, b) => a * b);
+  }
+
+  staminaRegenMul(): number {
+    return this.compose('staminaRegenMul', 1, (a, b) => a * b);
+  }
+
+  hpPerSec(): number {
+    return this.compose('hpPerSec', 0, (a, b) => a + b);
+  }
+
+  /** Fall + blast damage multiplier (1 = untouched). */
+  fallAndBlastMul(): number {
+    return this.compose('fallAndBlastMul', 1, (a, b) => a * b);
+  }
+
+  /** The weapon edge's DoT while an oil lasts (burn checked first). */
+  weaponEnchant(): 'poison' | 'burn' | null {
+    if (this.effects.has('arma_fuego')) return 'burn';
+    if (this.effects.has('arma_veneno')) return 'poison';
+    return null;
+  }
+
+  /** Seconds of status refusal left (antidote). */
+  statusImmuneLeft(): number {
+    return this.effects.get('antidoto') ?? 0;
+  }
+
+  /** HUD strip view (ordered by time left). */
+  activeEffectsView(): ActiveEffectView[] {
+    const out: ActiveEffectView[] = [];
+    for (const [id, left] of this.effects) {
+      const def = POTION_EFFECTS[id];
+      if (!def || def.dur <= 0) continue;
+      out.push({ id, name: def.name, icon: def.icon, left: Math.max(0, left), total: def.dur });
+    }
+    out.sort((a, b) => a.left - b.left);
+    return out;
+  }
+
+  /** Save hook — running windows survive the reload. */
+  serializeEffects(): Array<{ id: string; left: number }> {
+    return [...this.effects].map(([id, left]) => ({ id, left: Math.round(left * 10) / 10 }));
+  }
+
+  /** Load hook — old/unknown ids are dropped, windows clamp to their def. */
+  deserializeEffects(list?: Array<{ id: string; left: number }> | null): void {
+    this.effects.clear();
+    if (!list) return;
+    for (const e of list) {
+      const def = POTION_EFFECTS[e.id];
+      if (!def) continue;
+      this.effects.set(e.id, Math.min(Math.max(0, e.left), def.dur));
+    }
+  }
+
+  /** Compose a numeric field across every running window. */
+  private compose<K extends keyof PotionEffectDef>(
+    field: K, identity: number, combine: (a: number, b: number) => number,
+  ): number {
+    let acc = identity;
+    for (const id of this.effects.keys()) {
+      const def = POTION_EFFECTS[id] as PotionEffectDef | undefined;
+      if (!def) continue;
+      const v = def[field] as number | undefined;
+      if (typeof v === 'number') acc = combine(acc, v);
+    }
+    return acc;
+  }
+}
+
+/** One flavour line per effect, for the expiry toast. */
+function fadeLine(id: string): string {
+  switch (id) {
+    case 'fuerza': return 'The arms remember being trees. Barely.';
+    case 'piel_piedra': return 'Your skin softens back to skin.';
+    case 'viento': return 'The wind that carried you goes on without you.';
+    case 'regeneracion': return 'The flesh stops knitting. Whatever is closed, stays closed.';
+    case 'arma_veneno': return 'The rot on your edge dries to a stain.';
+    case 'arma_fuego': return 'The embers on your edge cool to soot.';
+    case 'masa_inerte': return 'Your mass remembers it can be broken. Mind the long drops.';
+    case 'antidoto': return 'The swamp water finishes its work.';
+    default: return 'It passes.';
   }
 }

@@ -7,7 +7,13 @@ import { ASSET_BASE } from '@/game/core/Graphics';
 import {
   Compass, Heart, Wind, Anchor, Ship, Sword, Axe, Navigation, BowArrow,
   Scroll, Package, Trophy, Save, MapPin, Info, Lock, Shield, Gauge, Rabbit, Zap, Droplets, Crosshair, Video, Eye,
+  Dumbbell, Activity, FlaskConical, Flame, Mountain, Leaf,
 } from 'lucide-react';
+
+/** Fase 28 — icon lookup for the alchemist's windows strip. */
+const EFFECT_ICONS: Record<string, React.ComponentType<{ size?: number | string; className?: string }>> = {
+  Dumbbell, Shield, Wind, Activity, FlaskConical, Flame, Mountain, Leaf,
+};
 
 /** Fase 13 — contador de FPS opcional (ajustes → Mostrar FPS). */
 function FpsCounter() {
@@ -636,6 +642,8 @@ export default function HUD() {
   const finisherReady = useGameStore((s) => s.finisherReady);
   // Fase 22 — the eclipse countdown (0 = clear sky)
   const eclipseLeft = useGameStore((s) => s.eclipseLeft);
+  // Fase 28 — the alchemist's running windows
+  const activeEffects = useGameStore((s) => s.activeEffects);
 
   const hidden = overlay !== null || dialogue !== null;
 
@@ -900,6 +908,38 @@ export default function HUD() {
           <span className="kotfs-title animate-pulse text-[0.7rem] tracking-[0.3em] text-[color:#ffb45e] drop-shadow-[0_0_6px_rgba(255,120,40,0.8)]">
             ECLIPSE · {Math.ceil(eclipseLeft)}s
           </span>
+        </div>
+      )}
+      {/* --- Fase 28 — LA MESA DE ALQUIMIA: the running windows (top center,
+          under the eclipse when both are up) --- */}
+      {activeEffects.length > 0 && (
+        <div
+          className={`pointer-events-none absolute left-1/2 flex -translate-x-1/2 flex-wrap items-center justify-center gap-1.5 ${
+            eclipseLeft > 0 ? 'top-24' : 'top-16'
+          }`}
+        >
+          {activeEffects.map((e) => {
+            const EIcon = EFFECT_ICONS[e.icon] ?? FlaskConical;
+            const frac = Math.max(0, Math.min(1, e.left / e.total));
+            return (
+              <span
+                key={e.id}
+                className="flex items-center gap-1.5 border border-[color:rgba(201,162,39,0.45)] bg-black/55 px-2 py-0.5"
+              >
+                <EIcon size={12} className="text-[color:var(--kotfs-gold)]" />
+                <span className="text-[0.58rem] tracking-wide text-[color:var(--kotfs-parchment)]">{e.name}</span>
+                <span className="kotfs-title tabular-nums text-[0.58rem] text-[color:var(--kotfs-gold)]">
+                  {Math.ceil(e.left)}s
+                </span>
+                <span className="relative block h-[3px] w-9 bg-black/60">
+                  <span
+                    className="absolute inset-y-0 left-0 bg-[color:var(--kotfs-gold)]"
+                    style={{ width: `${Math.round(frac * 100)}%` }}
+                  />
+                </span>
+              </span>
+            );
+          })}
         </div>
       )}
       <div className="absolute bottom-5 right-5 text-right text-[0.6rem] leading-[1.7] tracking-wider text-[color:var(--kotfs-parchment-dim)] opacity-60">

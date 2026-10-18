@@ -44,6 +44,8 @@ export interface GameApi {
     level: number;
     coins: number;
     entries: Array<{ id: string; name: string; desc: string; icon: string; price: number; qty?: number; note?: string; owned: boolean; canAfford: boolean; rarity?: string; stats?: string }>;
+    /** Fase 28 — the sell tab (present when the vendor buys). */
+    buys?: Array<{ id: string; name: string; desc: string; icon: string; price: number; note?: string; have: number; rarity?: string }>;
   } | null;
   /** Buy one unit. Returns 'ok' | 'gold' | 'level'. */
   buyShopItem(vendor: string, itemId: string): 'ok' | 'gold' | 'level';
@@ -72,6 +74,27 @@ export interface GameApi {
   forgeCraft(station: 'anvil' | 'altar' | 'titans', recipeId: string): 'ok' | 'materials' | 'gold' | 'gate' | 'level';
   /** Present the Primal Sun Essence at the Altar of the Gods. */
   summonEclipse(): boolean;
+  // Fase 28 — LA MESA DE ALQUIMIA (the brewing api)
+  /** Live catalog for Maren's table (recipes + running windows). */
+  alchemyCatalog(): {
+    name: string;
+    title: string;
+    greeting: string;
+    level: number;
+    coins: number;
+    effects: Array<{ id: string; name: string; icon: string; left: number; total: number }>;
+    recipes: Array<{
+      id: string; out: string; outName: string; outIcon: string; outRarity: string; outDesc: string;
+      gold: number; note: string; canCraft: boolean;
+      status: 'ok' | 'materials' | 'gold';
+      mats: Array<{ id: string; name: string; icon: string; have: number; need: number }>;
+    }>;
+  } | null;
+  /** Run a brew (ALL validation on the game side). */
+  alchemyCraft(recipeId: string): 'ok' | 'materials' | 'gold';
+  // Fase 28 — EL VIAJERO: the sell side of the economy
+  /** Sell one unit of an item the vendor buys. Returns 'ok' | 'none'. */
+  sellShopItem(vendor: string, itemId: string): 'ok' | 'none';
   // Progression
   journal(): JournalEntry[];
   quests(): QuestView[];
@@ -157,10 +180,13 @@ export const gameApi: GameApi = {
   unequipWings: () => undefined,
   shopCatalog: () => null,
   buyShopItem: () => 'gold',
+  sellShopItem: () => 'none',
   negotiateChoice: () => undefined,
   forgeCatalog: () => null,
   forgeCraft: () => 'gate',
   summonEclipse: () => false,
+  alchemyCatalog: () => null,
+  alchemyCraft: () => 'materials',
   journal: () => [],
   quests: () => [],
   skills: () => [],
